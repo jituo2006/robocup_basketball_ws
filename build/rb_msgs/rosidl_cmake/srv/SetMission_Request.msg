@@ -1,3 +1,0 @@
-# 切换自主任务
-#   IDLE / PASS / SHOOT / CANCEL
-string mission

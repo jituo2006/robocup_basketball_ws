@@ -1,3 +1,0 @@
-[console_scripts]
-perception_node = rb_perception.perception_node:main
-

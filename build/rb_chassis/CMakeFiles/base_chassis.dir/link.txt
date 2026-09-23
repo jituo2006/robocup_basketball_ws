@@ -1,2 +1,0 @@
-/usr/bin/ar qc libbase_chassis.a CMakeFiles/base_chassis.dir/src/base_chassis.cpp.o
-/usr/bin/ranlib libbase_chassis.a

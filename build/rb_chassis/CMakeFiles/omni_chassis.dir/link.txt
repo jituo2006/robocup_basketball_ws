@@ -1,2 +1,0 @@
-/usr/bin/ar qc libomni_chassis.a CMakeFiles/omni_chassis.dir/src/omni_chassis.cpp.o
-/usr/bin/ranlib libomni_chassis.a

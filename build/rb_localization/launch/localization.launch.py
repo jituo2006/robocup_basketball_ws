@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/src/rb_localization/launch/localization.launch.py
