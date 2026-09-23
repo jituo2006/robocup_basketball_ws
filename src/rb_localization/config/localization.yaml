@@ -1,0 +1,87 @@
+# ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
+#    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
+#        parameters=[{"config_file": "<此文件路径>"}]
+#    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
+#
+# ─────────────────────────────────────────────────────────────────────
+# 定位方案：雷达（FAST-LIO）+ 视觉（定位柱）
+#
+# 为什么不用全场定位板：RoboCup 规则 §2.4 的场地器材清单里没有"全场定位系统"，
+#   用队里自架的外部定位有合规风险。雷达 + 规则提供的定位柱是完全车载、合规的方案。
+#
+# 场地：1/4 标准篮球场 长 14m × 宽 7.5m
+# 场地坐标系：原点建议放在某个出发区角点，x 沿 14m 方向，y 沿 7.5m 方向
+# ─────────────────────────────────────────────────────────────────────
+
+# ── 雷达里程计 → 场地坐标系 的标定（核心）──────────────────────────────
+#
+# FAST-LIO 发布的是它**自己初始化时刻**建立的坐标系(camera_init)下的位姿，
+# 与场地坐标系原点、朝向都不同，必须先做刚体变换。
+#
+# 你只需要告诉节点两件事：
+#   ① start_pose —— 开机时车被摆在场地里的哪个位置（人工摆正 + 卷尺量）
+#   ② sensor_to_base_* —— 雷达相对车体参考点的安装偏移
+# 旋转量由 "start_pose.yaw − 首帧yaw" 自动算出，**不需要手填 -90° 之类的轴偏**。
+odom_frame_conversion:
+  enabled: true
+  zero_on_first: true          # 用开机后第一帧里程计作为 odom 原点（推荐）
+
+  # 开机时车在场地里的位置（**必须人工摆正并实测**）
+  # 例：把车推到出发区 A 的中心，车头朝场地 +x 方向
+  start_pose:
+    x: 1.0
+    y: 1.0
+    yaw: 0.0
+
+  # 雷达安装偏移：base = sensor + R(sensor_yaw) · (sensor_to_base)
+  # 若 start_pose 指的就是雷达位置（不是车体中心），这三项保持 0 即可。
+  sensor_to_base_x: 0.0
+  sensor_to_base_y: 0.0
+  sensor_to_base_yaw_deg: 0.0
+
+sources:
+  # 雷达 FAST-LIO 的输出。既提供 twist（做预测）也提供 pose（做绝对观测）
+  odom_topic: "/Odometry"
+  use_odom_pose_as_abs: true
+
+  # 可选：另一路独立的绝对位姿。雷达方案下留空。
+  abs_pose_topic: ""
+
+  detections_topic: "/perception/detections"
+
+  # 相机光轴相对车体前进方向的偏置（rad）。相机装歪了就填这里。
+  camera_yaw_offset_rad: 0.0
+
+output:
+  pose_topic: "/localization/pose"
+  ok_topic: "/localization/ok"
+  publish_tf: true
+  field_frame: "field"
+  base_frame: "base_link"
+  ok_std_threshold_m: 0.60
+  publish_rate_hz: 20.0
+
+initial_pose:
+  x: 1.0
+  y: 1.0
+  yaw: 0.0
+
+ekf:
+  # 雷达里程计的噪声特性与轮式里程计不同：位置短期很准，长期会漂。
+  # 下面的值是保守起点，实测后再调（见 docs/03 §6）。
+  sigma_v: 0.06
+  sigma_w: 0.05
+  obs_std_xy: 0.10       # 雷达位姿观测噪声（比定位板小，因为它是车载自测）
+  obs_std_yaw: 0.06
+  bearing_std: 0.05      # 定位柱方位角观测噪声
+  bearing_min_dist: 0.5  # 太近的定位柱方位角不可靠
+  bearing_max_dist: 9.0
+
+# 定位柱的实际摆放位置（场地坐标，单位 m）。
+# 规则：定位柱放在"传球目标位/投篮目标位"，直径 20cm、高 1m、蓝绿相间。
+# ⚠️ 每轮抽签后位置可能变 —— **比赛当天必须按实际摆放填入**。
+landmarks: []
+# 例如：
+# landmarks:
+#   - {x: 10.5, y: 3.75}     # 传球目标位的定位柱
+#   - {x: 9.5,  y: 3.75}     # 投篮目标位的定位柱

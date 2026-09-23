@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_typesupport_fastrtps_cpp/rb_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h

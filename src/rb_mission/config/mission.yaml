@@ -1,0 +1,98 @@
+# ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
+#    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
+#        parameters=[{"config_file": "<此文件路径>"}]
+#    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
+# RoboCup 篮球机器人 · 任务与场地配置
+#
+# ⚠️⚠️ 场地几何量（篮筐位置、传球区、边界线半径）必须按**当届场地示意图**填写！
+#      规则文本只说"详见场地示意图"，没有给出坐标。这里给的是占位值，
+#      目的是让状态机能跑起来，不是可以直接上场用的数字。
+
+field:
+  length_m: 14.0        # §2.4-1  1/4 标准篮球场长
+  width_m: 7.5          # §2.4-1  宽
+
+  # 机器人出发区中心（A 区）。§2.4-3
+  home: {x: 1.0, y: 1.0}
+
+  # 迷你篮筐位置。§2.4-4 说"位于底线中间"，底线是 x=14 那条边
+  hoop: {x: 13.5, y: 3.75}
+
+  # 投篮边界线半径：机器人必须在**这个圆之外**投篮才拿满 10 分/次。TODO 按场地图实测
+  shoot_line_radius_m: 3.0
+
+  # 三分线半径：在此外投进 30 分，线内 10 分。TODO 按场地图实测
+  three_point_radius_m: 6.0
+
+  # 传球区多边形（机器人必须在此区域内传球才拿 10 分/次）。TODO 按场地图实测
+  pass_zone:
+    polygon:
+      - [8.0, 1.0]
+      - [13.0, 1.0]
+      - [13.0, 6.5]
+      - [8.0, 6.5]
+
+  # 状态机导航用的"动作点"（占位）
+  pass_zone_target: {x: 10.5, y: 3.75}
+  shoot_zone_target: {x: 9.5, y: 3.75}
+
+  # 认为"球已经到吸取距离"的门限
+  grab_distance_m: 0.45
+
+limits:
+  max_linear: 0.40          # m/s，比赛先保守
+  max_angular: 0.80         # rad/s
+  kp_linear: 1.5
+  kp_yaw: 2.0
+  position_tolerance: 0.10  # m
+  yaw_tolerance: 0.08       # rad (~4.6°)
+  close_lost_distance_m: 0.9  # 球曾近于此距离后消失 → 视为已贴上（球会移出视野）
+  seek_speed_ratio: 0.8       # 找球时的速度 = max_linear × 此比例（有距离估计时再按距离减速）
+
+timeouts:
+  start_delay_s: 8.0        # §2.3-7 规则要求 5~15s，且期间不得有任何动作
+  state_timeout_s: 25.0     # 对准/吸取这类"原地"阶段的超时
+  # 导航类阶段（找球/去动作区/回位）要跨越整个场地：
+  #   到动作区最远约 10m，0.4m/s 就要 25s —— 用 25s 超时必然误触发（实测踩到过）。
+  #   场地 14m 对角约 16m，0.4m/s ≈ 40s，留一倍余量到 90s。
+  nav_timeout_s: 90.0
+  mission_timeout_s: 300.0  # 一次任务总超时（规则每环节约 10 分钟）
+  acquire_seconds: 2.5      # 没有持球传感器时，按时间假定吸取完成
+  launch_hold_s: 1.5        # 一次动作持续多久
+
+rules:
+  actions_per_mission: 2    # §2.5 每环节累计 2 次动作
+  max_ball_count: 2         # §2.5 违规：单次持球超过两颗
+  require_zone_compliance: true   # 位置不合规就不动作（否则只拿低分）
+
+# 各环节的"目标球 / 干扰球 / 瞄准物"角色。
+# §2.5 明确两个环节的角色是**互换**的，这是最容易搞错的地方：
+#   传球环节：目标球 = 篮球，干扰球 = 排球
+#   投篮环节：目标球 = 排球，干扰球 = 篮球
+mission_labels:
+  PASS:
+    ball: ball_basketball
+    interference: ball_volleyball
+    aim: rack_ring          # 传球目标区 3 = 传球架顶部圆环，50 分
+  SHOOT:
+    ball: ball_volleyball
+    interference: ball_basketball
+    aim: hoop
+
+launcher:
+  speed: 2800               # 沿用上一届 shoot_data.csv 的常见转速
+  angle: 64
+  use_fast_shoot: false
+
+topics:
+  cmd_vel: "/cmd_vel"
+  pose: "/localization/pose"
+  loc_ok: "/localization/ok"
+  detections: "/perception/detections"
+  launcher_ok: "/rb_launcher/ok"
+  launch_service: "/rb_launcher/launch"
+  estop: "/mission/estop"
+  has_ball: "/mission/has_ball"
+
+control:
+  rate_hz: 20.0

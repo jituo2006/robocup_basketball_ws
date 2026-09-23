@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_py/rb_msgs/msg/_mission_status_s.c

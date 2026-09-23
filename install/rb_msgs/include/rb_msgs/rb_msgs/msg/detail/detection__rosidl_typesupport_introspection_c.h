@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_typesupport_introspection_c/rb_msgs/msg/detail/detection__rosidl_typesupport_introspection_c.h

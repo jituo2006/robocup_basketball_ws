@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_launcher/ament_cmake_core/rb_launcherConfig-version.cmake

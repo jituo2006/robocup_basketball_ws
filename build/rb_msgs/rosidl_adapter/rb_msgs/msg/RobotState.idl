@@ -1,0 +1,53 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from rb_msgs/msg/RobotState.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module rb_msgs {
+  module msg {
+    struct RobotState {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "任务阶段（与 rb_mission 的状态机一致）")
+      string phase;
+
+      @verbatim (language="comment", text=
+        "是否持球")
+      boolean has_ball;
+
+      @verbatim (language="comment", text=
+        "持球数量（规则：单次持球 >2 颗违规）")
+      uint8 ball_count;
+
+      @verbatim (language="comment", text=
+        "ball_basketball / ball_volleyball / none")
+      string ball_type;
+
+      @verbatim (language="comment", text=
+        "是否在传球区内（决定传球得分 10 分 / 5 分）")
+      boolean in_pass_zone;
+
+      @verbatim (language="comment", text=
+        "是否在投篮边界线外（决定投篮 10 分 / 5 分）")
+      boolean in_shoot_zone_outside;
+
+      @verbatim (language="comment", text=
+        "急停/自主拍停是否触发")
+      boolean estop;
+
+      @verbatim (language="comment", text=
+        "定位是否可用")
+      boolean localization_ok;
+
+      @verbatim (language="comment", text=
+        "发射机构串口是否正常")
+      boolean launcher_ok;
+
+      @verbatim (language="comment", text=
+        "视觉是否正常")
+      boolean perception_ok;
+    };
+  };
+};

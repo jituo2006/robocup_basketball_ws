@@ -1,0 +1,31 @@
+[INFO] [launch]: All log files can be found below /home/user/.ros/log/2026-09-19-17-11-22-136102-user-NUC12-329
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [331]
+[INFO] [python3-2]: process started with pid [333]
+[INFO] [localization_node-3]: process started with pid [335]
+[INFO] [mission_node-4]: process started with pid [337]
+[python3-1] [INFO] [1789809082.372896986] [fake_board]: 假底盘启动于 (1.00, 1.00, 0.00)
+[python3-2] [INFO] [1789809082.383803440] [fake_detections]: 假检测启动：目标球=ball_basketball
+[mission_node-4] [INFO] [1789809082.391993226] [rb_mission]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/config/mission.yaml
+[mission_node-4] [INFO] [1789809082.396533351] [rb_mission]: mission 就绪: 场地 14.0x7.5 m, 每次任务 2 次动作, 启动延迟 8.0s
+[mission_node-4] [INFO] [1789809082.396724552] [rb_mission]: 用 /rb_mission/set_mission 切换任务：PASS / SHOOT / IDLE
+[localization_node-3] [INFO] [1789809082.453145548] [rb_localization]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/config/localization.yaml
+[localization_node-3] [INFO] [1789809082.457634617] [rb_localization]: 定位就绪: odom=/odom abs=(未启用) det=/perception/detections 地标数=0
+[localization_node-3] [WARN] [1789809082.457846027] [rb_localization]: 未配置任何定位柱地标位置 → 视觉方位角更新不会生效。请在 config/localization.yaml 的 landmarks 里填入本轮定位柱的实际坐标。
+[localization_node-3] [WARN] [1789809082.458032834] [rb_localization]: 未启用绝对位姿输入 → 只能靠里程计 + 定位柱，会漂移，仅适合短距离任务。
+[mission_node-4] [INFO] [1789809092.206063289] [rb_mission]: [PASS] IDLE -> START_DELAY  PASS: 规则要求的 8.0s 启动延迟
+[mission_node-4] [INFO] [1789809100.246897564] [rb_mission]: [PASS] START_DELAY -> SEEK_BALL  延迟结束，开始找球
+[python3-2] [INFO] [1789809114.175225177] [fake_detections]: 模拟吸取：换到第 2 颗球 (2.5, 6.0)
+[mission_node-4] [WARN] [1789809125.296928568] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[python3-2] [INFO] [1789809128.175620883] [fake_detections]: 模拟吸取：球已全部取完
+[mission_node-4] [INFO] [1789809128.696843935] [rb_mission]: [PASS] SEEK_BALL -> ACQUIRE  球在近距离消失（应已贴上），进入吸取
+[mission_node-4] [WARN] [1789809131.247215918] [rb_mission]: 未收到 /mission/has_ball，按时间假定已持球（调通后应接真实传感器）
+[mission_node-4] [INFO] [1789809131.247633738] [rb_mission]: [PASS] ACQUIRE -> NAV_TO_ZONE  假定已持球，前往动作区
+[mission_node-4] [INFO] [1789809151.547154558] [rb_mission]: [PASS] NAV_TO_ZONE -> ALIGN  已到动作区，开始对准
+[mission_node-4] [INFO] [1789809151.597259443] [rb_mission]: [PASS] ALIGN -> LAUNCH  对准完成，执行动作
+[mission_node-4] [WARN] [1789809151.646955471] [rb_mission]: 发射服务未就绪，本次动作跳过（请检查 rb_launcher）
+[mission_node-4] [INFO] [1789809153.146822106] [rb_mission]: [PASS] LAUNCH -> SEEK_BALL  第 2 次：继续找球
+[mission_node-4] [WARN] [1789809178.197105341] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[mission_node-4] [WARN] [1789809203.247028336] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[mission_node-4] [WARN] [1789809228.298649600] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[mission_node-4] [WARN] [1789809253.347201541] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试

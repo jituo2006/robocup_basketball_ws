@@ -1,0 +1,11 @@
+{
+  "package_name": "rb_msgs",
+  "non_idl_tuples": [
+    "/home/user/robocup_basketball_ws/src/rb_msgs:msg/Detection.msg",
+    "/home/user/robocup_basketball_ws/src/rb_msgs:msg/DetectionArray.msg",
+    "/home/user/robocup_basketball_ws/src/rb_msgs:msg/RobotState.msg",
+    "/home/user/robocup_basketball_ws/src/rb_msgs:msg/MissionStatus.msg",
+    "/home/user/robocup_basketball_ws/src/rb_msgs:srv/Launch.srv",
+    "/home/user/robocup_basketball_ws/src/rb_msgs:srv/SetMission.srv"
+  ]
+}

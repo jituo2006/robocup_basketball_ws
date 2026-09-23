@@ -1,0 +1,2 @@
+/usr/bin/ar qc librb_can.a CMakeFiles/rb_can.dir/third_party/bupt_can.cpp.o
+/usr/bin/ranlib librb_can.a

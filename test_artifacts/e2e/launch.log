@@ -1,0 +1,29 @@
+[INFO] [launch]: All log files can be found below /home/user/.ros/log/2026-09-19-17-05-23-720738-user-NUC12-25
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [27]
+[INFO] [python3-2]: process started with pid [29]
+[INFO] [perception_node-3]: process started with pid [31]
+[INFO] [localization_node-4]: process started with pid [33]
+[INFO] [rb_chassis_node-5]: process started with pid [35]
+[INFO] [mission_node-6]: process started with pid [37]
+[rb_chassis_node-5] [WARN] [1789808723.771252589] [rcl.logging_rosout]: Publisher already registered for provided node name. If this is due to multiple nodes with the same name then all logs for that logger name will go out over the existing publisher. As soon as any node with that name is destructed it will unregister the publisher, preventing any further logs for that name from being published on the rosout topic.
+[rb_chassis_node-5] [INFO] [1789808723.775482394] [rb_chassis]: Chassis 已就绪: odom=/odom cmd_vel=/cmd_vel timeout=200ms
+[rb_chassis_node-5] [INFO] [1789808723.775592547] [rb_chassis]: 底盘参数: 限速=1.00 限加速=1.50 轮距=0.400x0.400 轮径=0.100 减速比=1.00
+[rb_chassis_node-5] [WARN] [1789808723.776137226] [rb_chassis]: dry_run 模式：跳过电机使能，只做运动学解算（无 CAN 输出）
+[rb_chassis_node-5] [WARN] [1789808723.776176714] [rb_chassis]: cmd_vel 超时 200ms，已下发零轮速
+[python3-1] [INFO] [1789808723.984162732] [fake_board]: 假底盘启动于 (1.00, 1.00, 0.00)
+[mission_node-6] [INFO] [1789808724.012943030] [rb_mission]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/config/mission.yaml
+[mission_node-6] [INFO] [1789808724.017869619] [rb_mission]: mission 就绪: 场地 14.0x7.5 m, 每次任务 2 次动作, 启动延迟 8.0s
+[mission_node-6] [INFO] [1789808724.018063188] [rb_mission]: 用 /rb_mission/set_mission 切换任务：PASS / SHOOT / IDLE
+[localization_node-4] [INFO] [1789808724.037215152] [rb_localization]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/config/localization.yaml
+[localization_node-4] [INFO] [1789808724.042616218] [rb_localization]: 定位就绪: odom=/odom abs=(未启用) det=/perception/detections 地标数=0
+[localization_node-4] [WARN] [1789808724.042918623] [rb_localization]: 未配置任何定位柱地标位置 → 视觉方位角更新不会生效。请在 config/localization.yaml 的 landmarks 里填入本轮定位柱的实际坐标。
+[localization_node-4] [WARN] [1789808724.043165730] [rb_localization]: 未启用绝对位姿输入 → 只能靠里程计 + 定位柱，会漂移，仅适合短距离任务。
+[python3-2] [INFO] [1789808724.118270696] [publish_test_image]: 以 5.0 Hz 发布 /home/user/robocup_basketball_ws/test_artifacts/rb_test.png 到 /camera/image_raw
+[perception_node-3] [INFO] [1789808724.213767229] [rb_perception]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_perception/share/rb_perception/config/perception.yaml
+[perception_node-3] [INFO] [1789808724.219324279] [rb_perception]: perception 就绪: /camera/image_raw -> /perception/detections, 检测器 5 个, config=/home/user/robocup_basketball_ws/install/rb_perception/share/rb_perception/config/perception.yaml
+[perception_node-3] [INFO] [1789808728.566785066] [rb_perception]: 检测结果 ball_basketball:1 ball_volleyball:1 hoop:1 pillar:1 rack_ring:1
+[mission_node-6] [INFO] [1789808754.603238549] [rb_mission]: [PASS] IDLE -> START_DELAY  PASS: 规则要求的 8.0s 启动延迟
+[rb_chassis_node-5] [WARN] [1789808754.806349408] [rb_chassis]: cmd_vel 超时 200ms，已下发零轮速
+[mission_node-6] [INFO] [1789808762.618056565] [rb_mission]: [PASS] START_DELAY -> SEEK_BALL  延迟结束，开始找球
+[mission_node-6] [WARN] [1789808787.668423771] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试

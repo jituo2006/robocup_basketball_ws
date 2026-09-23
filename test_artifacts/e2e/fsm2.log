@@ -1,0 +1,23 @@
+[INFO] [launch]: All log files can be found below /home/user/.ros/log/2026-09-19-17-08-51-890727-user-NUC12-329
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [python3-1]: process started with pid [331]
+[INFO] [python3-2]: process started with pid [333]
+[INFO] [localization_node-3]: process started with pid [335]
+[INFO] [mission_node-4]: process started with pid [337]
+[python3-2] [INFO] [1789808932.135911608] [fake_detections]: 假检测启动：目标球=ball_basketball
+[python3-1] [INFO] [1789808932.138038853] [fake_board]: 假底盘启动于 (1.00, 1.00, 0.00)
+[mission_node-4] [INFO] [1789808932.152383382] [rb_mission]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/config/mission.yaml
+[mission_node-4] [INFO] [1789808932.157592991] [rb_mission]: mission 就绪: 场地 14.0x7.5 m, 每次任务 2 次动作, 启动延迟 8.0s
+[mission_node-4] [INFO] [1789808932.157799322] [rb_mission]: 用 /rb_mission/set_mission 切换任务：PASS / SHOOT / IDLE
+[localization_node-3] [INFO] [1789808932.190925991] [rb_localization]: 已加载配置 /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/config/localization.yaml
+[localization_node-3] [INFO] [1789808932.195457830] [rb_localization]: 定位就绪: odom=/odom abs=(未启用) det=/perception/detections 地标数=0
+[localization_node-3] [WARN] [1789808932.195688505] [rb_localization]: 未配置任何定位柱地标位置 → 视觉方位角更新不会生效。请在 config/localization.yaml 的 landmarks 里填入本轮定位柱的实际坐标。
+[localization_node-3] [WARN] [1789808932.195853180] [rb_localization]: 未启用绝对位姿输入 → 只能靠里程计 + 定位柱，会漂移，仅适合短距离任务。
+[mission_node-4] [INFO] [1789808941.959743564] [rb_mission]: [PASS] IDLE -> START_DELAY  PASS: 规则要求的 8.0s 启动延迟
+[mission_node-4] [INFO] [1789808950.008144067] [rb_mission]: [PASS] START_DELAY -> SEEK_BALL  延迟结束，开始找球
+[python3-2] [INFO] [1789808965.227792994] [fake_detections]: 模拟吸取：换到第 2 颗球 (2.5, 6.0)
+[mission_node-4] [WARN] [1789808975.058086506] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[python3-2] [INFO] [1789808980.127561497] [fake_detections]: 模拟吸取：球已全部取完
+[mission_node-4] [WARN] [1789809000.108092779] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[mission_node-4] [WARN] [1789809025.158001391] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试
+[mission_node-4] [WARN] [1789809050.208047759] [rb_mission]: 阶段 SEEK_BALL 超时 25.0s，重试

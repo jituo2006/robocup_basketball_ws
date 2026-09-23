@@ -1,0 +1,2 @@
+/usr/bin/ar qc libserial_base_lib.a CMakeFiles/serial_base_lib.dir/src/serial_port.cpp.o
+/usr/bin/ranlib libserial_base_lib.a

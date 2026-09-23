@@ -1,0 +1,6 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:msg/Detection.idl
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:msg/DetectionArray.idl
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:msg/RobotState.idl
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:msg/MissionStatus.idl
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:srv/Launch.idl
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_adapter/rb_msgs:srv/SetMission.idl

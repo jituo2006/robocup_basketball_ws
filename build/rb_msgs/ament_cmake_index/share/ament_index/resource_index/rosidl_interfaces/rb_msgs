@@ -1,0 +1,16 @@
+msg/Detection.idl
+msg/Detection.msg
+msg/DetectionArray.idl
+msg/DetectionArray.msg
+msg/MissionStatus.idl
+msg/MissionStatus.msg
+msg/RobotState.idl
+msg/RobotState.msg
+srv/Launch.idl
+srv/Launch.srv
+srv/Launch_Request.msg
+srv/Launch_Response.msg
+srv/SetMission.idl
+srv/SetMission.srv
+srv/SetMission_Request.msg
+srv/SetMission_Response.msg

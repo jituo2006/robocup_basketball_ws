@@ -1,0 +1,21 @@
+# 弹射/运球/夹爪机构串口
+#
+# 协议移植自 ROBOCON 2025 的 ballrobot，**未改动帧格式**：
+#   `+` | cmd(1B) | speed(2B 小端) | angle(2B 小端) | crc32(4B, 覆盖前 6 字节) | `*`
+#   共 11 字节，115200 8N1
+rb_launcher:
+  ros__parameters:
+    # ⚠️ 上一届用的是 /dev/R1_usb2ttl，但本机没有对应的 udev 规则，
+    #    R1_server 会因打不开而抛异常崩溃。两条路：
+    #      (a) 补 udev 规则生成 /dev/R1_usb2ttl（推荐，保持与旧代码一致）
+    #      (b) 直接把这里改成实际设备名，如 /dev/ttyUSB0
+    port: "/dev/R1_usb2ttl"
+    baud: 115200
+
+    send_rate_hz: 50.0      # 命令重复发送频率（下位机靠重复帧取最新值）
+    default_speed: 2800     # 默认发射转速（来自上一届 shoot_data.csv 的常见值）
+    default_angle: 64       # 默认角度（来自上一届数据的常数列）
+
+    # 打开失败时是否自动重连
+    auto_reconnect: true
+    reconnect_period_s: 2.0

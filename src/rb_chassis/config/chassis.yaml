@@ -1,0 +1,43 @@
+# RoboCup 篮球机器人 · 底盘参数
+#
+# ⚠️⚠️ 这些数值是从 ROBOCON 2025 篮球工程抄过来的：
+#        setParameter(limit_vel=2.0, limit_acc=2.0, width=0.17, length=0.17,
+#                     wheel_radius=0.1, ratio=100)
+#      但 **ratio 在原实现里被设置后从未参与计算**，所以这里必须填 1.0
+#      才能与原行为一致。等实测确认电机侧是否还有一级减速再改。
+#
+#      width / length / wheel_radius 必须用**实车卷尺量出来的值**替换！
+#      width/length 是"轮子中心到轮子中心"的距离，不是车体外廓。
+#      量错会导致转速整体偏，转向偏得尤其厉害。
+rb_chassis:
+  ros__parameters:
+    can_interface: "can0"
+    odom_topic: "/odom"
+    cmd_vel_topic: "/cmd_vel"
+    board_id: 1
+
+    limit_vel: 1.0          # 速度上限 (m/s, rad/s)。比赛建议先设小值
+    limit_acc: 1.5          # 加速度上限。原实现此项无效，这里已生效
+
+    # 旋转方向符号。默认 +1（2026-09-19 实测纠正过：原来代码是 -1，自转方向反了）。
+    # 若换轮子/改电机接线后自转方向又反了，改成 -1 即可，不用改代码重编译。
+    angular_z_sign: 1.0
+
+    # ↓↓↓ 2026-09-19 按实车测量填入，但仍有两处待确认（见 docs/03 §1）↓↓↓
+    #
+    # ⚠️ width/length 是【轮子中心到轮子中心】的距离，**不是车体外廓尺寸**。
+    #    用户报的"宽度 65cm"很可能是车体宽，若如此，轮距要比它小（约 0.50）。
+    # ✅ 轮径已确认：直径 15cm → wheel_radius = 0.075 m
+    #    （仍建议用 straight 标定复核一遍，因为轮子磨损会有几个百分点偏差）
+    #
+    # 用 tools/measure_chassis.py 两步实测即可确定，别靠猜：
+    #     python3 tools/measure_chassis.py straight --speed 0.15 --seconds 6
+    #     python3 tools/measure_chassis.py rotate   --angular 0.5 --seconds 6
+    width: 0.44             # TODO 确认：这是轮距还是车体宽？
+    length: 0.44            # TODO 未提供轴距，暂用占位值，必须实测
+    wheel_radius: 0.075     # 实测：轮径 15cm → 半径 0.075 m
+    ratio: 1.0              # 必须为 1.0（见文件头说明）
+
+    cmd_vel_timeout_ms: 200 # 收不到 /cmd_vel 就发零速（安全网，不要调大）
+    control_period_ms: 10   # 100 Hz
+    dry_run: false          # true = 只解算不下发 CAN

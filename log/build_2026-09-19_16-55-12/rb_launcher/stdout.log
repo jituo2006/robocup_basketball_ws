@@ -1,0 +1,8 @@
+Consolidate compiler generated dependencies of target serial_base_lib
+[ 33%] Built target serial_base_lib
+Consolidate compiler generated dependencies of target serial_R1_lib
+[ 50%] Building CXX object CMakeFiles/serial_R1_lib.dir/src/serial_port_R1.cpp.o
+[ 66%] Linking CXX static library libserial_R1_lib.a
+[ 66%] Built target serial_R1_lib
+Consolidate compiler generated dependencies of target rb_launcher_node
+[ 83%] Building CXX object CMakeFiles/rb_launcher_node.dir/src/rb_launcher_node.cpp.o

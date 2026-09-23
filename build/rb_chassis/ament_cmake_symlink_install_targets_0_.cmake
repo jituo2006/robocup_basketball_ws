@@ -1,0 +1,1 @@
+ament_cmake_symlink_install_targets("TARGET_FILES" "/home/user/robocup_basketball_ws/build/rb_chassis/libbase_chassis.a" "/home/user/robocup_basketball_ws/build/rb_chassis/libomni_chassis.a" "TARGETS" "base_chassis" "omni_chassis" "ARCHIVE_DESTINATION" "lib" "LIBRARY_DESTINATION" "lib" "RUNTIME_DESTINATION" "bin")

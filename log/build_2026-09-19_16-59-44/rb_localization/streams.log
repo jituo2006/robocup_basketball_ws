@@ -1,0 +1,28 @@
+[0.653s] Invoking command in '/home/user/robocup_basketball_ws/build/rb_localization': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/build/rb_localization/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/user/robocup_basketball_ws/build/rb_localization/build --no-deps symlink_data
+[0.823s] running develop
+[0.957s] running egg_info
+[0.957s] creating rb_localization.egg-info
+[0.957s] writing rb_localization.egg-info/PKG-INFO
+[0.958s] writing dependency_links to rb_localization.egg-info/dependency_links.txt
+[0.958s] writing entry points to rb_localization.egg-info/entry_points.txt
+[0.958s] writing requirements to rb_localization.egg-info/requires.txt
+[0.958s] writing top-level names to rb_localization.egg-info/top_level.txt
+[0.958s] writing manifest file 'rb_localization.egg-info/SOURCES.txt'
+[0.959s] reading manifest file 'rb_localization.egg-info/SOURCES.txt'
+[0.959s] writing manifest file 'rb_localization.egg-info/SOURCES.txt'
+[0.960s] running build_ext
+[0.960s] Creating /home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages/rb-localization.egg-link (link to .)
+[0.961s] Installing localization_node script to /home/user/robocup_basketball_ws/install/rb_localization/lib/rb_localization
+[0.961s] 
+[0.961s] Installed /home/user/robocup_basketball_ws/build/rb_localization
+[0.961s] running symlink_data
+[0.962s] creating /home/user/robocup_basketball_ws/install/rb_localization/share/ament_index
+[0.962s] creating /home/user/robocup_basketball_ws/install/rb_localization/share/ament_index/resource_index
+[0.962s] creating /home/user/robocup_basketball_ws/install/rb_localization/share/ament_index/resource_index/packages
+[0.962s] symbolically linking /home/user/robocup_basketball_ws/build/rb_localization/resource/rb_localization -> /home/user/robocup_basketball_ws/install/rb_localization/share/ament_index/resource_index/packages
+[0.962s] symbolically linking /home/user/robocup_basketball_ws/build/rb_localization/package.xml -> /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization
+[0.962s] creating /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/launch
+[0.962s] symbolically linking /home/user/robocup_basketball_ws/build/rb_localization/launch/localization.launch.py -> /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/launch
+[0.962s] creating /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/config
+[0.962s] symbolically linking /home/user/robocup_basketball_ws/build/rb_localization/config/localization.yaml -> /home/user/robocup_basketball_ws/install/rb_localization/share/rb_localization/config
+[0.981s] Invoked command in '/home/user/robocup_basketball_ws/build/rb_localization' returned '0': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/build/rb_localization/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/user/robocup_basketball_ws/build/rb_localization/build --no-deps symlink_data

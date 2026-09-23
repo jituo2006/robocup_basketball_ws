@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/ament_cmake_export_libraries/ament_cmake_export_libraries-extras.cmake

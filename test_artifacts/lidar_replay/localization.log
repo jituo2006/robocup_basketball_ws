@@ -1,0 +1,6 @@
+[INFO] [1790077201.031669082] [rb_localization]: 已加载配置 /home/user/robocup_basketball_ws/src/rb_localization/config/localization.yaml
+[INFO] [1790077201.036988406] [rb_localization]: 定位就绪: odom=/Odometry abs=(未启用) det=/perception/detections 地标数=0
+[WARN] [1790077201.037219604] [rb_localization]: 未配置任何定位柱地标位置 → 视觉方位角更新不会生效。请在 config/localization.yaml 的 landmarks 里填入本轮定位柱的实际坐标。
+[INFO] [1790077201.037383643] [rb_localization]: 定位方案: 雷达里程计(/Odometry) + 视觉定位柱
+[INFO] [1790077201.037557488] [rb_localization]:   摆车位=(1.00, 1.00, 0.0°)  雷达安装偏移=(+0.000, +0.000, +0.0°)
+[INFO] [1790077201.109074416] [rb_localization]: odom→field 变换已确定: 首帧=(-0.011, 0.013, 0.1°), 旋转=-0.1°, 摆车位=(1.00, 1.00, 0.0°)

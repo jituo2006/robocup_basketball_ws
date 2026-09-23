@@ -1,0 +1,78 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from rb_msgs/msg/Detection.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+
+module rb_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "单个视觉检测目标（归一化图像坐标 + 方位角 + 粗略距离）")
+    struct Detection {
+      builtin_interfaces::msg::Time stamp;
+
+      @verbatim (language="comment", text=
+        "类别标签。约定取值：" "\n"
+        "  ball_basketball / ball_volleyball / ball_unknown   —— 球" "\n"
+        "  hoop          —— 迷你篮筐（含篮圈中心）" "\n"
+        "  pass_rack     —— 传球训练架（rack_ring 为其顶部圆环）" "\n"
+        "  rack_ring     —— 传球架顶部圆环（50 分目标）" "\n"
+        "  pillar        —— 定位柱（规则提供的视觉基准）" "\n"
+        "  obstacle      —— 干扰球")
+      string label;
+
+      @verbatim (language="comment", text=
+        "0..1")
+      float confidence;
+
+      @verbatim (language="comment", text=
+        "归一化 bbox（0..1，左上角为原点）")
+      float x_min;
+
+      float y_min;
+
+      float x_max;
+
+      float y_max;
+
+      @verbatim (language="comment", text=
+        "中心 x（归一化）")
+      float cx;
+
+      @verbatim (language="comment", text=
+        "中心 y（归一化）")
+      float cy;
+
+      @verbatim (language="comment", text=
+        "归一化宽")
+      float width;
+
+      @verbatim (language="comment", text=
+        "归一化高")
+      float height;
+
+      @verbatim (language="comment", text=
+        "像素坐标（便于直接画图/复算）")
+      float px;
+
+      float py;
+
+      float bbox_px_w;
+
+      float bbox_px_h;
+
+      @verbatim (language="comment", text=
+        "几何估计" "\n"
+        "水平方位角，相对相机光轴，左正右负（由标定决定）")
+      float bearing_rad;
+
+      @verbatim (language="comment", text=
+        "距离估计，未知填 NaN")
+      float distance_m;
+
+      @verbatim (language="comment", text=
+        "目标物理直径（用于单目测距，未知填 NaN）")
+      float diameter_m;
+    };
+  };
+};

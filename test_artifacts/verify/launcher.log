@@ -1,0 +1,3 @@
+[ERROR] [1790084367.772015298] [rb_launcher]: 打开机构串口失败: /dev/R1_usb2ttl (open: No such file or directory)。节点继续运行；请检查设备名与 udev 规则，或把参数 port 改成实际设备。
+[INFO] [1790084369.772443997] [rb_launcher]: 尝试重连机构串口 /dev/R1_usb2ttl ...
+[INFO] [1790084373.487035982] [rclcpp]: signal_handler(signum=2)

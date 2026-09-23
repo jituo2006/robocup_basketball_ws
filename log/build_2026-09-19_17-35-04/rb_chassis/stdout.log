@@ -1,0 +1,36 @@
+[ 33%] Built target base_chassis
+[ 66%] Built target omni_chassis
+Consolidate compiler generated dependencies of target rb_chassis_node
+[ 83%] Building CXX object CMakeFiles/rb_chassis_node.dir/src/rb_chassis_node.cpp.o
+[100%] Linking CXX executable rb_chassis_node
+[100%] Built target rb_chassis_node
+-- Install configuration: ""
+-- Execute custom install script
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libbase_chassis.a
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libomni_chassis.a
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/rb_chassis/rb_chassis_node
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/base_chassis.h
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/omni_chassis.h
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/utils/utils.h
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/launch/chassis.launch.py
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/config/chassis.yaml
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.sh
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.dsv
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/package_run_dependencies/rb_chassis
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/parent_prefix_path/rb_chassis
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.sh
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.dsv
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.sh
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.dsv
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.bash
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.sh
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.zsh
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.dsv
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/packages/rb_chassis
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_libraries-extras.cmake
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig.cmake
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig-version.cmake
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.xml

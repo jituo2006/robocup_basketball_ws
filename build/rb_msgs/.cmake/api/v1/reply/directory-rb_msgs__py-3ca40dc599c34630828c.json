@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "rb_msgs__py",
+		"source" : "/home/user/robocup_basketball_ws/build/rb_msgs/rb_msgs__py"
+	}
+}

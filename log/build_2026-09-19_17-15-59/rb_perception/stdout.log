@@ -1,0 +1,15 @@
+running develop
+running egg_info
+writing rb_perception.egg-info/PKG-INFO
+writing dependency_links to rb_perception.egg-info/dependency_links.txt
+writing entry points to rb_perception.egg-info/entry_points.txt
+writing requirements to rb_perception.egg-info/requires.txt
+writing top-level names to rb_perception.egg-info/top_level.txt
+reading manifest file 'rb_perception.egg-info/SOURCES.txt'
+writing manifest file 'rb_perception.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/user/robocup_basketball_ws/install/rb_perception/lib/python3.10/site-packages/rb-perception.egg-link (link to .)
+Installing perception_node script to /home/user/robocup_basketball_ws/install/rb_perception/lib/rb_perception
+
+Installed /home/user/robocup_basketball_ws/build/rb_perception
+running symlink_data

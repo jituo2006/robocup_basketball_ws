@@ -1,0 +1,9 @@
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/uninstall.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/rb_bringup_uninstall.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/test.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/edit_cache.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/rebuild_cache.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/list_install_components.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/install.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/install/local.dir
+/home/user/robocup_basketball_ws/build/rb_bringup/CMakeFiles/install/strip.dir

@@ -1,0 +1,331 @@
+-- The C compiler identification is GNU 11.4.0
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 1.3.11 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Found rosidl_default_generators: 1.2.0 (/opt/ros/humble/share/rosidl_default_generators/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Found rosidl_adapter: 3.1.6 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found std_msgs: 4.8.0 (/opt/ros/humble/share/std_msgs/cmake)
+-- Found geometry_msgs: 4.8.0 (/opt/ros/humble/share/geometry_msgs/cmake)
+-- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.6") 
+-- Found python_cmake_module: 0.10.0 (/opt/ros/humble/share/python_cmake_module/cmake)
+-- Found PythonLibs: /usr/lib/x86_64-linux-gnu/libpython3.10.so (found suitable version "3.10.12", minimum required is "3.5") 
+-- Using PYTHON_EXECUTABLE: /usr/bin/python3
+-- Using PYTHON_INCLUDE_DIRS: /usr/include/python3.10
+-- Using PYTHON_LIBRARIES: /usr/lib/x86_64-linux-gnu/libpython3.10.so
+-- Found PythonExtra: .so  
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/robocup_basketball_ws/build/rb_msgs
+[  1%] Generating C code for ROS interfaces
+[  2%] Generating C++ code for ROS interfaces
+[  2%] Built target ament_cmake_python_symlink_rb_msgs
+running egg_info
+creating rb_msgs.egg-info
+writing rb_msgs.egg-info/PKG-INFO
+writing dependency_links to rb_msgs.egg-info/dependency_links.txt
+writing top-level names to rb_msgs.egg-info/top_level.txt
+writing manifest file 'rb_msgs.egg-info/SOURCES.txt'
+reading manifest file 'rb_msgs.egg-info/SOURCES.txt'
+writing manifest file 'rb_msgs.egg-info/SOURCES.txt'
+[  2%] Built target ament_cmake_python_build_rb_msgs_egg
+[  7%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/srv/detail/set_mission__functions.c.o
+[  7%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/srv/detail/launch__functions.c.o
+[  7%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/msg/detail/mission_status__functions.c.o
+[  8%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/msg/detail/detection__functions.c.o
+[  9%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/msg/detail/detection_array__functions.c.o
+[ 11%] Building C object CMakeFiles/rb_msgs__rosidl_generator_c.dir/rosidl_generator_c/rb_msgs/msg/detail/robot_state__functions.c.o
+[ 11%] Built target rb_msgs__cpp
+[ 12%] Generating C++ type support dispatch for ROS interfaces
+[ 14%] Generating C++ type support for eProsima Fast-RTPS
+[ 15%] Generating C++ introspection for ROS interfaces
+[ 16%] Linking C shared library librb_msgs__rosidl_generator_c.so
+[ 16%] Built target rb_msgs__rosidl_generator_c
+[ 21%] Generating C type support dispatch for ROS interfaces
+[ 21%] Generating C type support for eProsima Fast-RTPS
+[ 21%] Generating C introspection for ROS interfaces
+[ 22%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/msg/detection_array__type_support.cpp.o
+[ 26%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/msg/robot_state__type_support.cpp.o
+[ 26%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/srv/launch__type_support.cpp.o
+[ 26%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/msg/detection__type_support.cpp.o
+[ 28%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/msg/mission_status__type_support.cpp.o
+[ 29%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rb_msgs/srv/set_mission__type_support.cpp.o
+[ 30%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/msg/detail/detection_array__type_support.cpp.o
+[ 36%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/msg/detail/mission_status__type_support.cpp.o
+[ 32%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/msg/detail/detection__type_support.cpp.o
+[ 36%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/srv/detail/launch__type_support.cpp.o
+[ 38%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/srv/detail/set_mission__type_support.cpp.o
+[ 36%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rb_msgs/msg/detail/robot_state__type_support.cpp.o
+[ 39%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/msg/detection__type_support.cpp.o
+[ 40%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/msg/detection_array__type_support.cpp.o
+[ 42%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/msg/robot_state__type_support.cpp.o
+[ 43%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/msg/mission_status__type_support.cpp.o
+[ 45%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/srv/launch__type_support.cpp.o
+[ 46%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rb_msgs/srv/set_mission__type_support.cpp.o
+[ 47%] Linking CXX shared library librb_msgs__rosidl_typesupport_c.so
+[ 49%] Linking CXX shared library librb_msgs__rosidl_typesupport_cpp.so
+[ 49%] Built target rb_msgs__rosidl_typesupport_c
+[ 49%] Built target rb_msgs__rosidl_typesupport_cpp
+[ 54%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/msg/detail/dds_fastrtps/robot_state__type_support.cpp.o
+[ 54%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/msg/detail/dds_fastrtps/mission_status__type_support.cpp.o
+[ 54%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/msg/detail/dds_fastrtps/detection_array__type_support.cpp.o
+[ 54%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/msg/detail/dds_fastrtps/detection__type_support.cpp.o
+[ 56%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/srv/detail/dds_fastrtps/launch__type_support.cpp.o
+[ 57%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rb_msgs/srv/detail/dds_fastrtps/set_mission__type_support.cpp.o
+[ 61%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/srv/detail/launch__type_support.c.o
+[ 61%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/msg/detail/robot_state__type_support.c.o
+[ 61%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/msg/detail/mission_status__type_support.c.o
+[ 63%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/msg/detail/detection_array__type_support.c.o
+[ 64%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/msg/detail/detection__type_support.c.o
+[ 66%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rb_msgs/srv/detail/set_mission__type_support.c.o
+[ 67%] Linking C shared library librb_msgs__rosidl_typesupport_introspection_c.so
+[ 67%] Built target rb_msgs__rosidl_typesupport_introspection_c
+[ 69%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/msg/detail/detection__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/msg/detail/mission_status__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/msg/detail/detection_array__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/srv/detail/set_mission__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/srv/detail/launch__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rb_msgs/msg/detail/robot_state__type_support_c.cpp.o
+[ 77%] Linking CXX shared library librb_msgs__rosidl_typesupport_introspection_cpp.so
+[ 77%] Built target rb_msgs__rosidl_typesupport_introspection_cpp
+[ 78%] Linking CXX shared library librb_msgs__rosidl_typesupport_fastrtps_cpp.so
+[ 78%] Built target rb_msgs__rosidl_typesupport_fastrtps_cpp
+[ 80%] Linking CXX shared library librb_msgs__rosidl_typesupport_fastrtps_c.so
+[ 80%] Built target rb_msgs__rosidl_typesupport_fastrtps_c
+[ 80%] Built target rb_msgs
+[ 81%] Generating Python code for ROS interfaces
+[ 81%] Built target rb_msgs__py
+[ 83%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/msg/_detection_s.c.o
+[ 84%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/srv/_set_mission_s.c.o
+[ 85%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/msg/_detection_array_s.c.o
+[ 88%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/msg/_mission_status_s.c.o
+[ 88%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/msg/_robot_state_s.c.o
+[ 90%] Building C object CMakeFiles/rb_msgs__rosidl_generator_py.dir/rosidl_generator_py/rb_msgs/srv/_launch_s.c.o
+[ 91%] Linking C shared library rosidl_generator_py/rb_msgs/librb_msgs__rosidl_generator_py.so
+[ 91%] Built target rb_msgs__rosidl_generator_py
+[ 92%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_c__pyext.dir/rosidl_generator_py/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_c.c.o
+[ 94%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_introspection_c__pyext.dir/rosidl_generator_py/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_introspection_c.c.o
+[ 95%] Building C object CMakeFiles/rb_msgs__rosidl_typesupport_fastrtps_c__pyext.dir/rosidl_generator_py/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_fastrtps_c.c.o
+[ 97%] Linking C shared library rosidl_generator_py/rb_msgs/rb_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[ 98%] Linking C shared library rosidl_generator_py/rb_msgs/rb_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[100%] Linking C shared library rosidl_generator_py/rb_msgs/rb_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[100%] Built target rb_msgs__rosidl_typesupport_fastrtps_c__pyext
+[100%] Built target rb_msgs__rosidl_typesupport_c__pyext
+[100%] Built target rb_msgs__rosidl_typesupport_introspection_c__pyext
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/rosidl_interfaces/rb_msgs
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection_array.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/mission_status.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/robot_state.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_generator_c__visibility_control.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__functions.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__struct.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__type_support.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/launch.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/set_mission.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/library_path.sh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/library_path.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection_array.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/mission_status.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/robot_state.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_generator_cpp__visibility_control.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__builder.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__struct.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__traits.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__type_support.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/launch.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/set_mission.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/pythonpath.sh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/pythonpath.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/PKG-INFO
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/SOURCES.txt
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/dependency_links.txt
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/top_level.txt
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/__init__.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_c.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_fastrtps_c.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_introspection_c.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/librb_msgs__rosidl_generator_py.so
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/__init__.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_array.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_array_s.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_s.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_mission_status.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_mission_status_s.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_robot_state.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_robot_state_s.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/__init__.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_launch.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_launch_s.c
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_set_mission.py
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_set_mission_s.c
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/Detection.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/DetectionArray.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/RobotState.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/MissionStatus.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission.idl
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/Detection.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/DetectionArray.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/RobotState.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/MissionStatus.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch.srv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch_Request.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch_Response.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission.srv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission_Request.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission_Response.msg
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/package_run_dependencies/rb_msgs
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/parent_prefix_path/rb_msgs
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/ament_prefix_path.sh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/ament_prefix_path.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/path.sh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/path.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.bash
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.sh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.zsh
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/package.dsv
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/packages/rb_msgs
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_libraries-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_targets-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgsConfig.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgsConfig-version.cmake
+-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/package.xml
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_c.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_c.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_c.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_c.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_c.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_c.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_c.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_c.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_cpp.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_cpp.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_cpp.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_cpp.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_cpp.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_cpp.so" to ""
+Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/__init__.py'...
+Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/__init__.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_array.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_mission_status.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_robot_state.py'...
+Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/__init__.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_launch.py'...
+Compiling '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_set_mission.py'...
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_py.so
+-- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_py.so" to ""
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cppExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cppExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cppExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cppExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cppExport-noconfig.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_pyExport.cmake
+-- Installing: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_pyExport-noconfig.cmake

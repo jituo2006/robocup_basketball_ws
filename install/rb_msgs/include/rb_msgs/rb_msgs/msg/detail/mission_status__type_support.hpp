@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_cpp/rb_msgs/msg/detail/mission_status__type_support.hpp

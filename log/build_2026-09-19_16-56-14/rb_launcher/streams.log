@@ -1,0 +1,39 @@
+[0.008s] Invoking command in '/home/user/robocup_basketball_ws/build/rb_launcher': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --build /home/user/robocup_basketball_ws/build/rb_launcher -- -j16 -l16
+[0.055s] [ 33%] Built target serial_base_lib
+[0.078s] [ 66%] Built target serial_R1_lib
+[0.092s] Consolidate compiler generated dependencies of target rb_launcher_node
+[0.104s] [ 83%] Building CXX object CMakeFiles/rb_launcher_node.dir/src/rb_launcher_node.cpp.o
+[3.838s] [100%] Linking CXX executable rb_launcher_node
+[4.008s] [100%] Built target rb_launcher_node
+[4.022s] Invoked command in '/home/user/robocup_basketball_ws/build/rb_launcher' returned '0': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --build /home/user/robocup_basketball_ws/build/rb_launcher -- -j16 -l16
+[4.030s] Invoking command in '/home/user/robocup_basketball_ws/build/rb_launcher': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --install /home/user/robocup_basketball_ws/build/rb_launcher
+[4.037s] -- Install configuration: ""
+[4.038s] -- Installing: /home/user/robocup_basketball_ws/install/rb_launcher/lib/rb_launcher/rb_launcher_node
+[4.040s] -- Set runtime path of "/home/user/robocup_basketball_ws/install/rb_launcher/lib/rb_launcher/rb_launcher_node" to ""
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include/serial_port
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include/serial_port/serial_port_R1.hpp
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include/serial_port/serial_port.hpp
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include/utils
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/include/utils/message.hpp
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/launch
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/launch/launcher.launch.py
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/config
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/config/launcher.yaml
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/package_run_dependencies/rb_launcher
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/parent_prefix_path/rb_launcher
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/ament_prefix_path.sh
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/ament_prefix_path.dsv
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/path.sh
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/path.dsv
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.bash
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.sh
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.zsh
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.dsv
+[4.040s] -- Installing: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/package.dsv
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/packages/rb_launcher
+[4.040s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/ament_cmake_export_include_directories-extras.cmake
+[4.041s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/rb_launcherConfig.cmake
+[4.041s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/rb_launcherConfig-version.cmake
+[4.041s] -- Up-to-date: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/package.xml
+[4.042s] Invoked command in '/home/user/robocup_basketball_ws/build/rb_launcher' returned '0': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/cmake --install /home/user/robocup_basketball_ws/build/rb_launcher

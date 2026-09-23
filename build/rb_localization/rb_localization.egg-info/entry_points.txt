@@ -1,0 +1,3 @@
+[console_scripts]
+localization_node = rb_localization.localization_node:main
+

@@ -1,0 +1,402 @@
+[0.000000] (-) TimerEvent: {}
+[0.000293] (rb_chassis) JobQueued: {'identifier': 'rb_chassis', 'dependencies': OrderedDict()}
+[0.000420] (rb_msgs) JobQueued: {'identifier': 'rb_msgs', 'dependencies': OrderedDict()}
+[0.000491] (rb_launcher) JobQueued: {'identifier': 'rb_launcher', 'dependencies': OrderedDict([('rb_msgs', '/home/user/robocup_basketball_ws/install/rb_msgs')])}
+[0.000513] (rb_localization) JobQueued: {'identifier': 'rb_localization', 'dependencies': OrderedDict([('rb_msgs', '/home/user/robocup_basketball_ws/install/rb_msgs')])}
+[0.000532] (rb_mission) JobQueued: {'identifier': 'rb_mission', 'dependencies': OrderedDict([('rb_msgs', '/home/user/robocup_basketball_ws/install/rb_msgs')])}
+[0.000549] (rb_perception) JobQueued: {'identifier': 'rb_perception', 'dependencies': OrderedDict([('rb_msgs', '/home/user/robocup_basketball_ws/install/rb_msgs')])}
+[0.000565] (rb_bringup) JobQueued: {'identifier': 'rb_bringup', 'dependencies': OrderedDict([('rb_chassis', '/home/user/robocup_basketball_ws/install/rb_chassis'), ('rb_msgs', '/home/user/robocup_basketball_ws/install/rb_msgs'), ('rb_launcher', '/home/user/robocup_basketball_ws/install/rb_launcher'), ('rb_localization', '/home/user/robocup_basketball_ws/install/rb_localization'), ('rb_mission', '/home/user/robocup_basketball_ws/install/rb_mission'), ('rb_perception', '/home/user/robocup_basketball_ws/install/rb_perception')])}
+[0.000598] (rb_msgs) JobStarted: {'identifier': 'rb_msgs'}
+[0.003145] (rb_chassis) JobStarted: {'identifier': 'rb_chassis'}
+[0.005010] (rb_msgs) JobProgress: {'identifier': 'rb_msgs', 'progress': 'cmake'}
+[0.005290] (rb_msgs) JobProgress: {'identifier': 'rb_msgs', 'progress': 'build'}
+[0.005653] (rb_msgs) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/user/robocup_basketball_ws/build/rb_msgs', '--', '-j16', '-l16'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_msgs', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_msgs'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.007012] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'cmake'}
+[0.007134] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'build'}
+[0.007278] (rb_chassis) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/user/robocup_basketball_ws/build/rb_chassis', '--', '-j16', '-l16'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_chassis', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_chassis'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.045805] (rb_msgs) StdoutLine: {'line': b'[  1%] Built target rb_msgs__cpp\n'}
+[0.047079] (rb_msgs) StdoutLine: {'line': b'[ 12%] Built target rb_msgs__rosidl_generator_c\n'}
+[0.049225] (rb_chassis) StdoutLine: {'line': b'[ 33%] Built target base_chassis\n'}
+[0.055520] (rb_msgs) StdoutLine: {'line': b'[ 12%] Built target ament_cmake_python_symlink_rb_msgs\n'}
+[0.062594] (rb_msgs) StdoutLine: {'line': b'[ 23%] Built target rb_msgs__rosidl_typesupport_cpp\n'}
+[0.062954] (rb_msgs) StdoutLine: {'line': b'[ 35%] Built target rb_msgs__rosidl_typesupport_fastrtps_cpp\n'}
+[0.067558] (rb_msgs) StdoutLine: {'line': b'[ 46%] Built target rb_msgs__rosidl_typesupport_introspection_c\n'}
+[0.068106] (rb_msgs) StdoutLine: {'line': b'[ 66%] Built target rb_msgs__rosidl_typesupport_introspection_cpp\n'}
+[0.068301] (rb_msgs) StdoutLine: {'line': b'[ 69%] Built target rb_msgs__rosidl_typesupport_fastrtps_c\n'}
+[0.068890] (rb_chassis) StdoutLine: {'line': b'[ 66%] Built target omni_chassis\n'}
+[0.069427] (rb_msgs) StdoutLine: {'line': b'[ 80%] Built target rb_msgs__rosidl_typesupport_c\n'}
+[0.086963] (rb_msgs) StdoutLine: {'line': b'[ 80%] Built target rb_msgs\n'}
+[0.088263] (rb_chassis) StdoutLine: {'line': b'[100%] Built target rb_chassis_node\n'}
+[0.097002] (rb_chassis) CommandEnded: {'returncode': 0}
+[0.097540] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'install'}
+[0.099883] (-) TimerEvent: {}
+[0.104496] (rb_chassis) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/user/robocup_basketball_ws/build/rb_chassis'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_chassis', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_chassis'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.105275] (rb_msgs) StdoutLine: {'line': b'[ 81%] Built target rb_msgs__py\n'}
+[0.111386] (rb_chassis) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[0.111862] (rb_chassis) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[0.112096] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libbase_chassis.a\n'}
+[0.112222] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libomni_chassis.a\n'}
+[0.112560] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/rb_chassis/rb_chassis_node\n'}
+[0.112772] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/base_chassis.h\n'}
+[0.112863] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/omni_chassis.h\n'}
+[0.112930] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/utils/utils.h\n'}
+[0.113099] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/launch/chassis.launch.py\n'}
+[0.113383] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/config/chassis.yaml\n'}
+[0.113564] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.sh\n'}
+[0.113629] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.dsv\n'}
+[0.113691] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/package_run_dependencies/rb_chassis\n'}
+[0.113765] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/parent_prefix_path/rb_chassis\n'}
+[0.113826] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.sh\n'}
+[0.113886] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.dsv\n'}
+[0.113946] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.sh\n'}
+[0.114006] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.dsv\n'}
+[0.114075] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.bash\n'}
+[0.114254] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.sh\n'}
+[0.114330] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.zsh\n'}
+[0.114401] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.dsv\n'}
+[0.114458] (rb_chassis) StdoutLine: {'line': b'-- Symlinking: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.dsv\n'}
+[0.119435] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/packages/rb_chassis\n'}
+[0.119555] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[0.119615] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[0.119757] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[0.119811] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig.cmake\n'}
+[0.119873] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig-version.cmake\n'}
+[0.119924] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.xml\n'}
+[0.120627] (rb_chassis) CommandEnded: {'returncode': 0}
+[0.137445] (rb_chassis) JobEnded: {'identifier': 'rb_chassis', 'rc': 0}
+[0.137758] (rb_msgs) StdoutLine: {'line': b'[ 91%] Built target rb_msgs__rosidl_generator_py\n'}
+[0.141531] (rb_msgs) StdoutLine: {'line': b'[ 94%] Built target rb_msgs__rosidl_typesupport_introspection_c__pyext\n'}
+[0.141658] (rb_msgs) StdoutLine: {'line': b'[ 97%] Built target rb_msgs__rosidl_typesupport_fastrtps_c__pyext\n'}
+[0.141803] (rb_msgs) StdoutLine: {'line': b'[100%] Built target rb_msgs__rosidl_typesupport_c__pyext\n'}
+[0.200103] (-) TimerEvent: {}
+[0.203139] (rb_msgs) StdoutLine: {'line': b'running egg_info\n'}
+[0.203391] (rb_msgs) StdoutLine: {'line': b'writing rb_msgs.egg-info/PKG-INFO\n'}
+[0.203689] (rb_msgs) StdoutLine: {'line': b'writing dependency_links to rb_msgs.egg-info/dependency_links.txt\n'}
+[0.203801] (rb_msgs) StdoutLine: {'line': b'writing top-level names to rb_msgs.egg-info/top_level.txt\n'}
+[0.204899] (rb_msgs) StdoutLine: {'line': b"reading manifest file 'rb_msgs.egg-info/SOURCES.txt'\n"}
+[0.205132] (rb_msgs) StdoutLine: {'line': b"writing manifest file 'rb_msgs.egg-info/SOURCES.txt'\n"}
+[0.220471] (rb_msgs) StdoutLine: {'line': b'[100%] Built target ament_cmake_python_build_rb_msgs_egg\n'}
+[0.229080] (rb_msgs) CommandEnded: {'returncode': 0}
+[0.229427] (rb_msgs) JobProgress: {'identifier': 'rb_msgs', 'progress': 'install'}
+[0.229604] (rb_msgs) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/user/robocup_basketball_ws/build/rb_msgs'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_msgs', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_msgs'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.235895] (rb_msgs) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[0.236141] (rb_msgs) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[0.236241] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/rosidl_interfaces/rb_msgs\n'}
+[0.236600] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__functions.h\n'}
+[0.236734] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__struct.h\n'}
+[0.236835] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__type_support.h\n'}
+[0.236892] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__functions.h\n'}
+[0.236948] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__struct.h\n'}
+[0.237045] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__type_support.h\n'}
+[0.237101] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__functions.h\n'}
+[0.237176] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__struct.h\n'}
+[0.237236] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__type_support.h\n'}
+[0.237294] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__functions.h\n'}
+[0.237425] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__struct.h\n'}
+[0.237507] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__type_support.h\n'}
+[0.237562] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection.h\n'}
+[0.237646] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection_array.h\n'}
+[0.237698] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/mission_status.h\n'}
+[0.237762] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/robot_state.h\n'}
+[0.237812] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_generator_c__visibility_control.h\n'}
+[0.237866] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__functions.h\n'}
+[0.237920] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__struct.h\n'}
+[0.238012] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__type_support.h\n'}
+[0.238116] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__functions.h\n'}
+[0.238169] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__struct.h\n'}
+[0.238236] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__type_support.h\n'}
+[0.238294] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/launch.h\n'}
+[0.238380] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/set_mission.h\n'}
+[0.238485] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/library_path.sh\n'}
+[0.238570] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/library_path.dsv\n'}
+[0.238622] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_fastrtps_c.h\n'}
+[0.238672] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_fastrtps_c.h\n'}
+[0.238723] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_fastrtps_c.h\n'}
+[0.238818] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_fastrtps_c.h\n'}
+[0.238904] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_fastrtps_c__visibility_control.h\n'}
+[0.239001] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_fastrtps_c.h\n'}
+[0.239075] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_fastrtps_c.h\n'}
+[0.239184] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_introspection_c.h\n'}
+[0.239313] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_introspection_c.h\n'}
+[0.239436] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_introspection_c.h\n'}
+[0.239550] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_introspection_c.h\n'}
+[0.239656] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h\n'}
+[0.239762] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_introspection_c.h\n'}
+[0.239879] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_introspection_c.h\n'}
+[0.239957] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__builder.hpp\n'}
+[0.240011] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__struct.hpp\n'}
+[0.240063] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__traits.hpp\n'}
+[0.240114] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__type_support.hpp\n'}
+[0.240208] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__builder.hpp\n'}
+[0.240300] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__struct.hpp\n'}
+[0.240428] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__traits.hpp\n'}
+[0.240482] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__type_support.hpp\n'}
+[0.240533] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__builder.hpp\n'}
+[0.240587] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__struct.hpp\n'}
+[0.240699] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__traits.hpp\n'}
+[0.240796] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__type_support.hpp\n'}
+[0.240888] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__builder.hpp\n'}
+[0.240940] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__struct.hpp\n'}
+[0.240990] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__traits.hpp\n'}
+[0.241046] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__type_support.hpp\n'}
+[0.241133] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection.hpp\n'}
+[0.241231] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detection_array.hpp\n'}
+[0.241291] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/mission_status.hpp\n'}
+[0.241350] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/robot_state.hpp\n'}
+[0.241402] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_generator_cpp__visibility_control.hpp\n'}
+[0.241454] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__builder.hpp\n'}
+[0.241550] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__struct.hpp\n'}
+[0.241605] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__traits.hpp\n'}
+[0.241722] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__type_support.hpp\n'}
+[0.241848] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__builder.hpp\n'}
+[0.241943] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__struct.hpp\n'}
+[0.242036] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__traits.hpp\n'}
+[0.242135] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__type_support.hpp\n'}
+[0.242289] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/launch.hpp\n'}
+[0.242405] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/set_mission.hpp\n'}
+[0.242512] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242536] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242558] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242581] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242605] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h\n'}
+[0.242627] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242650] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.242673] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242696] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/detection_array__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242851] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/mission_status__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242875] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/msg/detail/robot_state__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242897] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/launch__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242919] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/include/rb_msgs/rb_msgs/srv/detail/set_mission__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.242941] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/pythonpath.sh\n'}
+[0.242963] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/pythonpath.dsv\n'}
+[0.242985] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/PKG-INFO\n'}
+[0.243062] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/SOURCES.txt\n'}
+[0.243085] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/dependency_links.txt\n'}
+[0.243107] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs-0.1.0-py3.10.egg-info/top_level.txt\n'}
+[0.243130] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/__init__.py\n'}
+[0.243152] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_c.c\n'}
+[0.243174] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_fastrtps_c.c\n'}
+[0.243195] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_introspection_c.c\n'}
+[0.243220] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/librb_msgs__rosidl_generator_py.so\n'}
+[0.243243] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/__init__.py\n'}
+[0.243270] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection.py\n'}
+[0.243296] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_array.py\n'}
+[0.243321] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_array_s.c\n'}
+[0.243351] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_detection_s.c\n'}
+[0.243377] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_mission_status.py\n'}
+[0.243399] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_mission_status_s.c\n'}
+[0.243421] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_robot_state.py\n'}
+[0.243443] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg/_robot_state_s.c\n'}
+[0.243465] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243488] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243520] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243543] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/__init__.py\n'}
+[0.243566] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_launch.py\n'}
+[0.243588] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_launch_s.c\n'}
+[0.243609] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_set_mission.py\n'}
+[0.243631] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv/_set_mission_s.c\n'}
+[0.243653] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243675] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243697] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/rb_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.243861] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/Detection.idl\n'}
+[0.244037] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/DetectionArray.idl\n'}
+[0.244059] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/RobotState.idl\n'}
+[0.244080] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/MissionStatus.idl\n'}
+[0.244100] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch.idl\n'}
+[0.244120] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission.idl\n'}
+[0.244140] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/Detection.msg\n'}
+[0.244160] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/DetectionArray.msg\n'}
+[0.244181] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/RobotState.msg\n'}
+[0.244200] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/msg/MissionStatus.msg\n'}
+[0.244222] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch.srv\n'}
+[0.244243] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch_Request.msg\n'}
+[0.244265] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/Launch_Response.msg\n'}
+[0.244288] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission.srv\n'}
+[0.244309] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission_Request.msg\n'}
+[0.244332] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/srv/SetMission_Response.msg\n'}
+[0.244353] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/package_run_dependencies/rb_msgs\n'}
+[0.244374] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/parent_prefix_path/rb_msgs\n'}
+[0.244393] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/ament_prefix_path.sh\n'}
+[0.244413] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/ament_prefix_path.dsv\n'}
+[0.244432] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/path.sh\n'}
+[0.244451] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/environment/path.dsv\n'}
+[0.244471] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.bash\n'}
+[0.244491] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.sh\n'}
+[0.244510] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.zsh\n'}
+[0.244529] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/local_setup.dsv\n'}
+[0.244548] (rb_msgs) StdoutLine: {'line': b'-- Symlinking: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/package.dsv\n'}
+[0.251169] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/ament_index/resource_index/packages/rb_msgs\n'}
+[0.251631] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake-extras.cmake\n'}
+[0.251749] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[0.251815] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[0.251877] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[0.251937] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/ament_cmake_export_targets-extras.cmake\n'}
+[0.251997] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake\n'}
+[0.252069] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake\n'}
+[0.252128] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgsConfig.cmake\n'}
+[0.252186] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgsConfig-version.cmake\n'}
+[0.252251] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/package.xml\n'}
+[0.252395] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_c.so\n'}
+[0.252449] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_c.so\n'}
+[0.252500] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_c.so\n'}
+[0.252551] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_c.so\n'}
+[0.252605] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_fastrtps_cpp.so\n'}
+[0.252656] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_introspection_cpp.so\n'}
+[0.252706] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_typesupport_cpp.so\n'}
+[0.272657] (rb_msgs) StdoutLine: {'line': b"Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs'...\n"}
+[0.272785] (rb_msgs) StdoutLine: {'line': b"Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/msg'...\n"}
+[0.272847] (rb_msgs) StdoutLine: {'line': b"Listing '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages/rb_msgs/srv'...\n"}
+[0.275430] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/lib/librb_msgs__rosidl_generator_py.so\n'}
+[0.275775] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cExport.cmake\n'}
+[0.275821] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cExport-noconfig.cmake\n'}
+[0.275850] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cExport.cmake\n'}
+[0.275876] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cExport-noconfig.cmake\n'}
+[0.275902] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cExport.cmake\n'}
+[0.275926] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cExport-noconfig.cmake\n'}
+[0.275951] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cExport.cmake\n'}
+[0.275975] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cExport-noconfig.cmake\n'}
+[0.275998] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_cppExport.cmake\n'}
+[0.276030] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cppExport.cmake\n'}
+[0.276055] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake\n'}
+[0.276082] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cppExport.cmake\n'}
+[0.276106] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_introspection_cppExport-noconfig.cmake\n'}
+[0.276129] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cppExport.cmake\n'}
+[0.276153] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/rb_msgs__rosidl_typesupport_cppExport-noconfig.cmake\n'}
+[0.276176] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_pyExport.cmake\n'}
+[0.276199] (rb_msgs) StdoutLine: {'line': b'-- Up-to-date: /home/user/robocup_basketball_ws/install/rb_msgs/share/rb_msgs/cmake/export_rb_msgs__rosidl_generator_pyExport-noconfig.cmake\n'}
+[0.277545] (rb_msgs) CommandEnded: {'returncode': 0}
+[0.287944] (rb_msgs) JobEnded: {'identifier': 'rb_msgs', 'rc': 0}
+[0.288318] (rb_launcher) JobStarted: {'identifier': 'rb_launcher'}
+[0.289346] (rb_localization) JobStarted: {'identifier': 'rb_localization'}
+[0.291505] (rb_mission) JobStarted: {'identifier': 'rb_mission'}
+[0.293977] (rb_perception) JobStarted: {'identifier': 'rb_perception'}
+[0.296664] (rb_launcher) JobProgress: {'identifier': 'rb_launcher', 'progress': 'cmake'}
+[0.296969] (rb_launcher) JobProgress: {'identifier': 'rb_launcher', 'progress': 'build'}
+[0.297140] (rb_launcher) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/user/robocup_basketball_ws/build/rb_launcher', '--', '-j16', '-l16'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_launcher', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_launcher'), ('PYTHONPATH', '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble')]), 'shell': False}
+[0.300188] (-) TimerEvent: {}
+[0.400341] (-) TimerEvent: {}
+[0.500496] (-) TimerEvent: {}
+[0.564958] (rb_launcher) StdoutLine: {'line': b'[ 33%] Built target serial_base_lib\n'}
+[0.565556] (rb_launcher) StdoutLine: {'line': b'[ 66%] Built target serial_R1_lib\n'}
+[0.565643] (rb_launcher) StdoutLine: {'line': b'[100%] Built target rb_launcher_node\n'}
+[0.600583] (-) TimerEvent: {}
+[0.696564] (rb_launcher) CommandEnded: {'returncode': 0}
+[0.697001] (rb_launcher) JobProgress: {'identifier': 'rb_launcher', 'progress': 'install'}
+[0.697017] (rb_launcher) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/user/robocup_basketball_ws/build/rb_launcher'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_launcher', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_launcher'), ('PYTHONPATH', '/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble')]), 'shell': False}
+[0.700717] (-) TimerEvent: {}
+[0.702583] (rb_launcher) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[0.702836] (rb_launcher) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[0.702978] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/lib/rb_launcher/rb_launcher_node\n'}
+[0.703170] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/include/serial_port/serial_port.hpp\n'}
+[0.703276] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/include/serial_port/serial_port_R1.hpp\n'}
+[0.703306] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/include/utils/message.hpp\n'}
+[0.703417] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/launch/launcher.launch.py\n'}
+[0.703502] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/config/launcher.yaml\n'}
+[0.703579] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/package_run_dependencies/rb_launcher\n'}
+[0.703650] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/parent_prefix_path/rb_launcher\n'}
+[0.703721] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/ament_prefix_path.sh\n'}
+[0.703788] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/ament_prefix_path.dsv\n'}
+[0.703929] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/path.sh\n'}
+[0.703956] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/environment/path.dsv\n'}
+[0.703979] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.bash\n'}
+[0.704130] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.sh\n'}
+[0.704153] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.zsh\n'}
+[0.704174] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/local_setup.dsv\n'}
+[0.704194] (rb_launcher) StdoutLine: {'line': b'-- Symlinking: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/package.dsv\n'}
+[0.709725] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/ament_index/resource_index/packages/rb_launcher\n'}
+[0.709825] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[0.709848] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/rb_launcherConfig.cmake\n'}
+[0.709870] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/cmake/rb_launcherConfig-version.cmake\n'}
+[0.709891] (rb_launcher) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_launcher/share/rb_launcher/package.xml\n'}
+[0.710788] (rb_launcher) CommandEnded: {'returncode': 0}
+[0.723825] (rb_launcher) JobEnded: {'identifier': 'rb_launcher', 'rc': 0}
+[0.800864] (-) TimerEvent: {}
+[0.890396] (rb_mission) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/user/robocup_basketball_ws/build/rb_mission/build', '--no-deps', 'symlink_data'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_mission', 'env': {'SHLVL': '0', 'LD_LIBRARY_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/home/user', 'OLDPWD': '/home/user/robocup_basketball_ws', 'ROS_PYTHON_VERSION': '3', 'LC_CTYPE': 'C.UTF-8', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'dumb', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin', 'AMENT_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble', 'PWD': '/home/user/robocup_basketball_ws/build/rb_mission', 'PYTHONPATH': '/home/user/robocup_basketball_ws/build/rb_mission/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs'}, 'shell': False}
+[0.901079] (-) TimerEvent: {}
+[0.902619] (rb_perception) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/user/robocup_basketball_ws/build/rb_perception/build', '--no-deps', 'symlink_data'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_perception', 'env': {'SHLVL': '0', 'LD_LIBRARY_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/home/user', 'OLDPWD': '/home/user/robocup_basketball_ws', 'ROS_PYTHON_VERSION': '3', 'LC_CTYPE': 'C.UTF-8', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'dumb', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin', 'AMENT_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble', 'PWD': '/home/user/robocup_basketball_ws/build/rb_perception', 'PYTHONPATH': '/home/user/robocup_basketball_ws/build/rb_perception/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_perception/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs'}, 'shell': False}
+[0.927523] (rb_localization) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/user/robocup_basketball_ws/build/rb_localization/build', '--no-deps', 'symlink_data'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_localization', 'env': {'SHLVL': '0', 'LD_LIBRARY_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/home/user', 'OLDPWD': '/home/user/robocup_basketball_ws', 'ROS_PYTHON_VERSION': '3', 'LC_CTYPE': 'C.UTF-8', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'dumb', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin', 'AMENT_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs:/opt/ros/humble', 'PWD': '/home/user/robocup_basketball_ws/build/rb_localization', 'PYTHONPATH': '/home/user/robocup_basketball_ws/build/rb_localization/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/home/user/robocup_basketball_ws/install/rb_msgs'}, 'shell': False}
+[1.001200] (-) TimerEvent: {}
+[1.042523] (rb_mission) StdoutLine: {'line': b'running develop\n'}
+[1.046505] (rb_perception) StdoutLine: {'line': b'running develop\n'}
+[1.089603] (rb_localization) StdoutLine: {'line': b'running develop\n'}
+[1.101348] (-) TimerEvent: {}
+[1.122009] (rb_mission) StdoutLine: {'line': b'running egg_info\n'}
+[1.122353] (rb_mission) StdoutLine: {'line': b'writing rb_mission.egg-info/PKG-INFO\n'}
+[1.122422] (rb_mission) StdoutLine: {'line': b'writing dependency_links to rb_mission.egg-info/dependency_links.txt\n'}
+[1.122477] (rb_mission) StdoutLine: {'line': b'writing entry points to rb_mission.egg-info/entry_points.txt\n'}
+[1.122529] (rb_mission) StdoutLine: {'line': b'writing requirements to rb_mission.egg-info/requires.txt\n'}
+[1.122580] (rb_mission) StdoutLine: {'line': b'writing top-level names to rb_mission.egg-info/top_level.txt\n'}
+[1.123354] (rb_mission) StdoutLine: {'line': b"reading manifest file 'rb_mission.egg-info/SOURCES.txt'\n"}
+[1.123731] (rb_mission) StdoutLine: {'line': b"writing manifest file 'rb_mission.egg-info/SOURCES.txt'\n"}
+[1.124511] (rb_mission) StdoutLine: {'line': b'running build_ext\n'}
+[1.124672] (rb_mission) StdoutLine: {'line': b'Creating /home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages/rb-mission.egg-link (link to .)\n'}
+[1.125093] (rb_mission) StdoutLine: {'line': b'Installing mission_node script to /home/user/robocup_basketball_ws/install/rb_mission/lib/rb_mission\n'}
+[1.125176] (rb_perception) StdoutLine: {'line': b'running egg_info\n'}
+[1.125467] (rb_perception) StdoutLine: {'line': b'writing rb_perception.egg-info/PKG-INFO\n'}
+[1.125573] (rb_mission) StdoutLine: {'line': b'\n'}
+[1.125636] (rb_mission) StdoutLine: {'line': b'Installed /home/user/robocup_basketball_ws/build/rb_mission\n'}
+[1.125693] (rb_mission) StdoutLine: {'line': b'running symlink_data\n'}
+[1.125746] (rb_perception) StdoutLine: {'line': b'writing dependency_links to rb_perception.egg-info/dependency_links.txt\n'}
+[1.125798] (rb_perception) StdoutLine: {'line': b'writing entry points to rb_perception.egg-info/entry_points.txt\n'}
+[1.125850] (rb_perception) StdoutLine: {'line': b'writing requirements to rb_perception.egg-info/requires.txt\n'}
+[1.125900] (rb_perception) StdoutLine: {'line': b'writing top-level names to rb_perception.egg-info/top_level.txt\n'}
+[1.126599] (rb_perception) StdoutLine: {'line': b"reading manifest file 'rb_perception.egg-info/SOURCES.txt'\n"}
+[1.126969] (rb_perception) StdoutLine: {'line': b"writing manifest file 'rb_perception.egg-info/SOURCES.txt'\n"}
+[1.127816] (rb_perception) StdoutLine: {'line': b'running build_ext\n'}
+[1.127925] (rb_perception) StdoutLine: {'line': b'Creating /home/user/robocup_basketball_ws/install/rb_perception/lib/python3.10/site-packages/rb-perception.egg-link (link to .)\n'}
+[1.128423] (rb_perception) StdoutLine: {'line': b'Installing perception_node script to /home/user/robocup_basketball_ws/install/rb_perception/lib/rb_perception\n'}
+[1.128611] (rb_perception) StdoutLine: {'line': b'\n'}
+[1.128665] (rb_perception) StdoutLine: {'line': b'Installed /home/user/robocup_basketball_ws/build/rb_perception\n'}
+[1.128718] (rb_perception) StdoutLine: {'line': b'running symlink_data\n'}
+[1.144846] (rb_mission) CommandEnded: {'returncode': 0}
+[1.151158] (rb_mission) JobEnded: {'identifier': 'rb_mission', 'rc': 0}
+[1.151858] (rb_perception) CommandEnded: {'returncode': 0}
+[1.155558] (rb_perception) JobEnded: {'identifier': 'rb_perception', 'rc': 0}
+[1.168578] (rb_localization) StdoutLine: {'line': b'running egg_info\n'}
+[1.168684] (rb_localization) StdoutLine: {'line': b'writing rb_localization.egg-info/PKG-INFO\n'}
+[1.168841] (rb_localization) StdoutLine: {'line': b'writing dependency_links to rb_localization.egg-info/dependency_links.txt\n'}
+[1.168905] (rb_localization) StdoutLine: {'line': b'writing entry points to rb_localization.egg-info/entry_points.txt\n'}
+[1.168938] (rb_localization) StdoutLine: {'line': b'writing requirements to rb_localization.egg-info/requires.txt\n'}
+[1.168965] (rb_localization) StdoutLine: {'line': b'writing top-level names to rb_localization.egg-info/top_level.txt\n'}
+[1.170003] (rb_localization) StdoutLine: {'line': b"reading manifest file 'rb_localization.egg-info/SOURCES.txt'\n"}
+[1.170170] (rb_localization) StdoutLine: {'line': b"writing manifest file 'rb_localization.egg-info/SOURCES.txt'\n"}
+[1.171079] (rb_localization) StdoutLine: {'line': b'running build_ext\n'}
+[1.171145] (rb_localization) StdoutLine: {'line': b'Creating /home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages/rb-localization.egg-link (link to .)\n'}
+[1.171499] (rb_localization) StdoutLine: {'line': b'Installing localization_node script to /home/user/robocup_basketball_ws/install/rb_localization/lib/rb_localization\n'}
+[1.171700] (rb_localization) StdoutLine: {'line': b'\n'}
+[1.171735] (rb_localization) StdoutLine: {'line': b'Installed /home/user/robocup_basketball_ws/build/rb_localization\n'}
+[1.171763] (rb_localization) StdoutLine: {'line': b'running symlink_data\n'}
+[1.188158] (rb_localization) CommandEnded: {'returncode': 0}
+[1.192039] (rb_localization) JobEnded: {'identifier': 'rb_localization', 'rc': 0}
+[1.192917] (rb_bringup) JobStarted: {'identifier': 'rb_bringup'}
+[1.201439] (-) TimerEvent: {}
+[1.201981] (rb_bringup) JobProgress: {'identifier': 'rb_bringup', 'progress': 'cmake'}
+[1.202402] (rb_bringup) JobProgress: {'identifier': 'rb_bringup', 'progress': 'build'}
+[1.202600] (rb_bringup) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/user/robocup_basketball_ws/build/rb_bringup', '--', '-j16', '-l16'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_bringup', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/home/user/robocup_basketball_ws/install/rb_chassis/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_perception:/home/user/robocup_basketball_ws/install/rb_mission:/home/user/robocup_basketball_ws/install/rb_localization:/home/user/robocup_basketball_ws/install/rb_launcher:/home/user/robocup_basketball_ws/install/rb_msgs:/home/user/robocup_basketball_ws/install/rb_chassis:/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_bringup'), ('PYTHONPATH', '/home/user/robocup_basketball_ws/build/rb_perception:/home/user/robocup_basketball_ws/install/rb_perception/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/build/rb_mission:/home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/build/rb_localization:/home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_launcher:/home/user/robocup_basketball_ws/install/rb_msgs:/home/user/robocup_basketball_ws/install/rb_chassis:/opt/ros/humble')]), 'shell': False}
+[1.231723] (rb_bringup) CommandEnded: {'returncode': 0}
+[1.232272] (rb_bringup) JobProgress: {'identifier': 'rb_bringup', 'progress': 'install'}
+[1.232465] (rb_bringup) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/user/robocup_basketball_ws/build/rb_bringup'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_bringup', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/home/user/robocup_basketball_ws/install/rb_msgs/lib:/home/user/robocup_basketball_ws/install/rb_chassis/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_perception:/home/user/robocup_basketball_ws/install/rb_mission:/home/user/robocup_basketball_ws/install/rb_localization:/home/user/robocup_basketball_ws/install/rb_launcher:/home/user/robocup_basketball_ws/install/rb_msgs:/home/user/robocup_basketball_ws/install/rb_chassis:/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_bringup'), ('PYTHONPATH', '/home/user/robocup_basketball_ws/build/rb_perception:/home/user/robocup_basketball_ws/install/rb_perception/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/build/rb_mission:/home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/build/rb_localization:/home/user/robocup_basketball_ws/install/rb_localization/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/home/user/robocup_basketball_ws/install/rb_launcher:/home/user/robocup_basketball_ws/install/rb_msgs:/home/user/robocup_basketball_ws/install/rb_chassis:/opt/ros/humble')]), 'shell': False}
+[1.239456] (rb_bringup) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[1.239743] (rb_bringup) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[1.239928] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/launch/bringup_fsm_test.launch.py\n'}
+[1.240000] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/launch/bringup_full.launch.py\n'}
+[1.240092] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/launch/bringup_lidar_vision.launch.py\n'}
+[1.240127] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/launch/bringup_offline.launch.py\n'}
+[1.240267] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/ament_index/resource_index/package_run_dependencies/rb_bringup\n'}
+[1.240369] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/ament_index/resource_index/parent_prefix_path/rb_bringup\n'}
+[1.240461] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/environment/ament_prefix_path.sh\n'}
+[1.240544] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/environment/ament_prefix_path.dsv\n'}
+[1.240629] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/environment/path.sh\n'}
+[1.240711] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/environment/path.dsv\n'}
+[1.240792] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/local_setup.bash\n'}
+[1.240872] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/local_setup.sh\n'}
+[1.240946] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/local_setup.zsh\n'}
+[1.241019] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/local_setup.dsv\n'}
+[1.241081] (rb_bringup) StdoutLine: {'line': b'-- Symlinking: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/package.dsv\n'}
+[1.249645] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/ament_index/resource_index/packages/rb_bringup\n'}
+[1.249776] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/cmake/rb_bringupConfig.cmake\n'}
+[1.249821] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/cmake/rb_bringupConfig-version.cmake\n'}
+[1.249857] (rb_bringup) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_bringup/share/rb_bringup/package.xml\n'}
+[1.250996] (rb_bringup) CommandEnded: {'returncode': 0}
+[1.258223] (rb_bringup) JobEnded: {'identifier': 'rb_bringup', 'rc': 0}
+[1.258423] (-) EventReactorShutdown: {}

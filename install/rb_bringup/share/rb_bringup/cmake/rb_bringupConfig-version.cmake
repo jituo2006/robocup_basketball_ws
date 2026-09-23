@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_bringup/ament_cmake_core/rb_bringupConfig-version.cmake

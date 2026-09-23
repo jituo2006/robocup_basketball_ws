@@ -1,0 +1,28 @@
+[0.654s] Invoking command in '/home/user/robocup_basketball_ws/build/rb_mission': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/build/rb_mission/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/user/robocup_basketball_ws/build/rb_mission/build --no-deps symlink_data
+[0.821s] running develop
+[0.908s] running egg_info
+[0.909s] creating rb_mission.egg-info
+[0.909s] writing rb_mission.egg-info/PKG-INFO
+[0.909s] writing dependency_links to rb_mission.egg-info/dependency_links.txt
+[0.909s] writing entry points to rb_mission.egg-info/entry_points.txt
+[0.909s] writing requirements to rb_mission.egg-info/requires.txt
+[0.909s] writing top-level names to rb_mission.egg-info/top_level.txt
+[0.909s] writing manifest file 'rb_mission.egg-info/SOURCES.txt'
+[0.910s] reading manifest file 'rb_mission.egg-info/SOURCES.txt'
+[0.910s] writing manifest file 'rb_mission.egg-info/SOURCES.txt'
+[0.911s] running build_ext
+[0.911s] Creating /home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages/rb-mission.egg-link (link to .)
+[0.912s] Installing mission_node script to /home/user/robocup_basketball_ws/install/rb_mission/lib/rb_mission
+[0.912s] 
+[0.912s] Installed /home/user/robocup_basketball_ws/build/rb_mission
+[0.912s] running symlink_data
+[0.912s] creating /home/user/robocup_basketball_ws/install/rb_mission/share/ament_index
+[0.912s] creating /home/user/robocup_basketball_ws/install/rb_mission/share/ament_index/resource_index
+[0.912s] creating /home/user/robocup_basketball_ws/install/rb_mission/share/ament_index/resource_index/packages
+[0.913s] symbolically linking /home/user/robocup_basketball_ws/build/rb_mission/resource/rb_mission -> /home/user/robocup_basketball_ws/install/rb_mission/share/ament_index/resource_index/packages
+[0.913s] symbolically linking /home/user/robocup_basketball_ws/build/rb_mission/package.xml -> /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission
+[0.913s] creating /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/launch
+[0.913s] symbolically linking /home/user/robocup_basketball_ws/build/rb_mission/launch/mission.launch.py -> /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/launch
+[0.913s] creating /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/config
+[0.913s] symbolically linking /home/user/robocup_basketball_ws/build/rb_mission/config/mission.yaml -> /home/user/robocup_basketball_ws/install/rb_mission/share/rb_mission/config
+[0.932s] Invoked command in '/home/user/robocup_basketball_ws/build/rb_mission' returned '0': AMENT_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/user/robocup_basketball_ws/install/rb_msgs LD_LIBRARY_PATH=/home/user/robocup_basketball_ws/install/rb_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/user/robocup_basketball_ws/build/rb_mission/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user/robocup_basketball_ws/install/rb_mission/lib/python3.10/site-packages:/home/user/robocup_basketball_ws/install/rb_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/user/robocup_basketball_ws/build/rb_mission/build --no-deps symlink_data

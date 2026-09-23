@@ -1,0 +1,221 @@
+[0.000000] (-) TimerEvent: {}
+[0.000188] (-) JobUnselected: {'identifier': 'rb_bringup'}
+[0.000664] (-) JobUnselected: {'identifier': 'rb_launcher'}
+[0.000690] (-) JobUnselected: {'identifier': 'rb_localization'}
+[0.000700] (-) JobUnselected: {'identifier': 'rb_mission'}
+[0.000708] (-) JobUnselected: {'identifier': 'rb_msgs'}
+[0.000728] (-) JobUnselected: {'identifier': 'rb_perception'}
+[0.000738] (rb_chassis) JobQueued: {'identifier': 'rb_chassis', 'dependencies': OrderedDict()}
+[0.000748] (rb_chassis) JobStarted: {'identifier': 'rb_chassis'}
+[0.006825] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'cmake'}
+[0.007236] (rb_chassis) Command: {'cmd': ['/usr/bin/cmake', '/home/user/robocup_basketball_ws/src/rb_chassis', '-DAMENT_CMAKE_SYMLINK_INSTALL=1', '-DCMAKE_INSTALL_PREFIX=/home/user/robocup_basketball_ws/install/rb_chassis'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_chassis', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_chassis'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.099855] (-) TimerEvent: {}
+[0.109503] (rb_chassis) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.192954] (rb_chassis) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.199930] (-) TimerEvent: {}
+[0.201309] (rb_chassis) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[0.260297] (rb_chassis) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[0.264929] (rb_chassis) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[0.265144] (rb_chassis) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[0.265702] (rb_chassis) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[0.269202] (rb_chassis) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[0.300038] (-) TimerEvent: {}
+[0.331450] (rb_chassis) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[0.336414] (rb_chassis) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[0.336598] (rb_chassis) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[0.336863] (rb_chassis) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[0.341692] (rb_chassis) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.11 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[0.400152] (-) TimerEvent: {}
+[0.463749] (rb_chassis) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[0.500253] (-) TimerEvent: {}
+[0.516552] (rb_chassis) StdoutLine: {'line': b'-- Override CMake install command with custom implementation using symlinks instead of copying resources\n'}
+[0.546856] (rb_chassis) StdoutLine: {'line': b'-- Found rclcpp: 16.0.12 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[0.582077] (rb_chassis) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.6 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[0.585544] (rb_chassis) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.6 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[0.592736] (rb_chassis) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.6 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[0.600430] (-) TimerEvent: {}
+[0.602456] (rb_chassis) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[0.616813] (rb_chassis) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[0.650114] (rb_chassis) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[0.652079] (rb_chassis) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.7 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[0.700542] (-) TimerEvent: {}
+[0.731174] (rb_chassis) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[0.752082] (rb_chassis) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[0.777567] (rb_chassis) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[0.785843] (rb_chassis) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[0.800649] (-) TimerEvent: {}
+[0.855249] (rb_chassis) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[0.855798] (rb_chassis) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[0.900856] (-) TimerEvent: {}
+[0.919897] (rb_chassis) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[0.920869] (rb_chassis) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[0.960270] (rb_chassis) StdoutLine: {'line': b'-- Found geometry_msgs: 4.8.0 (/opt/ros/humble/share/geometry_msgs/cmake)\n'}
+[0.970549] (rb_chassis) StdoutLine: {'line': b'-- Found nav_msgs: 4.8.0 (/opt/ros/humble/share/nav_msgs/cmake)\n'}
+[1.000935] (-) TimerEvent: {}
+[1.028068] (rb_chassis) StdoutLine: {'line': b'-- Configuring done\n'}
+[1.036659] (rb_chassis) StdoutLine: {'line': b'-- Generating done\n'}
+[1.039543] (rb_chassis) StdoutLine: {'line': b'-- Build files have been written to: /home/user/robocup_basketball_ws/build/rb_chassis\n'}
+[1.046390] (rb_chassis) CommandEnded: {'returncode': 0}
+[1.046734] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'build'}
+[1.046749] (rb_chassis) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/user/robocup_basketball_ws/build/rb_chassis', '--', '-j16', '-l16'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_chassis', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_chassis'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[1.087901] (rb_chassis) StdoutLine: {'line': b'[ 25%] Building CXX object CMakeFiles/rb_can.dir/third_party/bupt_can.cpp.o\n'}
+[1.088051] (rb_chassis) StdoutLine: {'line': b'[ 25%] Building CXX object CMakeFiles/base_chassis.dir/src/base_chassis.cpp.o\n'}
+[1.101047] (-) TimerEvent: {}
+[1.201230] (-) TimerEvent: {}
+[1.301411] (-) TimerEvent: {}
+[1.401642] (-) TimerEvent: {}
+[1.501891] (-) TimerEvent: {}
+[1.602144] (-) TimerEvent: {}
+[1.674773] (rb_chassis) StdoutLine: {'line': b'[ 37%] Linking CXX static library librb_can.a\n'}
+[1.702238] (-) TimerEvent: {}
+[1.708245] (rb_chassis) StdoutLine: {'line': b'[ 37%] Built target rb_can\n'}
+[1.802362] (-) TimerEvent: {}
+[1.902523] (-) TimerEvent: {}
+[2.002718] (-) TimerEvent: {}
+[2.102929] (-) TimerEvent: {}
+[2.203101] (-) TimerEvent: {}
+[2.303277] (-) TimerEvent: {}
+[2.403463] (-) TimerEvent: {}
+[2.503680] (-) TimerEvent: {}
+[2.603905] (-) TimerEvent: {}
+[2.704126] (-) TimerEvent: {}
+[2.804323] (-) TimerEvent: {}
+[2.904620] (-) TimerEvent: {}
+[3.004806] (-) TimerEvent: {}
+[3.105036] (-) TimerEvent: {}
+[3.205334] (-) TimerEvent: {}
+[3.305633] (-) TimerEvent: {}
+[3.405828] (-) TimerEvent: {}
+[3.506042] (-) TimerEvent: {}
+[3.606309] (-) TimerEvent: {}
+[3.706569] (-) TimerEvent: {}
+[3.806766] (-) TimerEvent: {}
+[3.906938] (-) TimerEvent: {}
+[4.007113] (-) TimerEvent: {}
+[4.107321] (-) TimerEvent: {}
+[4.207496] (-) TimerEvent: {}
+[4.307792] (-) TimerEvent: {}
+[4.407964] (-) TimerEvent: {}
+[4.508183] (-) TimerEvent: {}
+[4.608526] (-) TimerEvent: {}
+[4.708852] (-) TimerEvent: {}
+[4.809056] (-) TimerEvent: {}
+[4.909352] (-) TimerEvent: {}
+[5.009516] (-) TimerEvent: {}
+[5.109804] (-) TimerEvent: {}
+[5.209977] (-) TimerEvent: {}
+[5.310250] (-) TimerEvent: {}
+[5.410547] (-) TimerEvent: {}
+[5.510869] (-) TimerEvent: {}
+[5.611231] (-) TimerEvent: {}
+[5.711439] (-) TimerEvent: {}
+[5.811612] (-) TimerEvent: {}
+[5.911754] (-) TimerEvent: {}
+[6.012002] (-) TimerEvent: {}
+[6.112223] (-) TimerEvent: {}
+[6.212515] (-) TimerEvent: {}
+[6.312754] (-) TimerEvent: {}
+[6.412988] (-) TimerEvent: {}
+[6.513326] (-) TimerEvent: {}
+[6.613680] (-) TimerEvent: {}
+[6.713872] (-) TimerEvent: {}
+[6.814042] (-) TimerEvent: {}
+[6.914230] (-) TimerEvent: {}
+[7.014429] (-) TimerEvent: {}
+[7.114634] (-) TimerEvent: {}
+[7.214814] (-) TimerEvent: {}
+[7.315023] (-) TimerEvent: {}
+[7.341186] (rb_chassis) StdoutLine: {'line': b'[ 50%] Linking CXX static library libbase_chassis.a\n'}
+[7.415160] (-) TimerEvent: {}
+[7.493497] (rb_chassis) StdoutLine: {'line': b'[ 50%] Built target base_chassis\n'}
+[7.512266] (rb_chassis) StdoutLine: {'line': b'[ 62%] Building CXX object CMakeFiles/omni_chassis.dir/src/omni_chassis.cpp.o\n'}
+[7.515254] (-) TimerEvent: {}
+[7.615434] (-) TimerEvent: {}
+[7.715632] (-) TimerEvent: {}
+[7.815845] (-) TimerEvent: {}
+[7.916033] (-) TimerEvent: {}
+[8.016260] (-) TimerEvent: {}
+[8.116437] (-) TimerEvent: {}
+[8.216690] (-) TimerEvent: {}
+[8.316943] (-) TimerEvent: {}
+[8.417236] (-) TimerEvent: {}
+[8.517525] (-) TimerEvent: {}
+[8.617751] (-) TimerEvent: {}
+[8.717981] (-) TimerEvent: {}
+[8.818159] (-) TimerEvent: {}
+[8.918340] (-) TimerEvent: {}
+[9.018521] (-) TimerEvent: {}
+[9.118721] (-) TimerEvent: {}
+[9.218912] (-) TimerEvent: {}
+[9.276979] (rb_chassis) StdoutLine: {'line': b'[ 75%] Linking CXX static library libomni_chassis.a\n'}
+[9.302272] (rb_chassis) StdoutLine: {'line': b'[ 75%] Built target omni_chassis\n'}
+[9.317844] (rb_chassis) StdoutLine: {'line': b'[ 87%] Building CXX object CMakeFiles/rb_chassis_node.dir/src/rb_chassis_node.cpp.o\n'}
+[9.318984] (-) TimerEvent: {}
+[9.419201] (-) TimerEvent: {}
+[9.519416] (-) TimerEvent: {}
+[9.619639] (-) TimerEvent: {}
+[9.719871] (-) TimerEvent: {}
+[9.820081] (-) TimerEvent: {}
+[9.920249] (-) TimerEvent: {}
+[10.020465] (-) TimerEvent: {}
+[10.120689] (-) TimerEvent: {}
+[10.220908] (-) TimerEvent: {}
+[10.321114] (-) TimerEvent: {}
+[10.421290] (-) TimerEvent: {}
+[10.521518] (-) TimerEvent: {}
+[10.621767] (-) TimerEvent: {}
+[10.721963] (-) TimerEvent: {}
+[10.822246] (-) TimerEvent: {}
+[10.922543] (-) TimerEvent: {}
+[11.022859] (-) TimerEvent: {}
+[11.123029] (-) TimerEvent: {}
+[11.223208] (-) TimerEvent: {}
+[11.323426] (-) TimerEvent: {}
+[11.423624] (-) TimerEvent: {}
+[11.523928] (-) TimerEvent: {}
+[11.624267] (-) TimerEvent: {}
+[11.724585] (-) TimerEvent: {}
+[11.824886] (-) TimerEvent: {}
+[11.925084] (-) TimerEvent: {}
+[11.939418] (rb_chassis) StdoutLine: {'line': b'[100%] Linking CXX executable rb_chassis_node\n'}
+[12.025213] (-) TimerEvent: {}
+[12.125512] (-) TimerEvent: {}
+[12.225732] (-) TimerEvent: {}
+[12.325946] (-) TimerEvent: {}
+[12.350504] (rb_chassis) StdoutLine: {'line': b'[100%] Built target rb_chassis_node\n'}
+[12.363814] (rb_chassis) CommandEnded: {'returncode': 0}
+[12.364273] (rb_chassis) JobProgress: {'identifier': 'rb_chassis', 'progress': 'install'}
+[12.371797] (rb_chassis) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/user/robocup_basketball_ws/build/rb_chassis'], 'cwd': '/home/user/robocup_basketball_ws/build/rb_chassis', 'env': OrderedDict([('SHLVL', '0'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/home/user'), ('OLDPWD', '/home/user/robocup_basketball_ws'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'dumb'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/bin:/usr/bin:/bin'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('PWD', '/home/user/robocup_basketball_ws/build/rb_chassis'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[12.378669] (rb_chassis) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[12.379017] (rb_chassis) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[12.379424] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libbase_chassis.a\n'}
+[12.379596] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/libomni_chassis.a\n'}
+[12.379826] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/lib/rb_chassis/rb_chassis_node\n'}
+[12.380157] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/base_chassis.h\n'}
+[12.380256] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/chassis_lib/omni_chassis.h\n'}
+[12.380356] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/include/utils/utils.h\n'}
+[12.380570] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/launch/chassis.launch.py\n'}
+[12.380753] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/config/chassis.yaml\n'}
+[12.380896] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.sh\n'}
+[12.381021] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/library_path.dsv\n'}
+[12.381189] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/package_run_dependencies/rb_chassis\n'}
+[12.381354] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/parent_prefix_path/rb_chassis\n'}
+[12.381485] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.sh\n'}
+[12.381604] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/ament_prefix_path.dsv\n'}
+[12.381738] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.sh\n'}
+[12.381859] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/environment/path.dsv\n'}
+[12.381975] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.bash\n'}
+[12.382096] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.sh\n'}
+[12.382216] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.zsh\n'}
+[12.382336] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/local_setup.dsv\n'}
+[12.382448] (rb_chassis) StdoutLine: {'line': b'-- Symlinking: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.dsv\n'}
+[12.389435] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/ament_index/resource_index/packages/rb_chassis\n'}
+[12.389682] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[12.389748] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[12.389859] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[12.389917] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig.cmake\n'}
+[12.390038] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/cmake/rb_chassisConfig-version.cmake\n'}
+[12.390095] (rb_chassis) StdoutLine: {'line': b'-- Up-to-date symlink: /home/user/robocup_basketball_ws/install/rb_chassis/share/rb_chassis/package.xml\n'}
+[12.391423] (rb_chassis) CommandEnded: {'returncode': 0}
+[12.407606] (rb_chassis) JobEnded: {'identifier': 'rb_chassis', 'rc': 0}
+[12.407971] (-) EventReactorShutdown: {}

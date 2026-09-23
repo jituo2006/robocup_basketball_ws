@@ -1,0 +1,106 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-b10a6f26f668c031b423.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rb_chassis",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "base_chassis::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-base_chassis-40c03d24f23b8fa4d518.json",
+					"name" : "base_chassis",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "omni_chassis::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-omni_chassis-43cf55b18db1cda7e9c5.json",
+					"name" : "omni_chassis",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rb_can::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rb_can-bede476e1931c2bede4b.json",
+					"name" : "rb_can",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rb_chassis_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rb_chassis_node-171b2eb8226804c3b7e8.json",
+					"name" : "rb_chassis_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rb_chassis_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rb_chassis_uninstall-36d33714b3a63d5892c3.json",
+					"name" : "rb_chassis_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-2caf5fea7cb3e265ba3d.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/user/robocup_basketball_ws/build/rb_chassis",
+		"source" : "/home/user/robocup_basketball_ws/src/rb_chassis"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

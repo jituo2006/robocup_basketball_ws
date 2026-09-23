@@ -1,0 +1,97 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-8da0327fbdf7f5efbdd4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "rb_launcher",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "rb_launcher_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rb_launcher_node-4c2505bdb07eac5ae550.json",
+					"name" : "rb_launcher_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "rb_launcher_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-rb_launcher_uninstall-6893fc2e9f60a2fea148.json",
+					"name" : "rb_launcher_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "serial_R1_lib::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-serial_R1_lib-54417e26e34862daf572.json",
+					"name" : "serial_R1_lib",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "serial_base_lib::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-serial_base_lib-c60b7fa762030c09c18b.json",
+					"name" : "serial_base_lib",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-0cab924b36c937a7ebf7.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/user/robocup_basketball_ws/build/rb_launcher",
+		"source" : "/home/user/robocup_basketball_ws/src/rb_launcher"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

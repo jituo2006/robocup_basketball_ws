@@ -1,0 +1,1 @@
+/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_py/rb_msgs/msg/_detection_array.py
