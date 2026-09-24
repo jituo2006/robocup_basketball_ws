@@ -1,0 +1,11 @@
+# 手动/调试用：让机器人自主走到场地某点，可选地转向指定朝向。
+# 用途：电脑端"点地图"操控、赛前摆位、标定。
+#
+# 坐标是**场地坐标系**（与 /localization/pose 一致，x 沿场地长边）。
+float32 x
+float32 y
+float32 yaw         # 目标朝向（弧度）。仅当 align_yaw=true 时生效。
+bool align_yaw      # 到位后是否再原地转向到 yaw。
+---
+bool accepted
+string message

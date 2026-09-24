@@ -37,7 +37,7 @@ from std_msgs.msg import Bool, Header
 from std_msgs.msg import String as StringMsg
 
 from rb_msgs.msg import DetectionArray, MissionStatus, RobotState
-from rb_msgs.srv import Launch, SetMission
+from rb_msgs.srv import GotoPose, Launch, SetMission
 
 from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi
 
@@ -53,6 +53,7 @@ P_RETURN = "RETURN_HOME"
 P_DONE = "DONE"
 P_ESTOP = "ESTOP"
 P_FAULT = "FAULT"
+P_GOTO = "GOTO"
 
 LAUNCH_SHOOT = 0
 LAUNCH_FAST_SHOOT = 1
@@ -94,6 +95,15 @@ class MissionNode(Node):
         self.mission_labels = self.cfg.get("mission_labels", {}) or {}
         self.field = self.cfg.get("field", {}) or {}
 
+        # 视觉势场避障参数
+        av = self.cfg.get("avoidance", {}) or {}
+        self.avoid_enabled = bool(av.get("enabled", True))
+        self.avoid_range = float(av.get("range_m", 1.2))
+        self.avoid_gain = float(av.get("repulsion_gain", 0.8))
+        self.avoid_max = float(av.get("max_repel_vel", 0.30))
+        self.avoid_min_conf = float(av.get("min_confidence", 0.30))
+        self.avoid_extra = list(av.get("extra_labels", []) or [])
+
         # 运行时状态
         self.phase = P_IDLE
         self.mission = "IDLE"
@@ -109,6 +119,7 @@ class MissionNode(Node):
         self.has_pose = False
         self.detections: list[Any] = []
         self.target_zone_xy = (0.0, 0.0)
+        self.goto_goal: tuple[float, float, float, bool] | None = None
         self.detail = ""
         self.launch_called = False
         self.last_ball_dist = float("inf")
@@ -127,6 +138,7 @@ class MissionNode(Node):
         self.create_subscription(Bool, topics.get("has_ball", "/mission/has_ball"), self.on_has_ball, 5)
 
         self.srv = self.create_service(SetMission, "~/set_mission", self.on_set_mission)
+        self.goto_srv = self.create_service(GotoPose, "~/goto_pose", self.on_goto_pose)
         self.launch_client = self.create_client(Launch, topics.get("launch_service", "/rb_launcher/launch"))
 
         period = 1.0 / float(self.cfg.get("control", {}).get("rate_hz", 20.0))
@@ -197,6 +209,30 @@ class MissionNode(Node):
             res.accepted, res.message = False, f"未知任务 '{req.mission}'（可用 PASS/SHOOT/IDLE）"
         return res
 
+    def on_goto_pose(self, req: GotoPose.Request, res: GotoPose.Response) -> GotoPose.Response:
+        """电脑端/标定用的"走到场地某点"。仅在 IDLE 下可用，避免和自主任务抢 /cmd_vel。"""
+        if self.estop:
+            res.accepted, res.message = False, "急停中，拒绝 GOTO"
+            return res
+        if self.mission != "IDLE":
+            res.accepted, res.message = False, (
+                f"当前任务 {self.mission} 非 IDLE，请先 ros2 service call /rb_mission/set_mission ... mission:=IDLE")
+            return res
+        x, y = float(req.x), float(req.y)
+        if not math.isfinite(x) or not math.isfinite(y):
+            res.accepted, res.message = False, "目标坐标无效"
+            return res
+        # 场内软限位（宽松，只挡明显越界）
+        fl, fw = float(self.field.get("length_m", 14.0)), float(self.field.get("width_m", 7.5))
+        if not (-2.0 <= x <= fl + 2.0 and -2.0 <= y <= fw + 2.0):
+            res.accepted, res.message = False, f"目标 ({x:.2f},{y:.2f}) 超出场地范围"
+            return res
+        self.goto_goal = (x, y, float(req.yaw), bool(req.align_yaw))
+        self.publish_zero()
+        self.set_phase(P_GOTO, f"GOTO ({x:.2f}, {y:.2f})" + (f" yaw={req.yaw:.2f}" if req.align_yaw else ""))
+        res.accepted, res.message = True, "已开始 GOTO"
+        return res
+
     # -- 状态机 ------------------------------------------------------------
     def set_phase(self, phase: str, detail: str = "") -> None:
         if phase != self.phase:
@@ -211,6 +247,7 @@ class MissionNode(Node):
 
     def start_mission(self, mission: str) -> None:
         self.mission = mission
+        self.goto_goal = None
         self.actions_done = 0
         self.mission_start_time = self.get_clock().now()
         if mission == "IDLE":
@@ -250,7 +287,7 @@ class MissionNode(Node):
             self.publish_zero()
         else:
             # 非等待类阶段加通用超时保护（导航类用更宽松的超时）
-            limit = self.nav_timeout_s if self.phase in (P_SEEK_BALL, P_NAV_ZONE, P_RETURN) \
+            limit = self.nav_timeout_s if self.phase in (P_SEEK_BALL, P_NAV_ZONE, P_RETURN, P_GOTO) \
                 else self.state_timeout_s
             if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and self.elapsed() > limit:
                 self.get_logger().warn(f"阶段 {self.phase} 超时 {limit:.0f}s，重试")
@@ -260,7 +297,11 @@ class MissionNode(Node):
         self.publish_outputs()
 
     def retry_or_fault(self) -> None:
-        if self.actions_done >= self.actions_per_mission:
+        if self.phase == P_GOTO:
+            self.goto_goal = None
+            self.publish_zero()
+            self.set_phase(P_IDLE, "GOTO 超时，已取消")
+        elif self.actions_done >= self.actions_per_mission:
             self.set_phase(P_RETURN, "动作已做完，回位")
         elif self.mission == "IDLE":
             self.set_phase(P_IDLE)
@@ -312,7 +353,7 @@ class MissionNode(Node):
         speed = self.max_lin * self.cfg.get("limits", {}).get("seek_speed_ratio", 0.8)
         if det.distance_m == det.distance_m:  # 有距离估计
             speed = min(speed, max(0.08, self.kp_lin * max(0.0, det.distance_m - 0.25)))
-        self.publish_cmd(speed, 0.0, wz)
+        self.publish_motion(speed, 0.0, wz)
         self.detail = f"接近 {label} bearing={det.bearing_rad:+.2f} v={speed:.2f}"
 
     def _phase_acquire(self) -> None:
@@ -321,7 +362,7 @@ class MissionNode(Node):
             self.set_phase(P_NAV_ZONE, "已持球，前往动作区")
             return
         if self.elapsed() < self.acquire_s:
-            self.publish_cmd(self.max_lin * 0.3, 0.0, 0.0)
+            self.publish_motion(self.max_lin * 0.3, 0.0, 0.0)
             self.detail = "吸取中（按时间假定，接传感器可改用 /mission/has_ball）"
             return
         self.has_ball = True
@@ -342,7 +383,7 @@ class MissionNode(Node):
             self.publish_zero()
             self.set_phase(P_ALIGN, "已到动作区，开始对准")
             return
-        self.publish_cmd(vx, vy, wz)
+        self.publish_motion(vx, vy, wz)
         self.detail = f"前往动作区 剩余 {dist:.2f}m"
 
     def _phase_align(self) -> None:
@@ -391,8 +432,36 @@ class MissionNode(Node):
             self.publish_zero()
             self.set_phase(P_DONE, "已回到出发区")
             return
-        self.publish_cmd(vx, vy, wz)
+        self.publish_motion(vx, vy, wz)
         self.detail = f"回位 剩余 {dist:.2f}m"
+
+    def _phase_goto(self) -> None:
+        if self.goto_goal is None:
+            self.publish_zero()
+            self.set_phase(P_IDLE)
+            return
+        if not self.has_pose:
+            self.publish_zero()
+            self.detail = "GOTO 等待定位…"
+            return
+        gx, gy, gyaw, align = self.goto_goal
+        x, y, yaw = self.last_pose
+        vx, vy, wz, dist = goto_command(x, y, yaw, gx, gy,
+                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
+        if dist >= self.pos_tol:
+            self.publish_motion(vx, vy, wz)
+            self.detail = f"GOTO ({gx:.2f},{gy:.2f}) 剩余 {dist:.2f}m"
+            return
+        # 到位后：可选地原地转向
+        if align:
+            err = wrap_pi(gyaw - yaw)
+            if abs(err) > self.yaw_tol:
+                self.publish_cmd(0.0, 0.0, clamp(self.kp_yaw * err, -self.max_ang, self.max_ang))
+                self.detail = f"GOTO 到位，对准 yaw 误差 {math.degrees(err):+.1f}°"
+                return
+        self.publish_zero()
+        self.goto_goal = None
+        self.set_phase(P_IDLE, "GOTO 完成")
 
     def _phase_done(self) -> None:
         self.publish_zero()
@@ -461,6 +530,64 @@ class MissionNode(Node):
         req.angle = int((self.cfg.get("launcher", {}) or {}).get("angle", 64))
         self.launch_client.call_async(req)
         self.get_logger().info(f"已调用发射: action={action} speed={req.speed} angle={req.angle}")
+
+    def _obstacle_labels(self) -> set[str]:
+        """当前应该回避的类别集合。
+
+        自主任务（PASS/SHOOT）：回避"干扰球 + obstacle + ball_unknown"，
+        目标球不回避（否则永远贴不上去）。
+        手动 GOTO/IDLE：没有"目标球"概念，回避所有球，避免撞上任何球。
+        """
+        labels: set[str] = {"obstacle"}
+        labels.update(self.avoid_extra)
+        if self.mission in ("PASS", "SHOOT"):
+            inter = self.target_label("interference")
+            if inter:
+                labels.add(inter)
+        else:
+            labels.update({"ball_basketball", "ball_volleyball", "ball_unknown"})
+        return labels
+
+    def _avoidance_adjust(self, vx: float, vy: float) -> tuple[float, float]:
+        """视觉势场避障：把期望车体系速度 (vx, vy) 叠加上附近障碍物的排斥速度。
+
+        障碍物在车体系的方向由 bearing_rad（相对相机光轴，右正左负）给出，
+        距离由单目测距给出（未标定时 NaN，安全跳过）。
+        排斥速度方向 = 从障碍物指向机器人（即 -[cos b, sin b]）。
+        """
+        if not self.avoid_enabled:
+            return vx, vy
+        labels = self._obstacle_labels()
+        fx, fy = float(vx), float(vy)
+        for d in self.detections:
+            if d.label not in labels:
+                continue
+            if d.confidence < self.avoid_min_conf:
+                continue
+            dist = d.distance_m
+            if dist != dist or dist <= 0.0:  # NaN 或无效
+                continue
+            if dist >= self.avoid_range:
+                continue
+            b = d.bearing_rad
+            if b != b:  # NaN（相机未标定）
+                continue
+            # 势场：越近排斥越强，作用半径 avoid_range
+            mag = self.avoid_gain * (1.0 / max(dist, 0.15) - 1.0 / self.avoid_range)
+            mag = clamp(mag, 0.0, self.avoid_max)
+            fx -= mag * math.cos(b)
+            fy -= mag * math.sin(b)
+        # 限幅，避免排斥叠加后超过 max_lin
+        speed = math.hypot(fx, fy)
+        if speed > self.max_lin:
+            fx *= self.max_lin / speed
+            fy *= self.max_lin / speed
+        return fx, fy
+
+    def publish_motion(self, vx: float, vy: float, wz: float) -> None:
+        """带避障的发布：所有"有前进分量"的阶段都应走这里，而不是 publish_cmd。"""
+        vx, vy = self._avoidance_adjust(vx, vy)
+        self.publish_cmd(vx, vy, wz)
 
     def publish_cmd(self, vx: float, vy: float, wz: float) -> None:
         msg = Twist()

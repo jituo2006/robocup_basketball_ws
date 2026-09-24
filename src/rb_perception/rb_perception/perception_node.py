@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import cv2
@@ -31,7 +32,7 @@ from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge, CvBridgeError
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Header
 
 from rb_msgs.msg import Detection, DetectionArray
@@ -60,6 +61,11 @@ class PerceptionNode(Node):
         )
         self.config_file = self.declare_parameter("config_file", default_cfg).value
         self.image_topic = self.declare_parameter("image_topic", "/camera/image_raw").value
+        # 压缩图订阅。实测：原始 640x480 (921KB) 消息投递只有 ~7fps（即使 best_effort
+        # + localhost_only），而 JPEG 压缩后 (~40KB) 能跑满 30fps。所以机器人上默认用它。
+        self.use_compressed = bool(self.declare_parameter("use_compressed", True).value)
+        self.compressed_topic = self.declare_parameter(
+            "compressed_topic", "/camera/image_raw/compressed").value
         self.output_topic = self.declare_parameter("output_topic", "/perception/detections").value
         self.debug_image_topic = self.declare_parameter("debug_image_topic", "/perception/debug_image").value
         self.publish_debug = bool(self.declare_parameter("publish_debug_image", True).value)
@@ -75,6 +81,13 @@ class PerceptionNode(Node):
         self.bridge = CvBridge()
         self.frame_count = 0
         self.last_summary = ""
+        # 自报性能：现场的"视觉跟不跟得上"只能靠节点自己数，外部订阅测量会被
+        # Python 反序列化拖慢而失真。这两个计数也用于写 /perception/ok。
+        self._stats_t = time.time()
+        self._stats_n = 0
+        self._proc_ms_sum = 0.0
+        self.last_proc_ms = 0.0
+        self.last_fps = 0.0
 
         qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -82,12 +95,19 @@ class PerceptionNode(Node):
             depth=1,
             durability=QoSDurabilityPolicy.VOLATILE,
         )
-        self.sub = self.create_subscription(Image, self.image_topic, self.on_image, qos)
+        if self.use_compressed:
+            self.sub = self.create_subscription(
+                CompressedImage, self.compressed_topic, self.on_compressed, qos)
+            self.source_desc = f"{self.compressed_topic} (JPEG 压缩)"
+        else:
+            self.sub = self.create_subscription(Image, self.image_topic, self.on_image, qos)
+            self.source_desc = f"{self.image_topic} (原始图像)"
         self.pub = self.create_publisher(DetectionArray, self.output_topic, 10)
         self.debug_pub = self.create_publisher(Image, self.debug_image_topic, 2)
+        self.stats_timer = self.create_timer(5.0, self.log_stats)
 
         self.get_logger().info(
-            f"perception 就绪: {self.image_topic} -> {self.output_topic}, "
+            f"perception 就绪: {self.source_desc} -> {self.output_topic}, "
             f"检测器 {len(self.detectors)} 个, config={self.config_file}"
         )
         for note in self.detector_notes:
@@ -113,6 +133,7 @@ class PerceptionNode(Node):
 
     # -- 主回调 ------------------------------------------------------------
     def on_image(self, msg: Image) -> None:
+        _t0 = time.perf_counter()
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except CvBridgeError as exc:
@@ -121,7 +142,23 @@ class PerceptionNode(Node):
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f"图像转换异常: {exc}")
             return
+        self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
 
+    def on_compressed(self, msg: CompressedImage) -> None:
+        """JPEG 压缩图回调：解码后走同一条处理链。"""
+        _t0 = time.perf_counter()
+        try:
+            buf = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+            frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"JPEG 解码失败: {exc}", throttle_duration_sec=5.0)
+            return
+        if frame is None:
+            self.get_logger().warn("JPEG 解码返回空图", throttle_duration_sec=5.0)
+            return
+        self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
+
+    def process_frame(self, frame, stamp, frame_id: str, _t0: float) -> None:
         h, w = frame.shape[:2]
         cam = CameraModel.from_config(self.cfg.get("camera", {}) or {}, w, h)
 
@@ -141,8 +178,8 @@ class PerceptionNode(Node):
 
         out = DetectionArray()
         out.header = Header()
-        out.header.stamp = msg.header.stamp
-        out.header.frame_id = msg.header.frame_id or "camera"
+        out.header.stamp = stamp
+        out.header.frame_id = frame_id or "camera"
         out.frame_id_seq = self.frame_count
         out.fx = float(cam.fx)
         out.fy = float(cam.fy)
@@ -150,7 +187,7 @@ class PerceptionNode(Node):
         out.cy_cam = float(cam.cy)
         out.img_width = int(w)
         out.img_height = int(h)
-        out.detections = [self.to_msg(d, msg.header.stamp) for d in found]
+        out.detections = [self.to_msg(d, stamp) for d in found]
         self.pub.publish(out)
 
         # 限频打印，避免日志洪泛
@@ -163,6 +200,26 @@ class PerceptionNode(Node):
             self.publish_debug_image(frame, found, cam)
 
         self.frame_count += 1
+        self._stats_n += 1
+        self._proc_ms_sum += (time.perf_counter() - _t0) * 1000.0
+
+    def log_stats(self) -> None:
+        """每 5s 报一次"视觉到底跑了多少帧、每帧多久"。
+
+        这个数字很重要：外部用 Python 订阅去测帧率会失真（大图像反序列化本身就慢），
+        只有节点自己数才是真的。若 fps 明显低于相机帧率，说明感知跟不上。
+        """
+        now = time.time()
+        dt = now - self._stats_t
+        if dt <= 1e-6 or self._stats_n == 0:
+            self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
+            return
+        self.last_fps = self._stats_n / dt
+        self.last_proc_ms = self._proc_ms_sum / self._stats_n
+        self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
+        self.get_logger().info(
+            f"视觉 {self.last_fps:.1f} fps，每帧 {self.last_proc_ms:.1f} ms"
+            f"（累计 {self.frame_count} 帧）")
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()

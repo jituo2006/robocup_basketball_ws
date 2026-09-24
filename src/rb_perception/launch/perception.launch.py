@@ -12,6 +12,9 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
+            DeclareLaunchArgument("use_compressed", default_value="true",
+                                  description="true=订阅 JPEG 压缩图（原始大图投递只有 ~7fps）"),
+            DeclareLaunchArgument("compressed_topic", default_value="/camera/image_raw/compressed"),
             DeclareLaunchArgument("publish_debug_image", default_value="true"),
             DeclareLaunchArgument(
                 "config_file", default_value=str(share / "config" / "perception.yaml")
@@ -25,6 +28,8 @@ def generate_launch_description():
                     {
                         "config_file": LaunchConfiguration("config_file"),
                         "image_topic": LaunchConfiguration("image_topic"),
+                        "use_compressed": LaunchConfiguration("use_compressed"),
+                        "compressed_topic": LaunchConfiguration("compressed_topic"),
                         "publish_debug_image": LaunchConfiguration("publish_debug_image"),
                     }
                 ],

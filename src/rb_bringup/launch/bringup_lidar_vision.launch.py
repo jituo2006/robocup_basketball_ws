@@ -39,6 +39,8 @@ def _bash(script: str) -> list:
 def generate_launch_description():
     dry_run = LaunchConfiguration("dry_run")
     image_topic = LaunchConfiguration("image_topic")
+    use_compressed = LaunchConfiguration("use_compressed")
+    camera_device = LaunchConfiguration("camera_device")
     rviz = LaunchConfiguration("rviz")
     domain = LaunchConfiguration("ros_domain_id")
 
@@ -82,10 +84,15 @@ def generate_launch_description():
 
     # ③ 其余节点
     rest = [
+        Node(package="rb_camera", executable="camera_node", name="rb_camera",
+             output="screen",
+             parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml"),
+                          "device": camera_device}]),
         Node(package="rb_perception", executable="perception_node", name="rb_perception",
              output="screen",
              parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),
                           "image_topic": image_topic,
+                          "use_compressed": use_compressed,
                           "publish_debug_image": True}]),
         Node(package="rb_localization", executable="localization_node", name="rb_localization",
              output="screen",
@@ -106,6 +113,9 @@ def generate_launch_description():
         DeclareLaunchArgument("dry_run", default_value="false",
                               description="true = 底盘只解算不下发 CAN"),
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
+        DeclareLaunchArgument("use_compressed", default_value="true",
+                              description="原始大图消息投递只有 ~7fps，默认走 JPEG 压缩图"),
+        DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("ros_domain_id", default_value="2"),
 

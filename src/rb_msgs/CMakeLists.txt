@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionStatus.msg"
   "srv/Launch.srv"
   "srv/SetMission.srv"
+  "srv/GotoPose.srv"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
 

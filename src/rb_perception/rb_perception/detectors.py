@@ -32,7 +32,16 @@ import numpy as np
 
 @dataclass
 class CameraModel:
-    """针孔相机模型。未标定时 fx/fy 由图像宽度和假定 FOV 估算。"""
+    """针孔相机模型。未标定时 fx/fy 由图像宽度和假定 FOV 估算。
+
+    畸变
+    ----
+    带 `distortion`（k1,k2,p1,p2,k3，来自 calibrate_camera.py）时，计算方位角/
+    尺寸前会先把像素坐标**去畸变**。为什么必须做：畸变让目标在图像上的位置
+    相对理想针孔模型系统性偏移，越靠边缘越明显（典型镜头在 720p 边缘可达
+    20~30px ≈ 1°~2°，在 3m 处就是 5~10cm）。抓球有闭环能修，但**瞄准投/传
+    是按方位角对准的，系统偏差不会自己消失**，所以要修。
+    """
 
     fx: float = 0.0
     fy: float = 0.0
@@ -40,6 +49,7 @@ class CameraModel:
     cy: float = 0.0
     width: int = 0
     height: int = 0
+    distortion: tuple[float, ...] = ()
 
     @staticmethod
     def from_config(cfg: dict[str, Any], width: int, height: int) -> "CameraModel":
@@ -58,16 +68,53 @@ class CameraModel:
             cx = width / 2.0
         if cy <= 0.0:
             cy = height / 2.0
-        return CameraModel(fx=fx, fy=fy, cx=cx, cy=cy, width=width, height=height)
+        dist = tuple(float(v) for v in (cfg.get("distortion", []) or []))
+        return CameraModel(fx=fx, fy=fy, cx=cx, cy=cy, width=width, height=height,
+                           distortion=dist)
 
-    def bearing_rad(self, px: float) -> float:
-        """像素 x → 水平方位角（右正左负）。"""
+    @property
+    def has_distortion(self) -> bool:
+        return len(self.distortion) >= 4 and any(abs(v) > 1e-9 for v in self.distortion[:5])
+
+    def _K(self) -> np.ndarray:
+        return np.array([[self.fx, 0.0, self.cx],
+                         [0.0, self.fy, self.cy],
+                         [0.0, 0.0, 1.0]], dtype=np.float64)
+
+    def undistort_px(self, px: float, py: float) -> tuple[float, float]:
+        """把**畸变图像**上的像素坐标换算到理想针孔模型下的像素坐标。
+
+        用 cv2.undistortPoints 并传 P=K，输出仍在同一像素尺度，
+        于是可以直接喂给 bearing_rad / measure_size。
+        """
+        if not self.has_distortion:
+            return float(px), float(py)
+        pts = np.array([[[float(px), float(py)]]], dtype=np.float64)
+        d = np.array(list(self.distortion[:5]) + [0.0] * max(0, 5 - len(self.distortion)),
+                     dtype=np.float64)
+        out = cv2.undistortPoints(pts, self._K(), d, P=self._K())
+        return float(out[0, 0, 0]), float(out[0, 0, 1])
+
+    def bearing_rad(self, px: float, py: float | None = None) -> float:
+        """像素 x → 水平方位角（右正左负）。
+
+        py 参与去畸变（径向畸变同时依赖 x 与 y），所以**应尽量传**；
+        不传则退化为"不做去畸变"的老行为（仅为兼容）。
+        """
         if self.fx <= 0:
             return float("nan")
+        if py is not None:
+            px, _ = self.undistort_px(px, py)
         return math.atan2(px - self.cx, self.fx)
 
+    def measure_size(self, p0: tuple[float, float], p1: tuple[float, float]) -> float:
+        """两点在**去畸变后**图像上的距离（像素）。用于测距的像素尺寸。"""
+        u0 = self.undistort_px(*p0)
+        u1 = self.undistort_px(*p1)
+        return math.hypot(u1[0] - u0[0], u1[1] - u0[1])
+
     def distance_m(self, pixel_size: float, real_size_m: float) -> float:
-        """单目测距：已知目标物理尺寸时估算距离。"""
+        """单目测距：已知目标物理尺寸时估算距离。pixel_size 应是去畸变后的尺寸。"""
         if pixel_size <= 1e-6 or real_size_m <= 0 or self.fx <= 0:
             return float("nan")
         return self.fx * real_size_m / pixel_size
@@ -182,7 +229,10 @@ class BlobDetector(BaseDetector):
 
             px = x + bw / 2.0
             py = y + bh / 2.0
-            size_px = bw if self.use_bbox_width_for_distance else max(bw, bh)
+            # 去畸变后再算：方位角用中心点，像素尺寸用去畸变后的宽/高
+            uw = cam.measure_size((x, py), (x + bw, py))
+            size_px = uw if self.use_bbox_width_for_distance \
+                else max(uw, cam.measure_size((px, y), (px, y + bh)))
 
             out.append(
                 Detection(
@@ -193,7 +243,7 @@ class BlobDetector(BaseDetector):
                     py=py,
                     bbox_px_w=float(bw),
                     bbox_px_h=float(bh),
-                    bearing_rad=cam.bearing_rad(px),
+                    bearing_rad=cam.bearing_rad(px, py),
                     distance_m=cam.distance_m(float(size_px), self.real_diameter_m),
                     diameter_m=self.real_diameter_m,
                 )
@@ -291,8 +341,9 @@ class CircleDetector(BaseDetector):
                     py=float(cy),
                     bbox_px_w=float(2 * r),
                     bbox_px_h=float(2 * r),
-                    bearing_rad=cam.bearing_rad(float(cx)),
-                    distance_m=cam.distance_m(float(2 * r), self.real_diameter_m),
+                    bearing_rad=cam.bearing_rad(float(cx), float(cy)),
+                    distance_m=cam.distance_m(
+                        cam.measure_size((cx - r, cy), (cx + r, cy)), self.real_diameter_m),
                     diameter_m=self.real_diameter_m,
                 )
             )
@@ -373,8 +424,9 @@ class StripeDetector(BaseDetector):
                         py=py,
                         bbox_px_w=float(cw),
                         bbox_px_h=float(ch),
-                        bearing_rad=cam.bearing_rad(px),
-                        distance_m=cam.distance_m(float(cw), self.real_width_m),
+                        bearing_rad=cam.bearing_rad(px, py),
+                        distance_m=cam.distance_m(cam.measure_size((x0, py), (x0 + cw, py)),
+                                                  self.real_width_m),
                         diameter_m=self.real_width_m,
                     )
                 )

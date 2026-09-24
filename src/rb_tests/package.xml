@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rb_tests</name>
+  <version>0.1.0</version>
+  <description>RoboCup 篮球机器人 · 集成/系统测试（夹具 + 离线验证 + 硬件自检）</description>
+  <maintainer email="team@bupt.edu.cn">BUPT RobotTeam</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>rb_msgs</depend>
+  <depend>rb_camera</depend>
+  <depend>rb_perception</depend>
+  <depend>rb_localization</depend>
+  <depend>rb_mission</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export><build_type>ament_python</build_type></export>
+</package>

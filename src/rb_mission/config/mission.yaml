@@ -94,5 +94,17 @@ topics:
   estop: "/mission/estop"
   has_ball: "/mission/has_ball"
 
+# 视觉势场避障：把干扰球 / 障碍物检测换算成"排斥速度"，叠加到前进速度上。
+# 依据 §2.2 的"避障"技术要求，以及 §2.5 两个环节的干扰球角色。
+# 只有带有效距离估计（单目测距已标定）的检测才会触发排斥；未标定时安全跳过。
+avoidance:
+  enabled: true            # 总开关
+  range_m: 1.2             # 干扰球/障碍物进入此距离内才开始排斥（势场作用半径）
+  repulsion_gain: 0.8      # 排斥增益，越大越"躲得猛"
+  max_repel_vel: 0.30      # 排斥速度上限 m/s，避免急转
+  min_confidence: 0.30     # 低于此置信度的检测不参与避障
+  # 排斥目标集合：自主任务里只躲"干扰球 + obstacle"；手动 GOTO/IDLE 时躲所有球
+  extra_labels: [ball_unknown]
+
 control:
   rate_hz: 20.0

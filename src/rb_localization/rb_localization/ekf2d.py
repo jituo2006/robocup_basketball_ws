@@ -133,12 +133,23 @@ class Ekf2D:
         if d < self.cfg.bearing_min_dist or d > self.cfg.bearing_max_dist:
             return False
 
-        predicted = wrap_pi(math.atan2(dy, dx) - self.x[2])
-        residual = np.array([wrap_pi(bearing_meas_world - self.x[2] - predicted)])
-        # 说明：residual = 观测世界方位角 - (地标几何方位角)
-        residual = np.array([wrap_pi(bearing_meas_world - math.atan2(dy, dx))])
+        # 残差 = 观测到的世界方位角 − 地标在当前估计下的几何方位角
+        # （原来这里还多写了一句基于 predicted 的 residual，随即被本行覆盖，
+        #   属于死代码；等价形式反而更容易看错，故删除。）
+        geometric = math.atan2(dy, dx)
+        residual = np.array([wrap_pi(bearing_meas_world - geometric)])
 
-        H = np.array([[-dy / d2, dx / d2, 1.0]])
+        # ⚠️ H 的符号曾经是反的，会让方位角更新**发散**（实测估计跑到 (10,4) )。
+        # 关键在于：卡尔曼更新要的是 H = ∂h_pred/∂x，其中 h_pred 是"给定状态时
+        # 传感器**应该**读到什么"。相机读数是相对车体的：
+        #     b_pred = atan2(ly−y, lx−x) − yaw − 安装偏置
+        # 所以
+        #     ∂b_pred/∂x   = +dy/d²
+        #     ∂b_pred/∂y   = −dx/d²
+        #     ∂b_pred/∂yaw = −1
+        # 而 S = H P Hᵀ + R 对 H 取负不变，符号会原样传到增益上 →
+        # 用 ∂ν/∂x（即上面三个分量取反）会让每次修正都朝背离真值的方向走。
+        H = np.array([[dy / d2, -dx / d2, -1.0]])
         R = np.array([[self.cfg.bearing_std ** 2]])
         self._kalman_update(residual, H, R)
         return True

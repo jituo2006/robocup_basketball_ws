@@ -1,0 +1,130 @@
+# ⚠️ 这是【离线自检专用】的冻结配置，不是生产配置！
+#
+# 为什么单独一份：
+#   tools/make_test_image.py 生成的合成图用的是**硬编码标准色**（橙色篮球、
+#   白/蓝排球、红橙篮圈、蓝绿定位柱）。而 tools/calibrate_color.py 会把生产配置
+#   perception.yaml 改成**你们真球**的颜色。2026 规则各队自带球，真球可能完全
+#   不是橙色——那样合成图就检不出来了，verify_offline.py 的视觉项会**误报失败**。
+#
+#   所以离线自检固定读这一份（标准色），与生产配置解耦：
+#       生产阈值改坏了/改成真球色 → 这里仍然只检验"视觉管道通不通"。
+#
+# 别手工改这里；要改生产阈值请改 perception.yaml。
+# ─────────────────────────────────────────────────────────────────────────
+# ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
+#    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
+#        parameters=[{"config_file": "<此文件路径>"}]
+#    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
+# RoboCup 篮球机器人 · 视觉配置
+#
+# ⚠️ 颜色阈值只是**起点**，必须用真实场地/真实用球重新标定！
+#    2026 新规要求识别"各队自带用球的颜色/图案差异"，所以：
+#      1. 绝不能把某队的球颜色写死
+#      2. 赛前用 tools/calibrate_color.py 对自己的球采样，生成新的 hsv_ranges
+#
+# 规则给定的目标物尺寸（用于单目测距）：
+#   迷你篮筐：篮圈直径 35~45cm（现场为准）
+#   传球训练架顶部圆环：直径 55cm
+#   定位柱：直径 20cm、高 1m、蓝绿相间
+#   篮球：7 号（周长 750-760mm → 直径约 24cm）
+#   排球：5 号（周长 650-670mm → 直径约 21cm）
+
+camera:
+  # 相机内参。全部留 0 时，节点按 assumed_hfov_deg 反推 fx 并把主点设在图像中心。
+  # 正式使用前务必用棋盘格标定后填入真实值：
+  #     python3 tools/calibrate_camera.py      # 会同时写回本文件和 camera.yaml
+  fx: 0.0
+  fy: 0.0
+  cx: 0.0
+  cy: 0.0
+  assumed_hfov_deg: 60.0
+  # 畸变系数 [k1, k2, p1, p2, k3]，由标定脚本写入。
+  # 非零时，检测器会先把像素坐标去畸变再算方位角/距离 —— 修掉"边缘目标角度系统性偏移"，
+  # 对瞄准投/传尤其重要（抓球有闭环能修，瞄准是开环按角度对准的）。
+  distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+perception:
+  detectors:
+
+    # ---------- 目标球：篮球 ----------
+    - label: ball_basketball
+      type: blob
+      enabled: true
+      hsv_ranges:            # OpenCV H:0-179, S:0-255, V:0-255
+        - [5, 110, 70, 22, 255, 255]     # 典型橙色篮球
+      min_area_ratio: 0.0006
+      max_area_ratio: 0.20
+      aspect_range: [0.6, 1.7]
+      circularity_min: 0.55
+      real_diameter_m: 0.24
+
+    # ---------- 目标球：排球 ----------
+    - label: ball_volleyball
+      type: blob
+      enabled: true
+      hsv_ranges:
+        - [0, 0, 175, 179, 45, 255]      # 偏白/浅色主体
+        - [100, 80, 80, 130, 255, 255]   # 蓝白排球的蓝色块
+        - [20, 90, 90, 35, 255, 255]     # 黄白排球的黄色块
+      min_area_ratio: 0.0006
+      max_area_ratio: 0.20
+      aspect_range: [0.6, 1.7]
+      circularity_min: 0.50
+      real_diameter_m: 0.21
+
+    # ---------- 迷你篮筐 ----------
+    - label: hoop
+      type: circle
+      enabled: true
+      hsv_ranges:
+        - [0, 120, 90, 12, 255, 255]     # 篮圈多为红/橙色
+        - [170, 120, 90, 179, 255, 255]
+      dp: 1.2
+      min_dist_ratio: 0.08
+      param1: 120.0
+      param2: 28.0
+      min_radius_ratio: 0.02
+      max_radius_ratio: 0.35
+      real_diameter_m: 0.40
+      require_hollow: true      # 只认空心环，避免把实心球误判成篮筐
+      hollow_max_ratio: 0.75
+
+    # ---------- 传球架顶部圆环（50 分目标，最值钱）----------
+    - label: rack_ring
+      type: circle
+      enabled: true
+      hsv_ranges: []                    # 留空 = 直接在灰度图上找圆（环颜色不定时更稳）
+      dp: 1.2
+      min_dist_ratio: 0.08
+      param1: 120.0
+      param2: 30.0
+      min_radius_ratio: 0.02
+      max_radius_ratio: 0.35
+      real_diameter_m: 0.55
+      require_hollow: true      # 同上；传球架圆环也是空心环
+      hollow_max_ratio: 0.75
+
+    # ---------- 定位柱（规则提供的视觉基准，蓝绿相间）----------
+    - label: pillar
+      type: stripe
+      enabled: true
+      hsv_ranges_a:
+        - [100, 80, 60, 130, 255, 255]  # 蓝
+      hsv_ranges_b:
+        - [40, 60, 60, 85, 255, 255]    # 绿
+      min_total_area_ratio: 0.0008
+      aspect_min: 1.2
+      aspect_max: 12.0
+      x_tolerance_ratio: 0.6
+      real_width_m: 0.20
+
+    # ---------- 可选：ONNX 模型（本机未装 onnxruntime，默认关闭）----------
+    - label: spear
+      type: onnx
+      enabled: false
+      model_path: "/home/user/models/ball.onnx"
+
+# 干扰球不单独建检测器：它就是"非目标球"，
+# 由 rb_mission 根据当前环节决定哪个 label 是目标、哪个是干扰。
+#   传球环节：目标=ball_basketball，干扰=ball_volleyball
+#   投篮环节：目标=ball_volleyball，干扰=ball_basketball

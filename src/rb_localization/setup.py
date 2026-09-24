@@ -15,6 +15,8 @@ setup(
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
     ],
     install_requires=["setuptools"],
+    # 声明它，colcon test 才会用 pytest 跑 test/ 目录
+    tests_require=["pytest"],
     zip_safe=True,
     maintainer="BUPT RobotTeam",
     maintainer_email="team@bupt.edu.cn",

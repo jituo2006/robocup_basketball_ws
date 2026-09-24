@@ -14,5 +14,8 @@
   <depend>cv_bridge</depend>
   <depend>rb_msgs</depend>
 
+  <!-- 测试依赖：colcon test 才会去跑 test/ 下的 pytest -->
+  <test_depend>python3-pytest</test_depend>
+
   <export><build_type>ament_python</build_type></export>
 </package>

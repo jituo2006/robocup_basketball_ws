@@ -25,7 +25,7 @@ if echo "${AMENT_PREFIX_PATH:-}" | grep -q "$WS"; then ok "已加载本工作空
 
 # 2) 构建
 echo -e "${BOLD}[构建]${RST}"
-for p in rb_msgs rb_chassis rb_launcher rb_perception rb_localization rb_mission rb_bringup; do
+for p in rb_msgs rb_chassis rb_launcher rb_camera rb_perception rb_localization rb_mission rb_bringup; do
   if timeout 12 ros2 pkg prefix "$p" >/dev/null 2>&1; then ok "$p 可加载"; else no_sw "$p 找不到" "colcon build --symlink-install"; fi
 done
 
@@ -67,10 +67,42 @@ fi
 
 # 5) 相机
 echo -e "${BOLD}[相机]${RST}"
-if command -v v4l2-ctl >/dev/null 2>&1; then
-  if v4l2-ctl --list-devices 2>/dev/null | grep -q "^/dev/video"; then ok "检测到 V4L2 相机"; else wa "未检测到 V4L2 相机" "相机没插或驱动没装（本机未装 usb_cam）"; fi
+DEV=$(grep -oP '^\s*device:\s*"\K[^"]+' "$WS/src/rb_camera/config/camera.yaml" 2>/dev/null | head -1)
+if [ -n "$DEV" ] && [ -e "$DEV" ]; then
+  ok "相机设备 $DEV 存在"
+  if command -v v4l2-ctl >/dev/null 2>&1; then
+    if v4l2-ctl -d "$DEV" --list-formats 2>/dev/null | grep -q "MJPG"; then
+      ok "支持 MJPG（高分辨率下必须用它，YUYV 会掉到 6~9fps）"
+    else
+      wa "不支持 MJPG" "只能用小分辨率；换相机或降分辨率"
+    fi
+  else
+    wa "无 v4l2-ctl，无法确认格式" "sudo apt install v4l-utils"
+  fi
+  grep -q 'publish_compressed: true' "$WS/src/rb_camera/config/camera.yaml" 2>/dev/null \
+    && ok "JPEG 压缩已开启（原始大图投递只有 ~7fps，必须压缩）" \
+    || wa "publish_compressed 不是 true" "原始大图消息投递只有 ~7fps，改回 true"
+  # 曝光/白平衡是否已锁（HSV 阈值随光照漂移，锁定后才稳定）
+  if command -v v4l2-ctl >/dev/null 2>&1; then
+    # 输出形如 "auto_exposure: 1 (Manual Mode)" / "white_balance_automatic: 0"
+    # 注意结尾可能是 ")"，不能用 [0-9]*$ 去匹配
+    ae=$(v4l2-ctl -d "$DEV" --get-ctrl=auto_exposure 2>/dev/null | sed -n 's/.*: *\([0-9][0-9]*\).*/\1/p')
+    awb=$(v4l2-ctl -d "$DEV" --get-ctrl=white_balance_automatic 2>/dev/null | sed -n 's/.*: *\([0-9][0-9]*\).*/\1/p')
+    if [ "${ae:-3}" = "1" ] && [ "${awb:-1}" = "0" ]; then
+      ok "曝光与白平衡已锁定（颜色标定才能长期有效）"
+    else
+      wa "曝光/白平衡未锁定 (auto_exposure=${ae:-?} white_balance_automatic=${awb:-?})" \
+         "跑 python3 tools/tune_camera.py 调好并写回；见 docs/07 §3.4"
+    fi
+  fi
+  # 内参是否已标定
+  if grep -qP '^\s*fx:\s*0\.0' "$WS/src/rb_camera/config/camera.yaml" 2>/dev/null; then
+    wa "相机内参未标定（fx=0，测距按假定 FOV 估算）" "python3 tools/calibrate_camera.py；见 docs/07 §3.1"
+  else
+    ok "相机内参已标定"
+  fi
 else
-  wa "无 v4l2-ctl，跳过相机检查" "sudo apt install v4l-utils"
+  no_hw "相机设备 ${DEV:-未配置} 不存在" "插好相机；确认 /dev/video0（见 docs/07）"
 fi
 
 # 6) 配置完整性

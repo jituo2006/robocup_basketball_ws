@@ -25,11 +25,11 @@ def _share(pkg, *parts):
 
 
 def generate_launch_description():
-    ws = "/home/user/robocup_basketball_ws"
+    # 夹具已移入 rb_tests 包（测试资产与主代码分离），用 ros2 run 拉起
     return LaunchDescription(
         [
-            ExecuteProcess(cmd=["python3", f"{ws}/tools/fake_board.py"], output="screen"),
-            ExecuteProcess(cmd=["python3", f"{ws}/tools/publish_test_image.py",
+            ExecuteProcess(cmd=["ros2", "run", "rb_tests", "fake_board"], output="screen"),
+            ExecuteProcess(cmd=["ros2", "run", "rb_tests", "publish_test_image",
                                 "--topic", "/camera/image_raw", "--rate", "5.0"],
                            output="screen"),
 
@@ -37,6 +37,9 @@ def generate_launch_description():
                  output="screen",
                  parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),
                               "image_topic": "/camera/image_raw",
+                              # 合成测试图是**原始图**，所以这里必须关掉压缩订阅，
+                              # 否则会去等 /camera/image_raw/compressed（没人发）。
+                              "use_compressed": False,
                               "publish_debug_image": False}]),
             # 假底盘发 /odom，这里覆盖输入源
             Node(package="rb_localization", executable="localization_node", name="rb_localization",

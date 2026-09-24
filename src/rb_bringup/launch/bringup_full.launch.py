@@ -22,11 +22,22 @@ def _share(pkg, *parts):
 def generate_launch_description():
     dry_run = LaunchConfiguration("dry_run")
     image_topic = LaunchConfiguration("image_topic")
+    use_compressed = LaunchConfiguration("use_compressed")
+    camera_device = LaunchConfiguration("camera_device")
 
     return LaunchDescription(
         [
             DeclareLaunchArgument("dry_run", default_value="false"),
             DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
+            DeclareLaunchArgument("use_compressed", default_value="true",
+                                  description="原始大图消息投递只有 ~7fps，默认走 JPEG 压缩图"),
+            DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
+
+            # 相机
+            Node(package="rb_camera", executable="camera_node", name="rb_camera",
+                 output="screen",
+                 parameters=[_share("rb_camera", "config", "camera.yaml"),
+                             {"device": camera_device}]),
 
             # 底盘
             Node(package="rb_chassis", executable="rb_chassis_node", name="rb_chassis",
@@ -44,6 +55,7 @@ def generate_launch_description():
                  output="screen",
                  parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),
                               "image_topic": image_topic,
+                              "use_compressed": use_compressed,
                               "publish_debug_image": True}]),
 
             # 定位

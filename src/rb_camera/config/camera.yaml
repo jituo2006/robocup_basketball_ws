@@ -1,0 +1,80 @@
+# ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
+#    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
+#        parameters=[{"config_file": "<此文件路径>"}]
+# RoboCup 篮球机器人 · 相机配置
+#
+# 本机实测（HD USB Camera, 05a3:9230, UVC 免驱）：
+#   MJPG 1280x720 → 实测 27 fps；MJPG 640x480 → 45 fps
+#   YUYV 1280x720 → 只有 9 fps（所以必须用 MJPG）
+#
+# ⚠️ 必须用 MJPG：FOURCC 要在设置分辨率之前下发（节点代码里已处理）。
+#    如果用 YUYV，高分辨率下帧率会掉到 6~9fps。
+
+camera:
+  device: "/dev/video0"     # UVC 相机的采集节点（/dev/video1 通常是 metadata，别用）
+  width: 1280               # 识别远处球用 1280x720；CPU 吃紧或要更低延迟可改 640x480
+  height: 720
+  fps: 30.0                 # 相机请求帧率（实际由相机能力决定）
+  fourcc: "MJPG"            # MJPG / YUYV，强烈建议 MJPG
+  buffersize: 1             # 驱动缓冲压到 1 → 延迟最小
+  flip: 0                   # 0=不翻转, 1=左右镜像, 2=上下翻转, -1=旋转180°
+  publish_rate_hz: 0.0      # 0 = 不限速（有多少发多少）；设 15 则只发 15Hz
+  reconnect_interval_s: 2.0 # 打不开/掉线后的重试间隔
+  max_read_failures: 15     # 连续读失败多少次就重开相机
+  # QoS 可靠性：
+  #   reliable    （默认）兼容一切订阅者（含 rqt_image_view/RViz 的默认 QoS）
+  #   best_effort 极限低延迟，但默认 QoS 的调试工具会收不到，需手动选 best_effort
+  # 同机通信无丢包 + depth=1，reliable 也不会堆积延迟，所以默认选兼容性最好的 reliable。
+  qos_reliability: "reliable"
+  qos_depth: 1
+
+  # 压缩图（JPEG）。⚠️ 强烈建议保持开启，这是本机实测的关键：
+  #   原始 640x480 (921KB) 的图像消息，订阅端只能收到 ~7fps（即使 best_effort
+  #   + ROS_LOCALHOST_ONLY=1）；而 320x240 (230KB) 就能跑满 30fps。
+  #   说明"大图像消息的投递吞吐"约 7MB/s 是硬瓶颈，与分辨率无关、只看字节数。
+  #   JPEG 把 640x480 压到 ~40KB，30fps 才 1.2MB/s，轻松跑满帧率。
+  #   配套：rb_perception 要用 -p use_compressed:=true 订阅 /camera/image_raw/compressed
+  publish_compressed: true
+  jpeg_quality: 80
+
+# 相机固定项：锁定自动曝光/白平衡。
+#
+# 为什么必须锁：HSV 颜色阈值对光照敏感，而相机的**自动曝光/自动白平衡一直在动**，
+# 会让同一颗球在不同时刻落到不同的 S/V —— 上午标好的阈值下午就不好使。
+# 锁死之后图像稳定，颜色标定一次就能长期有效。
+#
+# ⚠️ 本机实测（这台 HD USB Camera）：自动模式下 exposure_time_absolute 和
+#    white_balance_temperature 都带 flags=inactive，**读不到相机自动算出的值**，
+#    所以曝光/色温只能由这里指定。现场调法：
+#        python3 tools/tune_camera.py        # 实时看画面 + 拖滑块，按 s 写回本文件
+controls:
+  enabled: true
+  lock_exposure: true
+  exposure: 30              # 手动曝光值（1..5000，单位约 100µs）。⚠️ 现场用 tune_camera.py 定
+  lock_white_balance: true
+  white_balance_temperature: 4600   # 2800..6500 K，4600 是这台相机的默认值
+  power_line_frequency: 1   # 1 = 50Hz（国内，抗灯光闪频）；0=禁用 2=60Hz
+  # 以下留空(null) = 不动相机原值；想固定就填数字
+  gain: null
+  brightness: null
+  contrast: null
+  saturation: null
+  sharpness: null
+
+output:
+  image_topic: "/camera/image_raw"
+  compressed_topic: "/camera/image_raw/compressed"
+  camera_info_topic: "/camera/camera_info"
+  frame_id: "camera_link"   # 与车体坐标系的关系，后续接 TF 时再细化
+
+# 相机内参。用 tools/calibrate_camera.py 标定后会写回这里。
+# 全为 0 时节点按 assumed_hfov_deg 估一个（能跑，但单目测距不准）。
+# ⚠️ rb_perception 测距读的是它自己 perception.yaml 里的 camera 段，
+#    所以标定脚本会把内参**同时**写进本文件和 perception.yaml。
+intrinsics:
+  fx: 0.0
+  fy: 0.0
+  cx: 0.0
+  cy: 0.0
+  assumed_hfov_deg: 60.0
+  distortion: [0.0, 0.0, 0.0, 0.0, 0.0]

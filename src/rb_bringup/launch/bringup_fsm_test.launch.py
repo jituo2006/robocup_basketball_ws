@@ -21,10 +21,10 @@ def _share(pkg, *parts):
 
 
 def generate_launch_description():
-    ws = "/home/user/robocup_basketball_ws"
+    # 夹具已移入 rb_tests 包（测试资产与主代码分离），用 ros2 run 拉起
     return LaunchDescription([
-        ExecuteProcess(cmd=["python3", f"{ws}/tools/fake_board.py"], output="screen"),
-        ExecuteProcess(cmd=["python3", f"{ws}/tools/fake_detections.py", "--rate", "10.0"],
+        ExecuteProcess(cmd=["ros2", "run", "rb_tests", "fake_board"], output="screen"),
+        ExecuteProcess(cmd=["ros2", "run", "rb_tests", "fake_detections", "--rate", "10.0"],
                        output="screen"),
         # 假底盘发布的是 /odom（不是雷达的 /Odometry），所以这里覆盖输入话题。
         Node(package="rb_localization", executable="localization_node", name="rb_localization",
