@@ -1,4 +1,0 @@
-Invoking command in '/home/user/robocup_basketball_ws/build/rb_chassis': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/user/robocup_basketball_ws/build/rb_chassis -- -j16 -l16
-Invoked command in '/home/user/robocup_basketball_ws/build/rb_chassis' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/user/robocup_basketball_ws/build/rb_chassis -- -j16 -l16
-Invoking command in '/home/user/robocup_basketball_ws/build/rb_chassis': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/user/robocup_basketball_ws/build/rb_chassis
-Invoked command in '/home/user/robocup_basketball_ws/build/rb_chassis' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/user/robocup_basketball_ws/build/rb_chassis

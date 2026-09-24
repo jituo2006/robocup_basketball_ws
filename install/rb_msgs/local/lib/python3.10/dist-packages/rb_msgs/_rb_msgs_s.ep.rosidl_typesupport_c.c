@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_py/rb_msgs/_rb_msgs_s.ep.rosidl_typesupport_c.c

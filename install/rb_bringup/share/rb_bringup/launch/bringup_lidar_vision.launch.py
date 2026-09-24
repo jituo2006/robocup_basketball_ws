@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/src/rb_bringup/launch/bringup_lidar_vision.launch.py

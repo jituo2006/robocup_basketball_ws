@@ -1,5 +1,19 @@
+# ── ROS 2 编译产物（绝不入库）──
 build/
 install/
 log/
-.vscode/
+
+# ── 测试与工具的输出（每次跑都会变，不该入库）──
+test_artifacts/
+.pytest_cache/
+
+# ── Python ──
+__pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+
+# ── 编辑器 ──
+.vscode/
+.idea/
+*.swp

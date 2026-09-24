@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_c/rb_msgs/msg/detail/robot_state__functions.h

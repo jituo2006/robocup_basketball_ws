@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_typesupport_fastrtps_c/rb_msgs/msg/detail/mission_status__rosidl_typesupport_fastrtps_c.h

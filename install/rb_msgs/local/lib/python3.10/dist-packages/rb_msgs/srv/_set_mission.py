@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_py/rb_msgs/srv/_set_mission.py

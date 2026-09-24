@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_generator_c/rb_msgs/msg/rosidl_generator_c__visibility_control.h

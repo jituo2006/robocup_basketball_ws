@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake

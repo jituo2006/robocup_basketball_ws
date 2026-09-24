@@ -1,1 +1,0 @@
-/home/user/robocup_basketball_ws/build/rb_msgs/rosidl_typesupport_introspection_cpp/rb_msgs/msg/detail/robot_state__rosidl_typesupport_introspection_cpp.hpp

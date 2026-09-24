@@ -1,6 +1,0 @@
-[INFO] [1790084367.041675033] [rb_chassis]: Chassis 已就绪: odom=/odom cmd_vel=/cmd_vel timeout=200ms
-[INFO] [1790084367.041737406] [rb_chassis]: 底盘参数: 限速=1.00 限加速=100.00 轮距=0.400x0.400 轮径=0.100 减速比=1.00
-[WARN] [1790084367.041960184] [rb_chassis]: dry_run 模式：跳过电机使能，只做运动学解算（无 CAN 输出）
-[WARN] [1790084367.041970028] [rb_chassis]: cmd_vel 超时 200ms，已下发零轮速
-[WARN] [1790084367.102168582] [rb_chassis]: 尚未收到里程计，yaw 按 0 处理（指令将作为车体系速度下发）。若定位未起来，这是预期行为。
-[INFO] [1790084367.244707128] [rclcpp]: signal_handler(signum=2)
