@@ -504,17 +504,30 @@ class MissionNode(Node):
             poly = (self.field.get("pass_zone", {}) or {}).get("polygon", [])
             return point_in_polygon(x, y, poly)
         if self.mission == "SHOOT":
-            # 投篮必须在投篮边界线外
-            return dist_hoop >= float(self.field.get("shoot_line_radius_m", 3.0))
+            # 投篮必须在**投篮边界线**外（10 分/次；线内只有 5 分）。
+            # 该圆以篮筐为圆心（2025 规则第 367 行），所以用 dist_hoop。
+            return dist_hoop >= float(self.field.get("shoot_line_radius_m", 2.0))
         return True
 
     def is_three_point(self) -> bool:
+        """是否在三分线外（决定**命中分**是 30 分还是 10 分）。
+
+        ⚠️ 三分线的圆心**不是篮筐**：2025 规则第 254-255 行说
+        "以右侧底线中点向场内 3 米点为圆心、半径 3.75 米"，与篮筐相差 1.425m。
+        以前这里用篮筐当圆心（且默认半径 6.0），会把 30 分档判错。
+
+        优先用 `field.three_point_center`；没配时才退回以篮筐为圆心（兼容旧配置）。
+        """
         if not self.has_pose:
             return False
-        hoop = self.field.get("hoop", {}) or {}
-        hx, hy = float(hoop.get("x", 0.0)), float(hoop.get("y", 0.0))
+        c = self.field.get("three_point_center", {}) or {}
+        if "x" in c and "y" in c:
+            cx, cy = float(c["x"]), float(c["y"])
+        else:
+            hoop = self.field.get("hoop", {}) or {}
+            cx, cy = float(hoop.get("x", 0.0)), float(hoop.get("y", 0.0))
         x, y, _ = self.last_pose
-        return math.hypot(x - hx, y - hy) >= float(self.field.get("three_point_radius_m", 6.0))
+        return math.hypot(x - cx, y - cy) >= float(self.field.get("three_point_radius_m", 3.75))
 
     def _call_launcher(self) -> None:
         action = LAUNCH_SHOOT if self.mission == "SHOOT" else LAUNCH_SHOOT
@@ -626,7 +639,7 @@ class MissionNode(Node):
             hx, hy = float(hoop.get("x", 0.0)), float(hoop.get("y", 0.0))
             d = math.hypot(x - hx, y - hy)
             state.in_pass_zone = point_in_polygon(x, y, (self.field.get("pass_zone", {}) or {}).get("polygon", []))
-            state.in_shoot_zone_outside = d >= float(self.field.get("shoot_line_radius_m", 3.0))
+            state.in_shoot_zone_outside = d >= float(self.field.get("shoot_line_radius_m", 2.0))
         self.state_pub.publish(state)
 
     def _score_estimate(self) -> int:
