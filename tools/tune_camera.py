@@ -38,6 +38,10 @@ import time
 from pathlib import Path
 
 import cv2
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ 不是包，按目录导入
+from gui_guard import WindowGuard  # noqa: E402
 import numpy as np
 import yaml
 
@@ -152,6 +156,7 @@ def main() -> int:
 
     # 建窗口 + 滑块（OpenCV 滑块只能是 0..N，所以用 offset 映射真实范围）
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
+    guard = WindowGuard(WIN)
     ranges: dict[str, tuple[str, int, int]] = {}
     pending: dict[str, int] = {}
     touched: set[str] = set()
@@ -246,11 +251,9 @@ def main() -> int:
                         info = "已保存"
                     else:
                         print("  ⚠️ 没有可保存的值")
-            try:
-                if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1:
-                    break
-            except Exception:  # noqa: BLE001
-                pass
+            if guard.closed():
+                print("  检测到窗口被关闭，退出")
+                break
     except KeyboardInterrupt:
         pass
     finally:

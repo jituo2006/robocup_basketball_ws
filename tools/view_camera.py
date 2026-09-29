@@ -32,6 +32,10 @@ import time
 from pathlib import Path
 
 import cv2
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ 不是包，按目录导入
+from gui_guard import WindowGuard  # noqa: E402
 import numpy as np
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -196,7 +200,7 @@ def main() -> int:
     waited = 0.0
     saved_note = ""
     t_start = time.time()
-    was_visible = False
+    guard = WindowGuard(win)
     try:
         while rclpy.ok():
             if args.duration > 0 and time.time() - t_start >= args.duration:
@@ -234,15 +238,7 @@ def main() -> int:
             if key == ord("d"):
                 node.show_dets = not node.show_dets
                 print(f"  检测框显示: {'开' if node.show_dets else '关'}")
-            # 只在"窗口曾经可见、现在不可见"时才认定用户关了窗口。
-            # 直接判断 <1 会在窗口尚未映射时误触发（无头/自动化环境必现）。
-            try:
-                visible = cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE)
-            except Exception:  # noqa: BLE001
-                visible = 1.0
-            if visible >= 1:
-                was_visible = True
-            elif was_visible:
+            if guard.closed():
                 break  # 用户点了窗口关闭按钮
     except KeyboardInterrupt:
         pass

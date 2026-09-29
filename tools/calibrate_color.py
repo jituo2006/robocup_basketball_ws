@@ -35,6 +35,10 @@ import sys
 from pathlib import Path
 
 import cv2
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ 不是包，按目录导入
+from gui_guard import WindowGuard  # noqa: E402
 import numpy as np
 import yaml
 
@@ -264,6 +268,7 @@ def sample_from_live(device: str, width: int, height: int,
 
     rois: list[np.ndarray] = []
     win = "calibrate_color  SPACE=sample(框选球)  c=apply  q=quit"
+    guard = WindowGuard(win)
     print("\n把球放进取景框：空格冻结画面 → 拖框框住球 → 回车。")
     print("建议采 3~5 次（不同角度、亮面/暗面、不同距离）。c=计算并写回，q=退出\n")
     last_frame = None
@@ -292,11 +297,9 @@ def sample_from_live(device: str, width: int, height: int,
                     s = _roi_to_hsv_samples(frame[y:y + h, x:x + w], shape)
                     rois.append(s)
                     print(f"  已采样 {len(rois)} 个（框 {w}x{h}，取 {s.shape[0]} 像素，{shape}）")
-            try:
-                if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
-                    break
-            except Exception:  # noqa: BLE001
-                pass
+            if guard.closed():
+                print("  检测到窗口被关闭，退出")
+                break
     finally:
         cap.release()
         cv2.destroyAllWindows()
@@ -323,8 +326,8 @@ def sample_from_image(path: str, rect: str, shape: str = "ellipse") -> tuple[np.
 
 
 # ---------------------------------------------------------------------------
-def validate(frame: np.ndarray, ranges: list[list[int]], label: str) -> None:
-    """用推导出的阈值：① 跑真检测器 ② 出对照图，肉眼确认误检。"""
+def validate(frame: np.ndarray, ranges: list[list[int]], label: str) -> float:
+    """用推导出的阈值：① 跑真检测器 ② 出对照图，肉眼确认误检。返回掩码占全图百分比。"""
     mask = mask_from_ranges(frame, ranges)
     h, w = frame.shape[:2]
     cover = float((mask > 0).sum()) / (h * w) * 100
@@ -357,6 +360,7 @@ def validate(frame: np.ndarray, ranges: list[list[int]], label: str) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), vis)
     print(f"  对照图(原图|掩码|叠加): {out}")
+    return cover
 
 
 def main() -> int:
@@ -373,6 +377,9 @@ def main() -> int:
     ap.add_argument("--shape", default="ellipse", choices=["ellipse", "rect"],
                     help="ROI 内采样形状：ellipse=内接椭圆（球用这个，默认），rect=内缩矩形")
     ap.add_argument("--dry-run", action="store_true", help="只显示不写回")
+    ap.add_argument("--max-coverage", type=float, default=15.0,
+                    help="掩码占全图的上限%%，超过就拒绝写入（防框选太松，默认 15）")
+    ap.add_argument("--force", action="store_true", help="忽略覆盖率检查，强制写入")
     args = ap.parse_args()
 
     # 默认用生产分辨率（和 camera.yaml 一致）
@@ -406,8 +413,25 @@ def main() -> int:
     for r in ranges:
         print(f"  - [{r[0]}, {r[1]}, {r[2]}, {r[3]}, {r[4]}, {r[5]}]")
     print()
-    validate(frame, ranges, args.label)
+    cover = validate(frame, ranges, args.label)
     print()
+
+    # ── 质量闸门 ──
+    # 覆盖率过高 = 阈值把大片背景也算成目标了。这几乎总是因为**框选太松**
+    # （球只占框里一小块，周围全是地板/桌子），推导出来的其实是背景的颜色。
+    # 实测踩过：排球被标成 [13, 0, 19, 32, 255, 255]（饱和度下限 0），
+    # 结果整块地板都当成排球，画面上到处是排球框。
+    if cover > args.max_coverage and not args.force:
+        print(f"\033[31m✗ 拒绝写入\033[0m 掩码占全图 {cover:.1f}% > 上限 {args.max_coverage:.0f}%")
+        print("   这说明阈值把背景也算进去了，几乎肯定是**框选太松**。")
+        print("   请重跑，框得**紧一点**：让球占满框的 70% 以上，尽量不带地板/桌面。")
+        print("   建议采 3~5 次，且每次把球放在不同位置/光照下。")
+        print(f"   确实想写就加 --force（或调 --max-coverage）。")
+        return 2
+    if cover > args.max_coverage * 0.6:
+        print(f"\033[33m⚠️ 掩码占全图 {cover:.1f}%，偏高\033[0m —— 建议框得更紧一点再重跑，"
+              f"或者用 view_camera 确认不会误检背景。")
+
     write_ranges(args.label, ranges, args.dry_run)
 
     if not args.dry_run:

@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import argparse
 import glob
+import math
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -50,6 +52,49 @@ PERCEPTION_YAML = WS / "src" / "rb_perception" / "config" / "perception.yaml"
 # ---------------------------------------------------------------------------
 # 棋盘格生成
 # ---------------------------------------------------------------------------
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ 不是包，按目录导入
+from gui_guard import WindowGuard  # noqa: E402
+
+
+def make_board_pdf(path: str, cols: int, rows: int, square_mm: float, paper: str) -> None:
+    """生成**带真实物理尺寸**的棋盘格 PDF（推荐用这个打印）。
+
+    为什么必须提供 PDF：`cv2.imwrite` 写的 PNG **不带 DPI/物理尺寸元数据**，
+    打印软件只能自己猜（常见猜 72 / 96 / 150 dpi）。猜错就会出现"选了实际大小
+    却打印成放大/裁切"的结果 —— 本项目就踩过：打印出来的棋盘只有 5~6 格宽而不是
+    10 格，导致 9x6 的角点检测完全失效。
+
+    PDF 的页面尺寸是真实物理单位（mm），任何打印软件都按它走，100% 打印即准确。
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    sizes = {"A4": (210.0, 297.0), "A3": (297.0, 420.0), "Letter": (215.9, 279.4)}
+    pw, ph = sizes.get(paper, sizes["A4"])
+
+    fig = plt.figure(figsize=(pw / 25.4, ph / 25.4))          # 英寸
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, pw)
+    ax.set_ylim(0, ph)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    bw, bh = (cols + 1) * square_mm, (rows + 1) * square_mm
+    x0, y0 = (pw - bw) / 2.0, (ph - bh) / 2.0
+    for r in range(rows + 1):
+        for c in range(cols + 1):
+            if (r + c) % 2 == 0:      # 黑格
+                ax.add_patch(Rectangle((x0 + c * square_mm, y0 + r * square_mm),
+                                       square_mm, square_mm,
+                                       facecolor="black", edgecolor="none"))
+    fig.savefig(path, format="pdf")
+    plt.close(fig)
+
+
 def make_board_image(cols: int, rows: int, square_mm: float, dpi: int, paper: str) -> np.ndarray:
     """生成可 1:1 打印的棋盘格。
 
@@ -97,6 +142,37 @@ def find_corners(gray: np.ndarray, pattern: tuple[int, int]) -> np.ndarray | Non
     return cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
 
 
+def sharpness(gray: np.ndarray) -> float:
+    """拉普拉斯方差：越大越清晰。实测 <40 基本是失焦/离太近，>120 算清晰。"""
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def focus_hint(s: float) -> tuple[str, tuple[int, int, int]]:
+    if s < 40:
+        return "严重模糊：离太近/失焦", (0, 0, 255)
+    if s < 120:
+        return "偏软", (0, 165, 255)
+    return "清晰", (0, 255, 0)
+
+
+def detect_preview(gray: np.ndarray, pattern: tuple[int, int],
+                   scale: float = 0.5) -> np.ndarray | None:
+    """预览用的**快速**棋盘检测：降采样后再找，坐标放大回原分辨率。
+
+    为什么必须这样：全分辨率 1280x720 跑一次 find_corners 要 **~155ms**（实测），
+    预览若每帧都做，循环被拖到 6fps —— 表现就是"画面很卡"。
+    降采样一半只要 ~50ms，配合调用方限频，预览就顺了。
+
+    ⚠️ 这里精度有限，**只用于状态显示与姿态判断**；
+       真正要存下来做标定的那一次必须用全分辨率重跑（见调用处）。
+    """
+    small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    c = find_corners(small, pattern)
+    if c is None:
+        return None
+    return c / scale
+
+
 # ---------------------------------------------------------------------------
 # 采集
 # ---------------------------------------------------------------------------
@@ -140,8 +216,13 @@ def capture_live(device: str, width: int, height: int, pattern: tuple[int, int])
     objpoints, imgpoints = [], []
     shape = (0, 0)
     win = "calibrate_camera  SPACE=capture  c=compute  u=undo  q=quit"
+    guard = WindowGuard(win)
     print("\n把棋盘格放进取景框：远/近、四角、左右倾斜各拍几张，共 15~25 张。")
     print("空格=拍一张   c=计算   u=撤销上一张   q=退出\n")
+    detect_interval = 0.25      # 预览检测限频（全分辨率单次 ~155ms，不限频就会卡）
+    last_detect = 0.0
+    c_preview = None
+    fps_t, fps_n, fps_val = time.time(), 0, 0.0
     try:
         while True:
             ok, frame = cap.read()
@@ -149,8 +230,12 @@ def capture_live(device: str, width: int, height: int, pattern: tuple[int, int])
                 continue
             shape = frame.shape[1], frame.shape[0]
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            c = find_corners(gray, pattern)
             vis = frame.copy()
+            now = time.time()
+            if now - last_detect >= detect_interval:
+                c_preview = detect_preview(gray, pattern)   # 降采样快速检测
+                last_detect = now
+            c = c_preview
             if c is not None:
                 cv2.drawChessboardCorners(vis, pattern, c, True)
                 cv2.putText(vis, "FOUND - press SPACE", (10, 30),
@@ -160,6 +245,16 @@ def capture_live(device: str, width: int, height: int, pattern: tuple[int, int])
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2, cv2.LINE_AA)
             cv2.putText(vis, f"captured: {len(objpoints)}", (10, 65),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            fps_n += 1
+            if now - fps_t >= 0.5:
+                fps_val = fps_n / (now - fps_t)
+                fps_t, fps_n = now, 0
+            sh = sharpness(gray)
+            ftxt, fcol = focus_hint(sh)
+            cv2.putText(vis, f"focus {sh:5.0f}  {ftxt}   preview {fps_val:4.1f} fps",
+                        (10, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(vis, f"focus {sh:5.0f}  {ftxt}   preview {fps_val:4.1f} fps",
+                        (10, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.6, fcol, 1, cv2.LINE_AA)
             cv2.imshow(win, vis)
 
             key = cv2.waitKey(1) & 0xFF
@@ -170,18 +265,237 @@ def capture_live(device: str, width: int, height: int, pattern: tuple[int, int])
                 imgpoints.pop()
                 print(f"  撤销一张，剩 {len(objpoints)}")
             if key == ord(" ") and c is not None:
-                objpoints.append(objp)
-                imgpoints.append(c)
-                print(f"  已拍 {len(objpoints)} 张")
+                full = find_corners(gray, pattern)   # 存档前用全分辨率重跑，保证精度
+                if full is not None:
+                    objpoints.append(objp)
+                    imgpoints.append(full)
+                    print(f"  已拍 {len(objpoints)} 张（focus={sh:.0f}）")
             if key == ord("c"):
                 if len(objpoints) >= 6:
                     break
                 print(f"  还太少（{len(objpoints)} 张），至少 6 张，建议 15 张以上")
-            try:
-                if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
-                    break
-            except Exception:  # noqa: BLE001
-                pass
+            if guard.closed():
+                print("  检测到窗口被关闭，退出")
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+    return objpoints, imgpoints, shape
+
+
+# -- 自动采集（推荐）--------------------------------------------------------
+def _pose_signature(corners: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """把一次棋盘检出压成 4 维特征：[中心x, 中心y, 尺度, 旋转角]（前两个已归一化）。"""
+    h, w = shape[:2]
+    pts = corners.reshape(-1, 2)
+    cx, cy = float(pts[:, 0].mean()) / w, float(pts[:, 1].mean()) / h
+    x0, y0 = pts.min(axis=0)
+    x1, y1 = pts.max(axis=0)
+    scale = math.sqrt(max(float(x1 - x0) * float(y1 - y0), 1.0)) / min(w, h)
+    v = pts[len(pts) // 2] - pts[0]
+    ang = math.atan2(float(v[1]), float(v[0]))
+    return np.array([cx, cy, scale, ang])
+
+
+def _too_similar(sig: np.ndarray, existing: list[np.ndarray], thresh: float) -> bool:
+    """与已拍的某一张太像就算重复（位置权重最高，其次是尺度和倾角）。"""
+    for s in existing:
+        d = math.hypot(sig[0] - s[0], sig[1] - s[1]) * 2.5
+        d += abs(sig[2] - s[2]) * 3.0
+        d += abs(math.atan2(math.sin(sig[3] - s[3]), math.cos(sig[3] - s[3]))) / math.pi
+        if d < thresh:
+            return True
+    return False
+
+
+def probe_pattern(device: str, width: int, height: int,
+                  max_cols: int = 12, max_rows: int = 9) -> tuple[int, int] | None:
+    """对着棋盘格**自动探测它实际有多少内角点**。
+
+    用途：打印被缩放/裁切、或拿到一块不知道规格的板子时，不用猜 `--cols/--rows`。
+    把板子放在相机前，它会从大到小试各种格数，屏幕上显示当前能检出的最大图案。
+    """
+    cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+    if not cap.isOpened():
+        raise SystemExit(f"✗ 打不开相机 {device}（rb_camera 还在跑？先停掉它）")
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    win = "probe chessboard  (q=quit)"
+    guard = WindowGuard(win)
+    print("\n把棋盘格对准相机（尽量正对、占画面一半以上）。")
+    print("会从大到小试各种格数，屏幕左上角显示当前检出的最大图案。q 退出。\n")
+    last = time.time()
+    best: tuple[int, int] | None = None
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # 穷举十几种格数，若都用全分辨率(155ms/次)会卡住 1.5 秒以上 →
+            # 这里只在降采样图上探测（识别够用），确定后再用全分辨率画一次
+            small = cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+            now = time.time()
+            if now - last > 0.5:
+                last = now
+                for cols in range(max_cols, 2, -1):
+                    hit = None
+                    for rows in range(min(cols, max_rows), 2, -1):
+                        c = find_corners(small, (cols, rows))
+                        if c is not None:
+                            hit = (cols, rows, c)
+                            break
+                    if hit:
+                        best = (hit[0], hit[1])
+                        break
+            vis = frame.copy()
+            if best:
+                c = find_corners(gray, best)
+                if c is not None:
+                    cv2.drawChessboardCorners(vis, best, c, True)
+                txt = (f"FOUND {best[0]}x{best[1]} inner corners "
+                       f"= {best[0]+1}x{best[1]+1} squares  -> use --cols {best[0]} --rows {best[1]}")
+                col = (0, 255, 0)
+            else:
+                txt = "no chessboard found (larger? better lighting? flatter?)"
+                col = (0, 165, 255)
+            cv2.putText(vis, txt, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(vis, txt, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 1, cv2.LINE_AA)
+            cv2.imshow(win, vis)
+            if (cv2.waitKey(1) & 0xFF) in (ord("q"), 27):
+                break
+            if guard.closed():
+                print("  检测到窗口被关闭，退出")
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+    if best:
+        print(f"\n  ✅ 检出最大图案：{best[0]}x{best[1]} 内角点 = "
+              f"{best[0]+1}x{best[1]+1} 方格")
+        print(f"     标定请用：--cols {best[0]} --rows {best[1]}")
+    else:
+        print("\n  ❌ 没检出任何棋盘图案。检查：板子是否平、光照是否够、是否整块入镜")
+    return best
+
+
+def capture_auto(device: str, width: int, height: int, pattern: tuple[int, int],
+                 target_count: int = 20, min_interval: float = 0.30,
+                 diff_thresh: float = 0.10):
+    """自动采集：你只管举着棋盘格**变换角度**，它自己挑"够不一样"的帧拍下来。
+
+    为什么需要：标定精度取决于**姿态多样性**，尤其是倾斜——平面标定在正对相机时
+    存在"焦距-尺度退化"（板子放大一倍、距离远一倍，图像一样），必须靠倾斜打破。
+    手动按空格很容易连拍十几张几乎一样的正对姿态，标出来 RMS 看着还行但焦距是错的。
+    这里用 4 维姿态特征做去重，自动保证多样性。
+
+    操作：举着板子慢慢靠近/远离/左右移/上下俯仰/左右倾斜，拍够 target_count 张自动结束。
+          q/Ctrl-C 随时退出，c 用当前已拍的立刻计算。
+    """
+    cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+    if not cap.isOpened():
+        raise SystemExit(f"✗ 打不开相机 {device}（rb_camera 还在跑？先停掉它）")
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    objp = np.zeros((pattern[0] * pattern[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:pattern[0], 0:pattern[1]].T.reshape(-1, 2)
+
+    objpoints: list = []
+    imgpoints: list = []
+    sigs: list[np.ndarray] = []
+    shape = (0, 0)
+    last_t = 0.0
+    win = "calibrate_camera AUTO   q=quit  c=compute now"
+
+    guard = WindowGuard(win)
+    print(f"\n自动采集：目标 {target_count} 张。请举着棋盘格：")
+    print("  ① 慢慢靠近 / 远离   ② 移到画面四角   ③ 上下俯仰、左右倾斜（最重要）")
+    print("  拍够会自动结束；q 退出，c 用已拍的立刻计算\n")
+
+    detect_interval = 0.25      # 预览检测限频（全分辨率单次 ~155ms，不限频就卡）
+    last_detect = 0.0
+    c_preview = None
+    fps_t, fps_n, fps_val = time.time(), 0, 0.0
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            shape = frame.shape[1], frame.shape[0]
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            vis = frame.copy()
+            now = time.time()
+            # 预览检测：降采样 + 限频，保证画面流畅（否则被 155ms/次拖到 6fps）
+            if now - last_detect >= detect_interval:
+                c_preview = detect_preview(gray, pattern)
+                last_detect = now
+            c = c_preview
+            status = "searching board..."
+            color = (0, 165, 255)
+
+            if c is not None:
+                cv2.drawChessboardCorners(vis, pattern, c, True)
+                if now - last_t >= min_interval:
+                    sig = _pose_signature(c, frame.shape)
+                    if _too_similar(sig, sigs, diff_thresh):
+                        status = "too similar - change angle/distance"
+                    else:
+                        # 真正要存下来 → 用全分辨率重跑一次，保证角点精度
+                        full = find_corners(gray, pattern)
+                        if full is not None:
+                            objpoints.append(objp)
+                            imgpoints.append(full)
+                            sigs.append(_pose_signature(full, frame.shape))
+                            last_t = now
+                            status = f"CAPTURED #{len(objpoints)}"
+                            color = (0, 255, 0)
+                            print(f"  已拍 {len(objpoints):2d}/{target_count}  "
+                                  f"中心({sig[0]:.2f},{sig[1]:.2f}) 尺度{sig[2]:.2f} "
+                                  f"倾角{sig[3]:+.2f}  focus={sharpness(gray):.0f}")
+                else:
+                    status = "ok (waiting interval)"
+                    color = (0, 255, 0)
+
+            cv2.putText(vis, status, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2, cv2.LINE_AA)
+            cv2.putText(vis, f"captured {len(objpoints)}/{target_count}", (10, 62),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
+            fps_n += 1
+            if now - fps_t >= 0.5:
+                fps_val = fps_n / (now - fps_t)
+                fps_t, fps_n = now, 0
+            sh = sharpness(gray)
+            ftxt, fcol = focus_hint(sh)
+            cv2.putText(vis, f"focus {sh:5.0f}  {ftxt}   preview {fps_val:4.1f} fps",
+                        (10, 101), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(vis, f"focus {sh:5.0f}  {ftxt}   preview {fps_val:4.1f} fps",
+                        (10, 101), cv2.FONT_HERSHEY_SIMPLEX, 0.6, fcol, 1, cv2.LINE_AA)
+            # 进度条
+            frac = min(1.0, len(objpoints) / max(target_count, 1))
+            cv2.rectangle(vis, (10, 74), (10 + int(220 * frac), 86), (0, 255, 0), -1)
+            cv2.rectangle(vis, (10, 74), (230, 86), (255, 255, 255), 1)
+            cv2.imshow(win, vis)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            if key == ord("c") and objpoints:
+                break
+            if len(objpoints) >= target_count:
+                print(f"\n  已拍满 {target_count} 张，开始计算")
+                break
+            if guard.closed():
+                print("  检测到窗口被关闭，退出")
+                break
+    except KeyboardInterrupt:
+        print("\n  中断，用已拍的继续计算")
     finally:
         cap.release()
         cv2.destroyAllWindows()
@@ -263,6 +577,8 @@ def main() -> int:
     dev0, w0, h0 = read_production_resolution()
     ap = argparse.ArgumentParser(description="相机内参标定")
     ap.add_argument("--print-board", action="store_true", help="生成可 1:1 打印的棋盘格后退出")
+    ap.add_argument("--pdf", action="store_true",
+                    help="生成 PDF（推荐！带真实物理尺寸，打印不会被缩放/裁切）")
     ap.add_argument("--cols", type=int, default=9, help="内角点数（列），默认 9")
     ap.add_argument("--rows", type=int, default=6, help="内角点数（行），默认 6")
     ap.add_argument("--square", type=float, default=20.0, help="方格边长 mm，默认 20（A4 能放下）")
@@ -270,33 +586,59 @@ def main() -> int:
     ap.add_argument("--paper", default="A4", choices=["A4", "A3", "Letter"])
     ap.add_argument("--out", default="", help="--print-board 的输出路径")
     ap.add_argument("--images", default="", help="从文件夹读图（不实时采集）")
+    ap.add_argument("--auto", action="store_true",
+                    help="自动采集（推荐）：举着棋盘格变换角度，自动挑够不一样的帧")
+    ap.add_argument("--auto-count", type=int, default=20, help="自动采集目标张数，默认 20")
+    ap.add_argument("--diff-thresh", type=float, default=0.10,
+                    help="自动采集的去重阈值，越小越严格（默认 0.10）")
     ap.add_argument("--device", default=dev0)
     ap.add_argument("--width", type=int, default=w0)
     ap.add_argument("--height", type=int, default=h0)
+    ap.add_argument("--probe", action="store_true",
+                    help="自动探测棋盘格实际有多少内角点（不知道板子规格时用）")
     ap.add_argument("--no-write", action="store_true", help="只标定不写回配置")
     args = ap.parse_args()
 
     pattern = (args.cols, args.rows)
 
     if args.print_board:
-        img = make_board_image(args.cols, args.rows, args.square, args.dpi, args.paper)
-        out = args.out or str(WS / "test_artifacts" / "chessboard.png")
+        n_col = args.cols + 1
+        n_row = args.rows + 1
+        out = args.out or str(WS / "test_artifacts" /
+                              ("chessboard.pdf" if args.pdf else "chessboard.png"))
         Path(out).parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(out, img)
-        mm_w = img.shape[1] / (args.dpi / 25.4)
-        mm_h = img.shape[0] / (args.dpi / 25.4)
+        if args.pdf or out.lower().endswith(".pdf"):
+            make_board_pdf(out, args.cols, args.rows, args.square, args.paper)
+            kind = "PDF（带真实物理尺寸）"
+        else:
+            img = make_board_image(args.cols, args.rows, args.square, args.dpi, args.paper)
+            cv2.imwrite(out, img)
+            kind = f"PNG @ {args.dpi}dpi（⚠️ 无 DPI 元数据，打印软件可能猜错）"
         print(f"✓ 棋盘格已生成: {out}")
-        print(f"  {args.cols}x{args.rows} 内角点（{args.cols + 1}x{args.rows + 1} 方格），"
-              f"方格 {args.square}mm，{args.paper} @ {args.dpi}dpi（{mm_w:.0f}x{mm_h:.0f}mm）")
-        print("  打印时务必选【实际大小 / 100%】，不要'适应页面'缩小，否则尺寸对不上；")
-        print("  打完用尺子量一下方格是不是 20mm。然后贴到硬纸板上保证平整。")
+        print(f"  {args.cols}x{args.rows} 内角点（{n_col}x{n_row} 方格），"
+              f"方格 {args.square}mm，{args.paper}，{kind}")
+        print()
+        print(f"  ⚠️ 打印后必做两项核对（这是唯一可靠的验收方式，别跳过）：")
+        print(f"     ① 用尺子量一个方格，必须是 {args.square:g}mm（不是就说明被缩放了）")
+        print(f"     ② 数一下横向有 {n_col} 个方格（不是就说明被裁切了）")
+        print(f"  满足这两条，标定时就用默认的 --cols {args.cols} --rows {args.rows}")
+        print(f"  另外：贴到硬纸板/亚克力板上保证平整，皱了会显著拉高 RMS。")
+        return 0
+
+    if args.probe:
+        probe_pattern(args.device, args.width, args.height)
         return 0
 
     if args.images:
         print(f"从 {args.images} 读图…")
         objpoints, imgpoints, shape = load_from_images(args.images, pattern)
+    elif args.auto:
+        print(f"自动采集: {args.device} {args.width}x{args.height}（与 camera.yaml 一致）")
+        objpoints, imgpoints, shape = capture_auto(
+            args.device, args.width, args.height, pattern,
+            target_count=args.auto_count, diff_thresh=args.diff_thresh)
     else:
-        print(f"实时采集: {args.device} {args.width}x{args.height}（与 camera.yaml 一致）")
+        print(f"手动采集: {args.device} {args.width}x{args.height}（与 camera.yaml 一致）")
         objpoints, imgpoints, shape = capture_live(args.device, args.width, args.height, pattern)
 
     if len(objpoints) < 6:
