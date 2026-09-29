@@ -2,6 +2,7 @@
 # tools/make_test_image.py 的合成图用的是硬编码标准色，而 calibrate_color.py 会把
 # 生产配置改成真球颜色。2026 规则各队自带球，真球可能不是橙色 → 合成图会检不出，
 # verify_offline.py 的视觉项就会误报失败。所以离线自检固定读这一份。
+# 另外这里把 ONNX 检测器关了：自检不该依赖 ~/models 下的外部模型文件。
 # 别手工改这里；要改生产阈值请改 perception.yaml。
 # ───────────────────────────────────────────────────────────────
 # ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
@@ -56,8 +57,8 @@ perception:
       type: blob
       enabled: true
       hsv_ranges:
-        - [100, 80, 80, 130, 255, 255]
-        - [20, 100, 100, 35, 255, 255]
+        - [17, 10, 55, 31, 255, 255]
+        - [104, 46, 0, 121, 255, 255]
       min_area_ratio: 0.0006
       max_area_ratio: 0.20
       aspect_range: [0.6, 1.7]
@@ -128,24 +129,26 @@ perception:
     #   class_map: {类别id:    工程label}
     - label: yolo
       type: onnx
-      enabled: true
-      model_path: "/home/user/models/yolov8n.onnx"
-      conf_threshold: 0.30
+      enabled: false   # 离线自检不依赖外部 ONNX 模型
+      # 自训 2 类模型：basketball / volleyball
+      #   names: {0: 'basketball', 1: 'volleyball'}   输出 (1, 6, 8400) = 4框+2类
+      #   ⚠️ 输入是**固定 640x640**（元数据 imgsz=[640,640]，非动态），
+      #      所以 input_size 必须也给 640；填小值会因形状不匹配直接报错。
+      model_path: "/home/user/models/ball.onnx"
+      conf_threshold: 0.35
       iou_threshold: 0.45
-      # ⚠️ 输入尺寸是性能的关键杠杆（本机 CPU 实测 yolov8n）：
-      #     640→28ms  512→20ms  416→13.5ms  320→9ms
-      #    640 会把感知整体拖到 ~14fps；416 能保住 40fps 以上。
-      #    远处小球靠像素密度仍够（球直径 24cm，3m 处 416 输入下约 17px）。
-      input_size: 416
-      # YOLO 是 CPU 大头。球在相邻帧间位移很小，没必要每帧都推理：
-      #   1 = 每帧（最准，19fps）；2 = 隔帧复用上次结果（约 23fps）；3 = 更省
+      input_size: 640
+      # YOLO 是 CPU 大头（640 输入单次约 28ms）。球在相邻帧间位移很小，
+      # 没必要每帧都推理：2 = 隔帧复用上次结果。
       every_n_frames: 2
-      real_diameter_m: 0.24       # 单目测距用；各类尺寸不同可用 class_real_size: {label: 米}
-      # 只保留下面映射过的类别。COCO 有 80 类，不筛的话 person/chair/cat
-      # 会混进检测结果，还会被按篮球尺寸算出荒谬距离。
+      # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
+      real_diameter_m: 0.24
+      class_real_size: {ball_basketball: 0.24, ball_volleyball: 0.21}
+      # 只保留映射过的类别，其余一律丢弃
       only_mapped: true
       name_map:
-        sports ball: ball_unknown
+        basketball: ball_basketball
+        volleyball: ball_volleyball
 
 # 干扰球不单独建检测器：它就是"非目标球"，
 # 由 rb_mission 根据当前环节决定哪个 label 是目标、哪个是干扰。
