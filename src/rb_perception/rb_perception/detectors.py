@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
@@ -435,11 +436,43 @@ class StripeDetector(BaseDetector):
         return out
 
 
-class OnnxDetector(BaseDetector):
-    """可选：ONNX 目标检测（需自行安装 onnxruntime）。
+# 框内颜色分类的默认规则：[h_lo, h_hi, s_lo, v_lo]（OpenCV H 0..179）
+# 用于"YOLO 找到球 → 看框内主色 → 判断篮球还是排球"。
+# 为什么需要：全图 HSV 阈值会把墙面/地板误判成球（实测排球阈值命中 71% 画面），
+# 而**框内**是干净的 ROI，判断"偏橙还是偏蓝/黄"要可靠得多。
+_DEFAULT_BALL_COLOR_RULES: dict[str, list[list[int]]] = {
+    "ball_basketball": [[0, 25, 90, 60], [170, 179, 90, 60]],   # 橙/红
+    "ball_volleyball": [[90, 140, 60, 50], [18, 40, 90, 80]],   # 蓝块 / 黄块
+}
 
-    本机未安装 onnxruntime，所以默认不启用。接口留好，
-    装上依赖后把配置里的 `type: onnx` 打开即可，与其它检测器并存。
+
+class OnnxDetector(BaseDetector):
+    """ONNX 目标检测（YOLO 系列，两种常见输出布局自适应）。
+
+    支持的模型
+    ----------
+    * **YOLOv8 / YOLOv11**（ultralytics 导出）：输出 `(1, 4+nc, N)`，无 objectness
+    * **YOLOv5 / YOLOv7**：输出 `(1, N, 5+nc)`，第 5 列是 objectness
+    布局是**自动判定**的（属性维是较小的那一维），不需要手工指定。
+
+    类别映射（关键）
+    ----------------
+    模型自己的类别名未必等于工程内部标签，所以要给映射。两种写法：
+      class_map: {0: ball_basketball, 1: ball_volleyball}      # 按 id
+      name_map:  {basketball: ball_basketball, volleyball: ...} # 按模型类别名
+    ultralytics 导出的 ONNX 通常在 metadata 里带 `names`，本类会自动读取，
+    此时优先用 name_map 匹配名字；都没有就退回 class_map / 直接用模型名。
+
+    配置项（perception.yaml 里那一项）
+    ----------------------------------
+      model_path        必填
+      class_map/name_map 见上
+      conf_threshold    默认 0.35
+      iou_threshold     默认 0.45（NMS）
+      input_size        默认自动读模型输入；读不到用 640
+      real_diameter_m   单目测距用的真实直径
+      class_real_size   可选 {工程label: 米}，不同类别尺寸不同时用它覆盖
+      max_detections    默认 20
     """
 
     def __init__(self, label: str, cfg: dict[str, Any]) -> None:
@@ -447,26 +480,287 @@ class OnnxDetector(BaseDetector):
         self.cfg = cfg
         self.session = None
         self.error = ""
+        self.model_names: dict[int, str] = {}
+        self.input_name = ""
+        self.input_size = int(cfg.get("input_size", 0) or 0)
+        self.conf_thr = float(cfg.get("conf_threshold", 0.35))
+        self.iou_thr = float(cfg.get("iou_threshold", 0.45))
+        self.max_det = int(cfg.get("max_detections", 20))
+        self.real_size = float(cfg.get("real_diameter_m", 0.0) or 0.0)
+        self.class_real_size = cfg.get("class_real_size", {}) or {}
+        self.class_map = {int(k): str(v) for k, v in (cfg.get("class_map", {}) or {}).items()}
+        self.name_map = {str(k): str(v) for k, v in (cfg.get("name_map", {}) or {}).items()}
+        # 跳帧：YOLO 是 CPU 上的大头（416 输入约 13ms/帧）。球在相邻帧之间位置变化很小，
+        # 没必要每帧都推理 —— 设 2 表示"每 2 帧推理一次，另一帧复用上次结果"。
+        self.every_n = max(1, int(cfg.get("every_n_frames", 1) or 1))
+        self._frame_i = 0
+        self._cached: list[Detection] = []
+        # 只保留"映射过的"类别（默认开）。COCO 预训练有 80 类，不筛的话
+        # person/chair/cat 会全混进 /perception/detections，而且被套上
+        # real_diameter_m（按篮球尺寸）算出荒谬距离 —— 实测 person 报 0.28m。
+        self.only_mapped = bool(cfg.get("only_mapped", True))
+        # 框内颜色分类：YOLO 只负责"找到球"，类别由框内主色决定。
+        # 这样既躲开全图 HSV 的背景误检，又能区分篮球/排球（COCO 只有一类做不到）。
+        self.color_classify = bool(cfg.get("color_classify", False))
+        rules_cfg = cfg.get("color_rules", None)
+        self.color_rules = ({k: [list(map(int, r)) for r in v]
+                             for k, v in rules_cfg.items()} if rules_cfg
+                            else dict(_DEFAULT_BALL_COLOR_RULES))
+        self.color_min_fraction = float(cfg.get("color_min_fraction", 0.15))
+
         try:  # pragma: no cover - 依赖可选
             import onnxruntime  # type: ignore
 
             self.session = onnxruntime.InferenceSession(
                 cfg["model_path"], providers=["CPUExecutionProvider"]
             )
+            inp = self.session.get_inputs()[0]
+            self.input_name = inp.name
+            # 输入形状形如 [1, 3, 640, 640]，动态导出则是 [1, 3, -1, -1]。
+            # ⚠️ 只取 >32 的静态维：否则动态模型里 max([1,3]) = 3（通道数），
+            #    会被当成输入尺寸，letterbox 到 3x3 直接错得离谱。
+            dims = [d for d in inp.shape if isinstance(d, int) and d > 32]
+            if self.input_size <= 0:
+                self.input_size = max(dims) if dims else 640
+            self.model_names = self._read_names()
         except Exception as exc:  # noqa: BLE001
             self.error = f"{type(exc).__name__}: {exc}"
+
+    # -- 元数据 ------------------------------------------------------------
+    def _read_names(self) -> dict[int, str]:
+        """从 ONNX metadata 里读 ultralytics 写的 `names`（形如 "{0: 'ball', ...}"）。"""
+        if self.session is None:
+            return {}
+        try:
+            meta = self.session.get_modelmeta().custom_metadata_map or {}
+        except Exception:  # noqa: BLE001
+            return {}
+        raw = meta.get("names") or meta.get("classes") or ""
+        if not raw:
+            return {}
+        names: dict[int, str] = {}
+        # 优先按 Python dict 字面量解析；失败则退回"逐项抓 key: 'value'"
+        try:
+            import ast
+
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, dict):
+                return {int(k): str(v) for k, v in parsed.items()}
+            if isinstance(parsed, (list, tuple)):
+                return {i: str(v) for i, v in enumerate(parsed)}
+        except Exception:  # noqa: BLE001
+            pass
+        for m in re.finditer(r"(\d+)\s*:\s*['\"]([^'\"]+)['\"]", raw):
+            names[int(m.group(1))] = m.group(2)
+        return names
 
     @property
     def available(self) -> bool:
         return self.session is not None
 
-    def detect(self, frame_bgr: np.ndarray, cam: CameraModel) -> list[Detection]:  # pragma: no cover
+    # -- 预处理 ------------------------------------------------------------
+    def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
+        """等比缩放 + 灰边填充到正方形。返回 (张量, 缩放比, 左padding, 上padding)。"""
+        h, w = frame.shape[:2]
+        s = min(self.input_size / w, self.input_size / h)
+        nw, nh = max(1, int(round(w * s))), max(1, int(round(h * s)))
+        resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        canvas = np.full((self.input_size, self.input_size, 3), 114, dtype=np.uint8)
+        px, py = (self.input_size - nw) // 2, (self.input_size - nh) // 2
+        canvas[py:py + nh, px:px + nw] = resized
+        rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+        tensor = rgb.astype(np.float32) / 255.0
+        tensor = np.transpose(tensor, (2, 0, 1))[None, ...]      # NCHW
+        return np.ascontiguousarray(tensor), s, px, py
+
+    # -- 后处理 ------------------------------------------------------------
+    @staticmethod
+    def _nms(boxes: np.ndarray, scores: np.ndarray, iou_thr: float) -> list[int]:
+        """纯 numpy NMS（不引入 torch/torchvision，车上依赖越少越好）。"""
+        if boxes.size == 0:
+            return []
+        x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+        areas = np.maximum(0.0, x2 - x1) * np.maximum(0.0, y2 - y1)
+        order = scores.argsort()[::-1]
+        keep: list[int] = []
+        while order.size > 0:
+            i = int(order[0])
+            keep.append(i)
+            if order.size == 1:
+                break
+            rest = order[1:]
+            xx1 = np.maximum(x1[i], x1[rest])
+            yy1 = np.maximum(y1[i], y1[rest])
+            xx2 = np.minimum(x2[i], x2[rest])
+            yy2 = np.minimum(y2[i], y2[rest])
+            inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
+            iou = inter / np.maximum(areas[i] + areas[rest] - inter, 1e-9)
+            order = rest[iou <= iou_thr]
+        return keep
+
+    def _classify_by_color(self, frame_bgr, box, default_label: str) -> str:
+        """看框内（内接椭圆）主色，判断是哪个球。判不出来就返回 default_label。
+
+        取内接椭圆而不是整个矩形：球是圆的，矩形四角是背景。
+        """
+        x1, y1, x2, y2 = (int(max(0, box[0])), int(max(0, box[1])),
+                          int(box[2]), int(box[3]))
+        if x2 - x1 < 6 or y2 - y1 < 6:
+            return default_label
+        crop = frame_bgr[y1:y2, x1:x2]
+        h, w = crop.shape[:2]
+        mask = np.zeros((h, w), np.uint8)
+        cv2.ellipse(mask, (w // 2, h // 2), (max(1, int(w / 2 * 0.85)),
+                                             max(1, int(h / 2 * 0.85))), 0, 0, 360, 255, -1)
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        total = int((mask > 0).sum())
+        if total <= 0:
+            return default_label
+
+        best_label, best_frac = default_label, 0.0
+        for label, ranges in self.color_rules.items():
+            hit = np.zeros((h, w), np.uint8)
+            for r in ranges:
+                if len(r) != 4:
+                    continue
+                hit |= cv2.inRange(hsv, np.array([r[0], r[2], r[3]], np.uint8),
+                                   np.array([r[1], 255, 255], np.uint8))
+            frac = float((hit & mask).sum()) / total
+            if frac > best_frac:
+                best_label, best_frac = label, frac
+        return best_label if best_frac >= self.color_min_fraction else default_label
+
+    def _is_mapped(self, cid: int, cname: str) -> bool:
+        """该类别是否被显式映射到工程标签（only_mapped 时用它决定保留或丢弃）。"""
+        return (bool(cname) and cname in self.name_map) or (cid in self.class_map)
+
+    def _map_label(self, cid: int, cname: str) -> str:
+        if cname and cname in self.name_map:
+            return self.name_map[cname]
+        if cid in self.class_map:
+            return self.class_map[cid]
+        if cname:
+            return cname
+        return f"{self.label}_{cid}"
+
+    def _decode(self, out: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """把模型原始输出解成 (boxes_xyxy_letterbox坐标系, scores, class_ids)。"""
+        pred = np.asarray(out)
+        if pred.ndim == 3:
+            pred = pred[0]
+        if pred.ndim != 2:                       # 保底：压成二维
+            pred = pred.reshape(pred.shape[0], -1)
+        nc = len(self.model_names) or len(self.class_map)
+
+        # 确定"属性维"。**优先用 nc 精确判定**，而不是"取较小维"：
+        # 候选框数 N 未必远大于属性数（导出成小 N、或单张图上只留少数候选时），
+        # 靠大小猜会把坐标当类别分数，输出一堆垃圾框而且不报错。
+        def _attr_axis(a: np.ndarray) -> int:
+            if nc:
+                if a.shape[0] in (nc + 4, nc + 5):
+                    return 0
+                if a.shape[1] in (nc + 4, nc + 5):
+                    return 1
+            return 0 if a.shape[0] < a.shape[1] else 1
+
+        if _attr_axis(pred) == 0:
+            pred = pred.T
+        n_attr = pred.shape[1]
+        # v5/v7 比 v8 多一个 objectness 列
+        has_obj = bool(nc and n_attr == nc + 5)
+        if not nc:                               # 没有元数据时按 v8 处理（ultralytics 主流）
+            has_obj = False
+
+        if has_obj:
+            obj = pred[:, 4]
+            cls_scores = pred[:, 5:]
+            cid = cls_scores.argmax(axis=1)
+            score = obj * cls_scores[np.arange(len(cid)), cid]
+        else:
+            cls_scores = pred[:, 4:]
+            cid = cls_scores.argmax(axis=1)
+            score = cls_scores[np.arange(len(cid)), cid]
+
+        keep = score >= self.conf_thr
+        if not keep.any():
+            return np.empty((0, 4), np.float32), np.empty(0, np.float32), np.empty(0, int)
+
+        xywh = pred[keep, :4]
+        cx, cy, bw, bh = xywh[:, 0], xywh[:, 1], xywh[:, 2], xywh[:, 3]
+        boxes = np.stack([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2], axis=1)
+        return (boxes.astype(np.float32), score[keep].astype(np.float32),
+                cid[keep].astype(int))
+
+    def detect(self, frame_bgr: np.ndarray, cam: CameraModel) -> list[Detection]:
         if self.session is None:
             return []
-        # 具体预处理/后处理按模型而定，这里不臆造实现。
-        raise NotImplementedError(
-            "OnnxDetector 需要按具体模型补 preprocess/postprocess 后再启用"
-        )
+        # 跳帧：非推理帧直接复用上次结果（球在相邻帧间位移很小，够用）
+        self._frame_i += 1
+        if self.every_n > 1 and (self._frame_i % self.every_n) != 0:
+            return self._cached
+
+        h, w = frame_bgr.shape[:2]
+        tensor, s, pad_x, pad_y = self._letterbox(frame_bgr)
+        try:
+            out = self.session.run(None, {self.input_name: tensor})[0]
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"ONNX 推理失败: {exc}") from exc
+
+        boxes, scores, cids = self._decode(out)
+        if boxes.size == 0:
+            self._cached = []
+            return []
+
+        # 每类分别做 NMS（不同类别框重叠不应互相抑制）
+        keep_all: list[int] = []
+        for c in np.unique(cids):
+            idx = np.where(cids == c)[0]
+            keep_all.extend(idx[self._nms(boxes[idx], scores[idx], self.iou_thr)])
+        keep_all.sort(key=lambda i: -scores[i])
+        keep_all = keep_all[: self.max_det]
+
+        results: list[Detection] = []
+        for i in keep_all:
+            x1, y1, x2, y2 = boxes[i]
+            # letterbox 坐标 → 原图坐标
+            x1 = (x1 - pad_x) / s
+            x2 = (x2 - pad_x) / s
+            y1 = (y1 - pad_y) / s
+            y2 = (y2 - pad_y) / s
+            x1, x2 = float(np.clip(x1, 0, w - 1)), float(np.clip(x2, 0, w - 1))
+            y1, y2 = float(np.clip(y1, 0, h - 1)), float(np.clip(y2, 0, h - 1))
+            if x2 - x1 < 2 or y2 - y1 < 2:
+                continue
+
+            cid = int(cids[i])
+            cname = self.model_names.get(cid, "")
+            if self.only_mapped and not self._is_mapped(cid, cname):
+                continue          # 丢弃没映射过的类别（如 person/chair）
+            label = self._map_label(cid, cname)
+            # 框内颜色分类：把"球候选"细分成篮球/排球
+            if self.color_classify:
+                label = self._classify_by_color(frame_bgr, (x1, y1, x2, y2), label)
+                if self.only_mapped and label in self.color_rules:
+                    pass          # 分类结果本身就是要的工程标签，直接放行
+            real = float(self.class_real_size.get(label, self.real_size) or 0.0)
+            px, py = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            # 去畸变后再算方位角与像素尺寸（与颜色检测器一致）
+            uw = cam.measure_size((x1, py), (x2, py))
+            uh = cam.measure_size((px, y1), (px, y2))
+            size_px = max(uw, uh)
+
+            results.append(Detection(
+                label=label,
+                confidence=float(scores[i]),
+                bbox=(x1 / w, y1 / h, x2 / w, y2 / h),
+                px=px, py=py,
+                bbox_px_w=float(x2 - x1), bbox_px_h=float(y2 - y1),
+                bearing_rad=cam.bearing_rad(px, py),
+                distance_m=cam.distance_m(size_px, real),
+                diameter_m=real,
+            ))
+        self._cached = results
+        return results
 
 
 # ---------------------------------------------------------------------------

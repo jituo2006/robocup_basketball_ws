@@ -72,9 +72,9 @@ output:
 # ⚠️ rb_perception 测距读的是它自己 perception.yaml 里的 camera 段，
 #    所以标定脚本会把内参**同时**写进本文件和 perception.yaml。
 intrinsics:
-  fx: 0.0
-  fy: 0.0
-  cx: 0.0
-  cy: 0.0
+  fx: 794.16
+  fy: 793.9
+  cx: 577.4
+  cy: 378.38
   assumed_hfov_deg: 60.0
-  distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+  distortion: [0.018392, -0.525673, 0.015934, 0.004543, 0.808854]
