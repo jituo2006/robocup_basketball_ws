@@ -72,6 +72,14 @@ def main() -> int:
     ap.add_argument("--fast", action="store_true", help="启动即高速")
     args = ap.parse_args()
 
+    # 键盘读原始模式需要真实 TTY。SSH 不带 -t、IDE 内嵌终端、管道等都会
+    # 拿不到 TTY，termios 会抛 "Inappropriate ioctl for device" —— 提前给清晰提示。
+    if not sys.stdin.isatty():
+        print("❌ 键盘遥控需要真实终端（TTY）。", file=sys.stderr)
+        print("   - SSH 远程请加 -t：  ssh -t user@host", file=sys.stderr)
+        print("   - 或在本机图形终端的独立窗口里运行。", file=sys.stderr)
+        return 2
+
     rclpy.init()
     node = Node("teleop_chassis")
     pub = node.create_publisher(Twist, "/cmd_vel", 10)
