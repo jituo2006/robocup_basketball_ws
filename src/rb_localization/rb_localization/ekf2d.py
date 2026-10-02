@@ -30,6 +30,31 @@ def wrap_pi(a: float) -> float:
     return a
 
 
+def camera_bearing_to_world(yaw: float, camera_yaw_offset: float, bearing_rad: float) -> float:
+    """把相机的目标方位角转成**场地坐标系**下的方位角（供 EKF 的 bearing 更新用）。
+
+    ⚠️ 这里是全项目最容易写反的一处，单独抽成函数就是为了能被测试锁住。
+
+    两套约定是**相反**的：
+
+    * `bearing_rad`（rb_perception 的检测结果）：**右正左负**，
+      即 atan2(px − cx, fx)，目标在画面右侧为正。
+    * 场地坐标系（EKF / `atan2(dy, dx)`）：**y 朝左、逆时针为正**（ROS 标准）。
+
+    所以要把相机的方位角**取负**再叠加车体朝向：
+
+        bearing_world = yaw + camera_yaw_offset − bearing_rad
+
+    其中 `camera_yaw_offset` 是相机光轴在车体系里的方向角（**逆时针为正**，
+    也就是"相机往左偏了多少"）。
+
+    举例：车头朝场地 +x（yaw=0），相机光轴与车头平行（offset=0），
+    目标在正右方 30° → 相机给 `bearing_rad = +30°`
+    → 场地坐标系下目标方位应是 **−30°**（在右边 = 负角）。
+    """
+    return wrap_pi(yaw + camera_yaw_offset - bearing_rad)
+
+
 @dataclass
 class EkfConfig:
     # 过程噪声（每步）

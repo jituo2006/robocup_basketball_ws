@@ -9,7 +9,12 @@ from __future__ import annotations
 import math
 
 import pytest
-from rb_localization.ekf2d import Ekf2D, EkfConfig
+from rb_localization.ekf2d import (
+    Ekf2D,
+    EkfConfig,
+    camera_bearing_to_world,
+    wrap_pi,
+)
 
 
 @pytest.fixture()
@@ -181,15 +186,23 @@ def test_update_bearing_accepts_valid_and_reduces_std(ekf):
 
 
 def _bearing_world_from_truth(e, landmark, true_pose):
-    """按 localization_node 的方式，把"真实相机读数"换算成观测的世界方位角。
+    """按 localization_node 的真实调用链，把"真相机读数"换算成观测的世界方位角。
 
-    调用方实际是 bearing_world = ekf_yaw + 相机读数，这里如实复现，
-    这样测试才覆盖真实调用链（而不是喂一个与状态无关的理想值）。
+    ⚠️ 这里最容易写错，写成"和节点一样的假设"就永远测不出符号 bug。
+
+    真相机（rb_perception）给的是 **"右正左负"**（顺时针为正），而场地坐标系是
+    **y 朝左、逆时针为正**。所以要：
+      ① 由真值算出车体方位角（逆时针为正，即"左正"）
+      ② **取负** → 得到真相机本该输出的 bearing_rad
+      ③ 走 camera_bearing_to_world()（被测量真实调用链的那个函数）
+
+    （老版本这里直接返回 `ekf_yaw + atan2(dy,dx) - tyaw`，等于假设相机是"左正"，
+      和节点犯了同一个错，于是符号 bug 一直没被发现。）
     """
-    from rb_localization.ekf2d import wrap_pi
     tx, ty, tyaw = true_pose
-    cam = wrap_pi(math.atan2(landmark[1] - ty, landmark[0] - tx) - tyaw)
-    return wrap_pi(e.pose[2] + cam)
+    body_ccw = wrap_pi(math.atan2(landmark[1] - ty, landmark[0] - tx) - tyaw)
+    cam_bearing_rad = -body_ccw           # 相机是"右正"，取负
+    return camera_bearing_to_world(e.pose[2], 0.0, cam_bearing_rad)
 
 
 def test_update_bearing_corrects_yaw_error():
@@ -272,3 +285,56 @@ def test_wrap_pi_is_stable_for_many_angles():
     for k in range(-20, 21):
         v = wrap_pi(k * 0.9)
         assert -math.pi - 1e-9 <= v <= math.pi + 1e-9
+
+
+# -- 相机 bearing → 场地坐标系：符号回归测试 --------------------------------
+#
+# 这是全项目最容易写反的一处：rb_perception 的 bearing_rad 是"右正左负"，
+# 而 EKF / 场地坐标系是"y 朝左、逆时针为正"。写反了 EKF 会往反方向修，
+# 表现为"视觉一介入定位就更偏"。以下用例把它钉死。
+
+
+def test_camera_bearing_right_is_negative_in_field():
+    """车头朝 +x，目标在正右方 30° → 场地系应是 −30°。"""
+    assert camera_bearing_to_world(0.0, 0.0, math.radians(30.0)) == pytest.approx(
+        math.radians(-30.0), abs=1e-9)
+
+
+def test_camera_bearing_left_is_positive_in_field():
+    """目标在正左方 30° → 场地系应是 +30°。"""
+    assert camera_bearing_to_world(0.0, 0.0, math.radians(-30.0)) == pytest.approx(
+        math.radians(30.0), abs=1e-9)
+
+
+def test_camera_bearing_straight_ahead_is_zero():
+    assert camera_bearing_to_world(0.0, 0.0, 0.0) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_camera_bearing_adds_yaw():
+    """车头已朝 +90°（场地系），目标正前方 → 世界方位 = 90°。"""
+    assert camera_bearing_to_world(math.radians(90.0), 0.0, 0.0) == pytest.approx(
+        math.radians(90.0), abs=1e-9)
+
+
+def test_camera_bearing_offset_is_counterclockwise():
+    """相机光轴往左偏 10°（offset = +10°）时，**正前方**的目标应回到场地系 0°。
+
+    几何推导（这是判断 offset 符号的正反面教材）：
+
+    * 相机往左看 10° → 正前方（车体系 0°）的目标落在相机光轴**右侧** 10°，
+      所以真相机给出 `bearing_rad = +10°`（右正）。
+    * 代进公式：world = yaw + offset − bearing_rad = 0 + 10° − 10° = **0°** ✅
+      目标确实在正前方。
+
+    也就是说 `camera_yaw_offset` 的含义是"相机光轴相对车头**往左偏**了多少"
+    （逆时针为正）。
+    """
+    assert camera_bearing_to_world(0.0, math.radians(10.0), math.radians(10.0)) \
+        == pytest.approx(0.0, abs=1e-9)
+
+
+def test_camera_bearing_wraps():
+    """跨越 ±π 时不应出现 2π 的跳变。"""
+    got = camera_bearing_to_world(math.radians(179.0), 0.0, math.radians(-2.0))
+    assert got == pytest.approx(math.radians(-179.0), abs=1e-9)
+    assert abs(got) <= math.pi

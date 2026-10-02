@@ -38,7 +38,7 @@ from tf2_ros import TransformBroadcaster
 
 from rb_msgs.msg import DetectionArray
 
-from .ekf2d import Ekf2D, EkfConfig, wrap_pi
+from .ekf2d import Ekf2D, EkfConfig, camera_bearing_to_world, wrap_pi
 
 
 def yaw_to_quat(yaw: float):
@@ -264,8 +264,12 @@ class LocalizationNode(Node):
             if det.distance_m == det.distance_m and det.distance_m > 0.0:
                 # 有距离估计时：直接按"距离+方位"反算地标位置做数据关联
                 pass
-            # 观测到的世界方位角 = 当前 yaw + 相机安装偏置 + 目标 bearing
-            bearing_world = wrap_pi(self.ekf.pose[2] + self.camera_yaw_offset + det.bearing_rad)
+            # 观测到的世界方位角（场地坐标系）
+            # ⚠️ 符号易错：det.bearing_rad 是"右正左负"（相机约定），而场地坐标系是
+            #    y 朝左、逆时针为正（ROS 约定），两者相反 —— 转换细节见
+            #    ekf2d.camera_bearing_to_world（有单测锁住）。
+            bearing_world = camera_bearing_to_world(
+                self.ekf.pose[2], self.camera_yaw_offset, det.bearing_rad)
 
             # 数据关联：选预测方位角最接近的那个地标
             best = None

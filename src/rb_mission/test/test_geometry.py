@@ -164,3 +164,27 @@ def test_face_bearing_wraps_across_pi():
     # 负方向同理
     _, err2 = face_bearing_command(0.0, math.radians(-358.0), 2.0, 0.8)
     assert abs(err2) == pytest.approx(math.radians(2.0), abs=1e-6)
+
+
+def test_face_bearing_right_target_turns_right():
+    """目标在右边（bearing 右正）→ 必须往右转。
+
+    坑：bearing_rad 是"右正左负"，而 cmd_vel.angular.z 是"逆时针为正"。
+    忘了取负 → 目标在右边车却往左转（背道而驰）。
+    """
+    wz, err = face_bearing_command(0.0, math.radians(30.0), kp_yaw=1.0, max_ang=0.8)
+    assert wz < 0.0, "目标在右侧，wz 却是正的（车往左转）"
+    assert err < 0.0
+
+
+def test_face_bearing_left_target_turns_left():
+    wz, err = face_bearing_command(0.0, math.radians(-30.0), kp_yaw=1.0, max_ang=0.8)
+    assert wz > 0.0, "目标在左侧，wz 却是负的（车往右转）"
+    assert err > 0.0
+
+
+def test_face_bearing_sign_flips_with_bearing():
+    """左右对称的两个目标，转向指令必须反号（而不是同号）。"""
+    wz_r, _ = face_bearing_command(0.0, math.radians(20.0), 1.0, 0.8)
+    wz_l, _ = face_bearing_command(0.0, math.radians(-20.0), 1.0, 0.8)
+    assert wz_r == pytest.approx(-wz_l, abs=1e-9)

@@ -586,9 +586,14 @@ class MissionNode(Node):
     def _avoidance_adjust(self, vx: float, vy: float) -> tuple[float, float]:
         """视觉势场避障：把期望车体系速度 (vx, vy) 叠加上附近障碍物的排斥速度。
 
-        障碍物在车体系的方向由 bearing_rad（相对相机光轴，右正左负）给出，
+        障碍物在车体系的方向由 bearing_rad（相对相机光轴，**右正左负**）给出，
         距离由单目测距给出（未标定时 NaN，安全跳过）。
-        排斥速度方向 = 从障碍物指向机器人（即 -[cos b, sin b]）。
+
+        ⚠️ 符号：车体系是 **y 朝左**（goto_command 用的标准 R(−yaw)），
+        而 bearing_rad 是 **右正**，所以障碍物的方向向量是
+            [cos b, −sin b]        （不是 [cos b, +sin b]！）
+        排斥方向取其反：
+            −[cos b, −sin b] = [−cos b, +sin b]
         """
         if not self.avoid_enabled:
             return vx, vy
@@ -611,7 +616,7 @@ class MissionNode(Node):
             mag = self.avoid_gain * (1.0 / max(dist, 0.15) - 1.0 / self.avoid_range)
             mag = clamp(mag, 0.0, self.avoid_max)
             fx -= mag * math.cos(b)
-            fy -= mag * math.sin(b)
+            fy += mag * math.sin(b)
         # 限幅，避免排斥叠加后超过 max_lin
         speed = math.hypot(fx, fy)
         if speed > self.max_lin:

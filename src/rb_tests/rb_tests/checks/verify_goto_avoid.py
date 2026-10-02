@@ -11,7 +11,9 @@
     2. 从 (1,1) goto (5,1) 时，机器人向前（linear.x > 0）且无侧向分量；
     3. 正前方 0.5m 出现障碍物（IDLE 模式下任何球/obstacle 都躲）时，
        linear.x 显著下降（被排斥速度抵消）；
-    4. 障碍物在正右方时，产生向左的侧向速度（linear.y < 0）。
+    4. 障碍物在正右方时，产生向左的侧向速度。
+       ⚠️ 车体系是 **y 朝左**（见 ekf2d.predict 与 geometry.goto_command
+          用的标准 R(±yaw)），所以「向左」= **linear.y > 0**，不是 < 0。
 """
 
 from __future__ import annotations
@@ -131,15 +133,32 @@ def main() -> int:
             fail = f"正前方 0.5m 障碍未削弱前进速度（base={base_vx:.2f}, now={c.linear.x if c else '无':.2f})"
             return _finish(node, proc, fail)
 
-        # 4) 右侧障碍 → 向左躲（linear.y < 0）
+        # 4) 右侧障碍 → 向左躲
+        #    bearing=+π/2 表示障碍在正右方（相机约定"右正左负"）；
+        #    车体系 y 朝左，所以「往左躲」= linear.y **为正**。
+        #    原来这里写成 `linear.y < -0.05` 是把车体系当成了 y 朝右，
+        #    与 ekf2d.predict / geometry.goto_command 的约定相矛盾。
         cmds.clear()
         for _ in range(30):
             pub_pose(1.0, 1.0, 0.0)
             pub_det("obstacle", math.pi / 2, 0.5)  # 右正左负，正右方
             spin_for(0.1)
         c = latest_cmd()
+        if c is None or not (c.linear.y > 0.05):
+            fail = (f"正右方障碍应产生向左速度（车体系 y 朝左 → linear.y>0），"
+                    f"实际 linear.y={c.linear.y if c else '无':.3f}")
+            return _finish(node, proc, fail)
+
+        # 4b) 左侧障碍 → 向右躲（linear.y < 0），确认符号是"反号"而非恒正
+        cmds.clear()
+        for _ in range(30):
+            pub_pose(1.0, 1.0, 0.0)
+            pub_det("obstacle", -math.pi / 2, 0.5)  # 正左方
+            spin_for(0.1)
+        c = latest_cmd()
         if c is None or not (c.linear.y < -0.05):
-            fail = f"正右方障碍应产生向左速度，实际 linear.y={c.linear.y if c else '无':.3f}"
+            fail = (f"正左方障碍应产生向右速度（linear.y<0），"
+                    f"实际 linear.y={c.linear.y if c else '无':.3f}")
             return _finish(node, proc, fail)
 
         return _finish(node, proc, "", base_vx)

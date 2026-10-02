@@ -74,7 +74,12 @@ def face_bearing_command(cur_yaw: float, target_bearing_body: float,
                          kp_yaw: float, max_ang: float) -> tuple[float, float]:
     """把车头转向某个视觉目标。返回 (wz, 剩余角度误差)。
 
-    target_bearing_body 是目标相对**车体前进方向**的方位角（右正左负）。
+    target_bearing_body 是目标相对**车体前进方向**的方位角（**右正左负**，
+    即相机 bearing_rad 的约定）。
+
+    ⚠️ 符号：cmd_vel.angular.z 用的是 ROS 约定（**逆时针为正**），
+    与输入的"右正"相反，所以这里要取负。
+    若忘了取负 → 目标在右边时车往左转（背道而驰）。
     """
-    err = wrap_pi(target_bearing_body)
+    err = wrap_pi(-target_bearing_body)
     return clamp(kp_yaw * err, -max_ang, max_ang), err
