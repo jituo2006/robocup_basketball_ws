@@ -31,7 +31,7 @@ from typing import Any
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from rclpy.node import Node
 from std_msgs.msg import Bool, Header
 from std_msgs.msg import String as StringMsg
@@ -136,6 +136,9 @@ class MissionNode(Node):
         self.create_subscription(Bool, topics.get("launcher_ok", "/rb_launcher/ok"), self.on_launcher_ok, 5)
         self.create_subscription(Bool, topics.get("estop", "/mission/estop"), self.on_estop, 5)
         self.create_subscription(Bool, topics.get("has_ball", "/mission/has_ball"), self.on_has_ball, 5)
+        # RViz 的 "2D Goal Pose" 工具 → 在实时点云地图上点一下就能让车过去
+        self.create_subscription(PoseStamped, topics.get("goal_pose", "/goal_pose"),
+                                 self.on_goal_pose, 5)
 
         self.srv = self.create_service(SetMission, "~/set_mission", self.on_set_mission)
         self.goto_srv = self.create_service(GotoPose, "~/goto_pose", self.on_goto_pose)
@@ -209,29 +212,48 @@ class MissionNode(Node):
             res.accepted, res.message = False, f"未知任务 '{req.mission}'（可用 PASS/SHOOT/IDLE）"
         return res
 
-    def on_goto_pose(self, req: GotoPose.Request, res: GotoPose.Response) -> GotoPose.Response:
-        """电脑端/标定用的"走到场地某点"。仅在 IDLE 下可用，避免和自主任务抢 /cmd_vel。"""
+    def _accept_goto(self, x: float, y: float, yaw: float, align_yaw: bool) -> tuple[bool, str]:
+        """校验并接受一个"走到场地某点"的请求。服务与 /goal_pose 共用同一套校验，
+        避免两条入口行为不一致（尤其是"只在 IDLE 下可用"这条安全约束）。"""
         if self.estop:
-            res.accepted, res.message = False, "急停中，拒绝 GOTO"
-            return res
+            return False, "急停中，拒绝 GOTO"
         if self.mission != "IDLE":
-            res.accepted, res.message = False, (
+            return False, (
                 f"当前任务 {self.mission} 非 IDLE，请先 ros2 service call /rb_mission/set_mission ... mission:=IDLE")
-            return res
-        x, y = float(req.x), float(req.y)
         if not math.isfinite(x) or not math.isfinite(y):
-            res.accepted, res.message = False, "目标坐标无效"
-            return res
+            return False, "目标坐标无效"
         # 场内软限位（宽松，只挡明显越界）
         fl, fw = float(self.field.get("length_m", 14.0)), float(self.field.get("width_m", 7.5))
         if not (-2.0 <= x <= fl + 2.0 and -2.0 <= y <= fw + 2.0):
-            res.accepted, res.message = False, f"目标 ({x:.2f},{y:.2f}) 超出场地范围"
-            return res
-        self.goto_goal = (x, y, float(req.yaw), bool(req.align_yaw))
+            return False, f"目标 ({x:.2f},{y:.2f}) 超出场地范围"
+        self.goto_goal = (x, y, float(yaw), bool(align_yaw))
         self.publish_zero()
-        self.set_phase(P_GOTO, f"GOTO ({x:.2f}, {y:.2f})" + (f" yaw={req.yaw:.2f}" if req.align_yaw else ""))
-        res.accepted, res.message = True, "已开始 GOTO"
+        self.set_phase(P_GOTO, f"GOTO ({x:.2f}, {y:.2f})" + (f" yaw={yaw:.2f}" if align_yaw else ""))
+        return True, "已开始 GOTO"
+
+    def on_goto_pose(self, req: GotoPose.Request, res: GotoPose.Response) -> GotoPose.Response:
+        """电脑端/标定用的"走到场地某点"。仅在 IDLE 下可用，避免和自主任务抢 /cmd_vel。"""
+        res.accepted, res.message = self._accept_goto(
+            float(req.x), float(req.y), float(req.yaw), bool(req.align_yaw))
         return res
+
+    def on_goal_pose(self, msg: PoseStamped) -> None:
+        """RViz 的 "2D Goal Pose" 工具发到这里。
+
+        这样就能在 RViz 的实时点云地图上直接点一个点让车过去，不用再开别的窗口。
+        position.z 沿用本队约定「yaw 塞在 z 里」；若 RViz 用四元数给朝向则优先取四元数。
+        """
+        q = msg.pose.orientation
+        if abs(math.hypot(q.x, q.y)) < 1e-6 and abs(q.z) < 1e-6:
+            yaw = float(msg.pose.position.z)
+        else:
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        ok, why = self._accept_goto(float(msg.pose.position.x), float(msg.pose.position.y),
+                                    yaw, True)
+        (self.get_logger().info if ok else self.get_logger().warn)(
+            f"/goal_pose 目标 ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "
+            f"yaw={math.degrees(yaw):+.0f}° → {why}")
 
     # -- 状态机 ------------------------------------------------------------
     def set_phase(self, phase: str, detail: str = "") -> None:

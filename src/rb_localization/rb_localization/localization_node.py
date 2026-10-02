@@ -282,6 +282,12 @@ class LocalizationNode(Node):
                 continue
             if self.ekf.update_bearing(best, bearing_world):
                 used += 1
+                # 限频日志：用来确认"视觉方位角更新真的生效了"（否则这项是黑盒，
+                # 只能看到定位变准/没变准，无法区分是没检出、没关联上、还是没更新）
+                self.get_logger().info(
+                    f"定位柱更新: 地标({best[0]:.2f},{best[1]:.2f}) "
+                    f"观测方位={math.degrees(bearing_world):+.1f}° 累计={self.pillar_updates + used}",
+                    throttle_duration_sec=3.0)
         if used:
             self.pillar_updates += used
 
