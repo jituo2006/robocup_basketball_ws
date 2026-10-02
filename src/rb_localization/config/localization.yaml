@@ -49,6 +49,13 @@ odom_frame_conversion:
   #   （符号按代码约定 theta = start_pose.yaw − 首帧yaw − s2b_yaw 反推并验证过）
   sensor_to_base_yaw_deg: -85.0
 
+  # FAST-LIO 的点云/地图所在坐标系名。
+  # 节点会额外发一条 `field → camera_init` 的 TF —— 没有它，RViz 的 Fixed Frame
+  # 是 field 时点云**完全画不出来（地图一片黑）**：FAST-LIO 只发
+  # `camera_init → body`，两棵树不连通。
+  # 换了里程计来源（如全场定位板）时，这里的坐标系名要一起改。
+  odom_frame: "camera_init"
+
 sources:
   # 雷达 FAST-LIO 的输出。既提供 twist（做预测）也提供 pose（做绝对观测）
   odom_topic: "/Odometry"

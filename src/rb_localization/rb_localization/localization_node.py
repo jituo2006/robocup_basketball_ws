@@ -94,6 +94,10 @@ class LocalizationNode(Node):
         self.start_pose = (float(sp.get("x", 0.0)), float(sp.get("y", 0.0)),
                            float(sp.get("yaw", 0.0)))
         self.odom_zero_on_first = bool(lc.get("zero_on_first", True))
+        # FAST-LIO 的点云/地图所在的坐标系名。它发 TF `camera_init → body`，
+        # 而这里要补上 `field → camera_init`，否则 RViz 无法把点云画到 field 下
+        # （症状：地图一片黑，明明 /cloud_registered 有数据）。
+        self.odom_frame_name = str(lc.get("odom_frame", "camera_init"))
         self.odom_origin: tuple[float, float, float] | None = None
         self.theta = 0.0          # odom → field 的旋转量，首帧确定
         self.conv_ready = False
@@ -330,6 +334,30 @@ class LocalizationNode(Node):
             tf.transform.rotation.z = qz
             tf.transform.rotation.w = qw
             self.tf_broadcaster.sendTransform(tf)
+
+            # ── 额外发 field → camera_init ────────────────────────────────
+            # 为什么需要：FAST-LIO 的点云/地图（/cloud_registered、/Laser_map）
+            # 都在 **camera_init** 坐标系里，它自己只发 `camera_init → body`；
+            # 而我们发的位姿在 **field** 里。两棵树不连通 → RViz 的 Fixed Frame
+            # 是 field 时**什么都画不出来，地图一片黑**（数据其实是好的）。
+            #
+            # 这个变换是**固定**的，由 odom→field 的对齐关系定出来：
+            #   odom_to_field:  field = start_pose + R(theta)·(odom − origin)
+            #   ⇒ 反向： camera_init 原点在 field 下 = start_pose − R(theta)·origin
+            #            camera_init 相对 field 的朝向 = theta
+            if self.odom_conv_enabled and self.conv_ready and self.odom_origin is not None:
+                ox0, oy0, _ = self.odom_origin
+                c, s = math.cos(self.theta), math.sin(self.theta)
+                tf_ci = TransformStamped()
+                tf_ci.header.stamp = out.header.stamp
+                tf_ci.header.frame_id = self.field_frame
+                tf_ci.child_frame_id = self.odom_frame_name
+                tf_ci.transform.translation.x = self.start_pose[0] - (c * ox0 - s * oy0)
+                tf_ci.transform.translation.y = self.start_pose[1] - (s * ox0 + c * oy0)
+                _, _, qz_ci, qw_ci = yaw_to_quat(self.theta)
+                tf_ci.transform.rotation.z = qz_ci
+                tf_ci.transform.rotation.w = qw_ci
+                self.tf_broadcaster.sendTransform(tf_ci)
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -38,32 +38,14 @@ Visualization Manager:
       Class: rviz_default_plugins/PointCloud2
       Color: 255; 255; 255
       Color Transformer: AxisColor
-      Decay Time: 0
+      # ⚠️ Decay Time > 0 让点云在 RViz 里**累积**，看起来就是一张地图。
+      #    为什么不用 /Laser_map：那是 FAST-LIO 的全局地图，实测已达 **222 MB /
+      #    694 万点**（1 Hz 发布），DDS 传不过来、RViz 也画不动。
+      #    /cloud_registered 是"当前帧配准后的扫描"，8 Hz，几十 KB 级。
+      Decay Time: 15
       Enabled: true
       Invert Rainbow: false
-      Name: 雷达地图 (累积)
-      Point Size: 2
-      Position Transformer: XYZ
-      Selectable: false
-      Style: Points
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /Laser_map
-      Use Fixed Frame: true
-      Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Class: rviz_default_plugins/PointCloud2
-      Color: 0; 255; 0
-      Color Transformer: FlatColor
-      Decay Time: 0
-      Enabled: true
-      Invert Rainbow: false
-      Name: 当前扫描
+      Name: 雷达点云（15s 累积）
       Point Size: 2
       Position Transformer: XYZ
       Selectable: false
