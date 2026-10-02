@@ -20,6 +20,12 @@
   <depend>rb_mission</depend>
 
   <test_depend>python3-pytest</test_depend>
+  <!-- test_launch_files.py 会把 rb_bringup 的 launch 展开，而那些 launch 要
+       get_package_share_directory("rb_chassis"/"rb_launcher")，所以这三个
+       必须声明，否则 colcon test 的隔离环境里找不到包、测试假失败。 -->
+  <test_depend>rb_chassis</test_depend>
+  <test_depend>rb_launcher</test_depend>
+  <test_depend>rb_bringup</test_depend>
 
   <export><build_type>ament_python</build_type></export>
 </package>
