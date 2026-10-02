@@ -30,6 +30,9 @@ float32 bbox_px_w
 float32 bbox_px_h
 
 # 几何估计
-float32 bearing_rad         # 水平方位角，相对相机光轴，左正右负（由标定决定）
+# ⚠️ bearing_rad 是 **右正左负**（目标在画面右侧为正），即 atan2(px − cx, fx)。
+#    **不是** ROS 的逆时针为正！场地坐标系与 cmd_vel 用后者，所以任何把
+#    bearing 与 yaw / 速度混算的地方都必须显式处理符号，详见 docs/02 §2.5。
+float32 bearing_rad
 float32 distance_m          # 距离估计，未知填 NaN
 float32 diameter_m          # 目标物理直径（用于单目测距，未知填 NaN）
