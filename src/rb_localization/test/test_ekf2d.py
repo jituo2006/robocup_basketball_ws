@@ -13,6 +13,7 @@ from rb_localization.ekf2d import (
     Ekf2D,
     EkfConfig,
     camera_bearing_to_world,
+    sensor_to_base_xy,
     wrap_pi,
 )
 
@@ -338,3 +339,52 @@ def test_camera_bearing_wraps():
     got = camera_bearing_to_world(math.radians(179.0), 0.0, math.radians(-2.0))
     assert got == pytest.approx(math.radians(-179.0), abs=1e-9)
     assert abs(got) <= math.pi
+
+
+# -- 雷达安装偏移：必须按【车体 yaw】旋转，不是雷达 yaw -----------------------
+#
+# 本车雷达装了 sensor_to_base_yaw = −85°（几乎转了 90°）。若用雷达 yaw 去转
+# 安装偏移，"雷达在中心正前方 30cm" 会被算成"侧方 30cm"，
+# 症状是 RViz 里位姿箭头跑到车体的左上角。
+
+
+def test_sensor_to_base_uses_body_yaw_not_sensor_yaw():
+    """⭐ 回归测试：偏移按车体 yaw 旋转。
+
+    雷达在车体中心正前方 30cm（车体系）⇒ s2b = (−0.30, 0)。
+    车体 yaw = −85° 时，"车体后方 0.30m" 在里程计系的方向是 −85°+180° = 95°。
+    """
+    bx, by, byaw = sensor_to_base_xy(0.0, 0.0, 0.0,
+                                     -0.30, 0.0, math.radians(-85.0))
+    assert byaw == pytest.approx(math.radians(-85.0), abs=1e-9)
+    assert bx == pytest.approx(0.30 * math.cos(math.radians(95.0)), abs=1e-9)
+    assert by == pytest.approx(0.30 * math.sin(math.radians(95.0)), abs=1e-9)
+
+
+def test_sensor_to_base_preserves_distance():
+    """偏移长度与朝向无关（任意雷达 yaw 下，base 都应距 sensor 0.30m）。"""
+    for deg in (-85.0, 0.0, 37.0, 180.0):
+        bx, by, _ = sensor_to_base_xy(1.0, 2.0, math.radians(20.0),
+                                      -0.30, 0.0, math.radians(deg))
+        assert math.hypot(bx - 1.0, by - 2.0) == pytest.approx(0.30, abs=1e-9)
+
+
+def test_sensor_to_base_zero_offset_is_identity():
+    """偏移全 0 时只应加上雷达 yaw。"""
+    bx, by, byaw = sensor_to_base_xy(3.0, 4.0, math.radians(10.0),
+                                     0.0, 0.0, math.radians(-85.0))
+    assert (bx, by) == pytest.approx((3.0, 4.0), abs=1e-12)
+    assert byaw == pytest.approx(math.radians(-75.0), abs=1e-9)
+
+
+def test_sensor_to_base_matches_expected_buggy_vs_fixed():
+    """把"写错"和"写对"的差别钉住：两者相差约 90°。
+
+    写错（用雷达 yaw=0 旋转）→ base 落在 sensor 的 −x 方向。
+    写对（用车体 yaw=−85° 旋转）→ base 落在 +y 方向附近。
+    这条断言让"改回用雷达 yaw"这种回退立刻被测出来。
+    """
+    buggy = sensor_to_base_xy(0.0, 0.0, 0.0, -0.30, 0.0, 0.0)          # s2b_yaw=0
+    fixed = sensor_to_base_xy(0.0, 0.0, 0.0, -0.30, 0.0, math.radians(-85.0))
+    assert buggy[0] == pytest.approx(-0.30, abs=1e-9)
+    assert abs(fixed[1]) > 0.29, "修好后应主要落在 y 方向（差 90°）"

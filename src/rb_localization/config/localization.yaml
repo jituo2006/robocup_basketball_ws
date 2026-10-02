@@ -33,9 +33,20 @@ odom_frame_conversion:
     y: 1.0
     yaw: 0.0
 
-  # 雷达安装偏移：base = sensor + R(sensor_yaw) · (sensor_to_base)
-  # 若 start_pose 指的就是雷达位置（不是车体中心），位置三项保持 0 即可。
-  sensor_to_base_x: 0.3
+  # 雷达安装偏移：base = sensor + R(**车体yaw**) · (sensor_to_base)
+  #
+  # ⚠️ 填的是「**从雷指向车体旋转中心**」的向量，**方向是反的**：
+  #     雷达在中心【前方 30cm】 ⇒ 从雷达指向中心 = 向【后】30cm ⇒ 填 **−0.30**
+  #
+  #   ⚠️⚠️ 曾经填 +0.3，且用【雷达自己的 yaw】旋转。本车雷达装了 −85°，
+  #         等于把"前 30cm"转成了"侧 30cm" ——
+  #         症状：RViz 里位姿箭头跑到车体的左上角。
+  #         现已改为按车体 yaw 旋转（见 odom_to_field）。
+  #
+  #   若 start_pose 指的就是雷达位置（不是车体中心），这两项保持 0 即可。
+  #
+  # 本车实测：雷达在车体旋转中心【正前方 30cm、左右 0cm】
+  sensor_to_base_x: -0.30
   sensor_to_base_y: 0.0
   # ⚠️ 雷达的【安装朝向】必须在这里告诉节点。
   #

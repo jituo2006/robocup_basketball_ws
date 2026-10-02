@@ -30,6 +30,33 @@ def wrap_pi(a: float) -> float:
     return a
 
 
+def sensor_to_base_xy(ox: float, oy: float, oyaw: float,
+                      s2b_x: float, s2b_y: float, s2b_yaw: float
+                      ) -> tuple[float, float, float]:
+    """把雷达（sensor）在里程计系下的位姿，换算成车体（base）位姿。
+
+    ⚠️ 这里是第二个最容易写错的地方：**偏移必须按「车体 yaw」旋转，不是雷达 yaw**。
+
+    为什么：物理上"雷达装在车体中心前方 30cm"这件事固定在**车体系**里；
+    而雷达本身可能装得转了角度（本车 `sensor_to_base_yaw_deg = -85°`，几乎转了 90°）。
+    若用雷达 yaw 去转这个偏移，等于把"前 30cm"转成了"侧 30cm" ——
+    实测症状：RViz 里位姿箭头跑到车体的左上角。
+
+    关系式：
+
+        byaw = wrap_pi(oyaw + s2b_yaw)              # 车体朝向
+        base = sensor + R(byaw) · (s2b_x, s2b_y)
+
+    其中 `s2b` 是「**从雷指向车体旋转中心**」的向量，表达在**车体系**。
+    注意方向是反的：雷达在中心【前方 30cm】⇒ `s2b_x = −0.30`。
+    """
+    byaw = wrap_pi(oyaw + s2b_yaw)
+    c, s = math.cos(byaw), math.sin(byaw)
+    return (ox + (s2b_x * c - s2b_y * s),
+            oy + (s2b_x * s + s2b_y * c),
+            byaw)
+
+
 def camera_bearing_to_world(yaw: float, camera_yaw_offset: float, bearing_rad: float) -> float:
     """把相机的目标方位角转成**场地坐标系**下的方位角（供 EKF 的 bearing 更新用）。
 

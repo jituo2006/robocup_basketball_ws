@@ -38,7 +38,13 @@ from tf2_ros import TransformBroadcaster
 
 from rb_msgs.msg import DetectionArray
 
-from .ekf2d import Ekf2D, EkfConfig, camera_bearing_to_world, wrap_pi
+from .ekf2d import (
+    Ekf2D,
+    EkfConfig,
+    camera_bearing_to_world,
+    sensor_to_base_xy,
+    wrap_pi,
+)
 
 
 def yaw_to_quat(yaw: float):
@@ -184,10 +190,12 @@ class LocalizationNode(Node):
              平移量 t = start_pose.xy - R(θ)·首帧xy
         """
         # ① 雷达安装偏移 → 车体
-        c0, s0 = math.cos(oyaw), math.sin(oyaw)
-        bx = ox + (self.s2b_x * c0 - self.s2b_y * s0)
-        by = oy + (self.s2b_x * s0 + self.s2b_y * c0)
-        byaw = wrap_pi(oyaw + self.s2b_yaw)
+        #
+        # ⚠️ 偏移按【车体 yaw】旋转，**不是**雷达 yaw —— 细节与踩坑记录见
+        #    ekf2d.sensor_to_base_xy（那里有单测锁住）。
+        #    本车：雷达在中心正前方 30cm ⇒ s2b = (−0.30, 0.00)。
+        bx, by, byaw = sensor_to_base_xy(
+            ox, oy, oyaw, self.s2b_x, self.s2b_y, self.s2b_yaw)
 
         if not self.odom_conv_enabled:
             return bx, by, byaw
