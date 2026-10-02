@@ -39,13 +39,15 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       # ⚠️ Decay Time > 0 让点云在 RViz 里**累积**，看起来就是一张地图。
-      #    为什么不用 /Laser_map：那是 FAST-LIO 的全局地图，实测已达 **222 MB /
-      #    694 万点**（1 Hz 发布），DDS 传不过来、RViz 也画不动。
-      #    /cloud_registered 是"当前帧配准后的扫描"，8 Hz，几十 KB 级。
-      Decay Time: 15
+      #    为什么不用 /Laser_map：那是 FAST-LIO 的全局地图，实测一帧 **694 万点
+      #    ≈ 222 MB**（1 Hz 发布），DDS 传不过来、RViz 也画不动，表现为
+      #    "有发布者但一直收不到"。
+      #    /cloud_registered 是"当前帧配准后的扫描"：8 Hz、约 1.76 万点/帧。
+      #    Decay 时长 = 点数权衡：5s ≈ 70 万点（稳）；调到 15s ≈ 210 万点会卡。
+      Decay Time: 5
       Enabled: true
       Invert Rainbow: false
-      Name: 雷达点云（15s 累积）
+      Name: 雷达点云（5s 累积）
       Point Size: 2
       Position Transformer: XYZ
       Selectable: false
