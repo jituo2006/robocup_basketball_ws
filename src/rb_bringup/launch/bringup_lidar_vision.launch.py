@@ -44,16 +44,21 @@ def generate_launch_description():
     rviz = LaunchConfiguration("rviz")
     domain = LaunchConfiguration("ros_domain_id")
 
-    setup = f"export ROS_DOMAIN_ID={domain} && "
+    # ⚠️ 不要用 f-string 把 LaunchConfiguration 拼进 bash 命令！
+    #    f"{domain}" 调用的是它的 __repr__，会得到
+    #    "export ROS_DOMAIN_ID=<launch.substitutions...LaunchConfiguration object at 0x...>"
+    #    这种非法命令 → bash 退出码 2 → 进程秒死。
+    #    （实测踩过：雷达驱动与 FAST-LIO 都没起来，RViz 地图一片黑。）
+    #    正确做法是交给 ExecuteProcess 的 additional_env 去替换。
 
     # ① 雷达驱动
     livox = ExecuteProcess(
         cmd=_bash(
             "source /opt/ros/humble/setup.bash && "
             f"source {LIDAR_WS}/ws_livox/install/setup.bash && "
-            f"{setup}"
             "exec ros2 launch livox_ros_driver2 msg_MID360_launch.py"
         ),
+        additional_env={"ROS_DOMAIN_ID": domain},
         output="screen", name="livox_driver",
     )
 
@@ -63,11 +68,11 @@ def generate_launch_description():
             "source /opt/ros/humble/setup.bash && "
             f"source {LIDAR_WS}/ws_livox/install/setup.bash && "
             f"source {LIDAR_WS}/fast_prop_ws/install/setup.bash && "
-            f"export ROS_DOMAIN_ID={domain} && "
             "exec ros2 launch fast_lio mapping.launch.py "
             f"config_path:={LIDAR_WS}/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config "
             "config_file:=mid360.yaml rviz:=false"
         ),
+        additional_env={"ROS_DOMAIN_ID": domain},
         output="screen", name="fastlio",
     )
 
@@ -76,9 +81,9 @@ def generate_launch_description():
         cmd=_bash(
             "source /opt/ros/humble/setup.bash && "
             f"source {LIDAR_WS}/fast_prop_ws/install/setup.bash && "
-            f"{setup}"
             f"exec rviz2 -d {LIDAR_WS}/fast_prop_ws/install/fast_lio/share/fast_lio/rviz/fastlio.rviz"
         ),
+        additional_env={"ROS_DOMAIN_ID": domain},
         output="screen", condition=IfCondition(rviz), name="rviz",
     )
 
