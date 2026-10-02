@@ -18,6 +18,9 @@
 class OmniChassis : public Chassis {
 private:
   std::shared_ptr<DJIBoard> dji_board;
+  // 存下来只为日志/排查用。之前 initialize() 里把 board_id 写死成 0u 打印，
+  // 害得排查时误以为"配置是 1 但实际用了 0"，白白去改了能用的配置。
+  uint32_t board_id_ = 0;
   double angular_z_sign_ = 1.0;   // 旋转方向符号（物理装轮方式决定，默认 +1）
   std::array<int16_t, 4> wheel_speed{};
   bool timeout_zero_sent_ = false;

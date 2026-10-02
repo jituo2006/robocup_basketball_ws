@@ -11,7 +11,7 @@
 OmniChassis::OmniChassis(const std::string &node_name, const std::string &odom_topic,
                          const std::string &vel_topic, uint32_t board_id,
                          const std::shared_ptr<Can> &can_handle)
-    : Chassis(node_name, odom_topic, vel_topic) {
+    : Chassis(node_name, odom_topic, vel_topic), board_id_(board_id) {
   dji_board = std::make_shared<DJIBoard>(board_id, can_handle);
 
   // 退出时确保零速（原实现只在析构里 MotorOff，节点被 kill -9 时来不及执行）
@@ -41,7 +41,7 @@ void OmniChassis::initialize() {
     dji_board->MotorOn(i);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  RCLCPP_INFO(get_logger(), "底盘已使能 4 个电机（board_id=%u）", 0u);
+  RCLCPP_INFO(get_logger(), "底盘已使能 4 个电机（board_id=%u）", board_id_);
 }
 
 void OmniChassis::sendZeroVelocity() {
