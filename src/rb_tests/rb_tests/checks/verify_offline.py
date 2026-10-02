@@ -616,7 +616,7 @@ def main() -> int:
         return 1
 
     print(f"\n{OK}全部离线检查通过 —— 软件链路已就绪。{RST}")
-    print(f"{DIM}下一步：跑 tools/preflight.sh 看硬件侧还差什么，然后按 docs/02 上车。{RST}")
+    print(f"{DIM}下一步：跑 tools/preflight.sh 看硬件侧还差什么，然后按 docs/07_整车联调与排查.md 上车。{RST}")
     return 0
 
 

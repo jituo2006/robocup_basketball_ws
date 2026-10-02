@@ -92,23 +92,23 @@ if [ -n "$DEV" ] && [ -e "$DEV" ]; then
       ok "曝光与白平衡已锁定（颜色标定才能长期有效）"
     else
       wa "曝光/白平衡未锁定 (auto_exposure=${ae:-?} white_balance_automatic=${awb:-?})" \
-         "跑 python3 tools/tune_camera.py 调好并写回；见 docs/07 §3.4"
+         "跑 python3 tools/tune_camera.py 调好并写回；见 docs/01_相机模块.md §6"
     fi
   fi
   # 内参是否已标定
   if grep -qP '^\s*fx:\s*0\.0' "$WS/src/rb_camera/config/camera.yaml" 2>/dev/null; then
-    wa "相机内参未标定（fx=0，测距按假定 FOV 估算）" "python3 tools/calibrate_camera.py；见 docs/07 §3.1"
+    wa "相机内参未标定（fx=0，测距按假定 FOV 估算）" "python3 tools/calibrate_camera.py；见 docs/01_相机模块.md §5"
   else
     ok "相机内参已标定"
   fi
 else
-  no_hw "相机设备 ${DEV:-未配置} 不存在" "插好相机；确认 /dev/video0（见 docs/07）"
+  no_hw "相机设备 ${DEV:-未配置} 不存在" "插好相机；确认 /dev/video0（见 docs/01_相机模块.md）"
 fi
 
 # 6) 配置完整性
 echo -e "${BOLD}[配置]${RST}"
 grep -q "TODO 实测" "$WS/src/rb_chassis/config/chassis.yaml" 2>/dev/null \
-  && no_hw "chassis.yaml 的尺寸还是占位值" "上车后实测宽度/轴距/轮径（见 docs/03 §1）" \
+  && no_hw "chassis.yaml 的尺寸还是占位值" "上车后实测宽度/轴距/轮径（见 docs/03_底盘模块.md §7）" \
   || ok "chassis.yaml 尺寸已填"
 n=$(python3 -c "
 import yaml,sys
@@ -143,7 +143,7 @@ fi
 echo
 if [ "$hw_fail" -gt 0 ]; then
   echo -e "  ${OK}软件侧已就绪 —— 可以开始上车。${RST}"
-  echo -e "  ${DIM}上面 ${WARN}!${RST}${DIM} / ${FAIL}✗${RST}${DIM} 的硬件项，按 docs/02_上车调通.md 逐阶段解决即可。${RST}"
+  echo -e "  ${DIM}上面 ${WARN}!${RST}${DIM} / ${FAIL}✗${RST}${DIM} 的硬件项，按 docs/07_整车联调与排查.md 逐阶段解决即可。${RST}"
   exit 2          # 2 = 软件就绪，硬件待接
 fi
 echo -e "  ${OK}软硬件全部就绪。${RST}"
