@@ -511,8 +511,18 @@ class OnnxDetector(BaseDetector):
         try:  # pragma: no cover - 依赖可选
             import onnxruntime  # type: ignore
 
+            # ⚠️⚠️ 必须限制线程数，否则 ONNX Runtime 默认吃满**所有核**。
+            # 实测代价：perception_node 占 1139% CPU（11.4 核）→ load average 29
+            # （16 核机器）→ FAST-LIO 被饿死 → /Odometry 时延 300ms 恶化到 2.2 秒
+            # → 地图位置严重滞后、导航冲过目标点。
+            # 640 输入用 2 核足够（单次 ~30ms），把 CPU 留给 FAST-LIO/定位。
+            so = onnxruntime.SessionOptions()
+            so.intra_op_num_threads = max(1, int(cfg.get("intra_op_threads", 2)))
+            so.inter_op_num_threads = max(1, int(cfg.get("inter_op_threads", 1)))
+            # 串行执行：避免算子间的并发把核占满（单帧推理本来也没什么可并行的）
+            so.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
             self.session = onnxruntime.InferenceSession(
-                cfg["model_path"], providers=["CPUExecutionProvider"]
+                cfg["model_path"], so, providers=["CPUExecutionProvider"]
             )
             inp = self.session.get_inputs()[0]
             self.input_name = inp.name

@@ -138,6 +138,13 @@ perception:
       # YOLO 是 CPU 大头（640 输入单次约 28ms）。球在相邻帧间位移很小，
       # 没必要每帧都推理：2 = 隔帧复用上次结果。
       every_n_frames: 2
+      # ⚠️⚠️ 必须限制 ONNX Runtime 的线程数（实测踩坑）！
+      #   不设的话它默认吃满**所有核**：实测 perception_node 占 **1139% CPU（11.4 核）**，
+      #   把 FAST-LIO 饿死 → load average 冲到 29（16 核机器）→
+      #   /Odometry 时延从 300ms 恶化到 **2.2 秒** → 地图位置严重滞后 + 导航冲过目标点。
+      #   640 输入用 2 核足够（单次 ~30ms），给 FAST-LIO / 定位 / 底盘留出 CPU。
+      intra_op_threads: 2
+      inter_op_threads: 1
       # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
       real_diameter_m: 0.24
       class_real_size: {ball_basketball: 0.24, ball_volleyball: 0.21}
