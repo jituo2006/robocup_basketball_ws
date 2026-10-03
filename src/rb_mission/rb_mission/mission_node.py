@@ -81,6 +81,12 @@ class MissionNode(Node):
         #   ① 目标很近时，行进方向被几厘米的定位噪声带偏 → 车原地乱转
         #   ② 转向与平移耦合，看起来就是"乱飘乱转"
         self.face_travel = bool(lim.get("face_travel", False))
+        # 点地图（/goal_pose，RViz 的 2D Goal Pose）到位后是否转向对准目标朝向。
+        # RViz 点一下默认带朝向 0°（四元数 identity），若开着，车到位后会
+        # 转向对准 +x 方向 —— 用户以为"点一下就走"，结果车在转，很困惑。
+        # 所以默认 false：点一下只平移过去，不转朝向。想转朝向就用服务
+        # /rb_mission/goto_pose 显式传 align_yaw=true。
+        self.goto_align_yaw = bool(lim.get("goto_align_yaw", False))
 
         tm = self.cfg.get("timeouts", {}) or {}
         self.start_delay_s = float(tm.get("start_delay_s", 8.0))
@@ -256,7 +262,7 @@ class MissionNode(Node):
             yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                              1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         ok, why = self._accept_goto(float(msg.pose.position.x), float(msg.pose.position.y),
-                                    yaw, True)
+                                    yaw, self.goto_align_yaw)
         (self.get_logger().info if ok else self.get_logger().warn)(
             f"/goal_pose 目标 ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "
             f"yaw={math.degrees(yaw):+.0f}° → {why}")

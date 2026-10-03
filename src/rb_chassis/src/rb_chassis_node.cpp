@@ -10,6 +10,7 @@
 //   ros2 run rb_chassis rb_chassis_node                        # 真实运行
 //   ros2 run rb_chassis rb_chassis_node --ros-args -p dry_run:=true   # 离线自测
 
+#include <csignal>
 #include <chrono>
 #include <memory>
 
@@ -18,6 +19,19 @@
 
 #include "bupt_can/bupt_can.h"
 #include "chassis_lib/omni_chassis.h"
+
+namespace {
+// 关终端窗口时，进程收到的是 **SIGHUP**（不是 SIGINT）。rclcpp 默认只处理
+// SIGINT，收到 SIGHUP/SIGTERM 会直接死掉 —— 主循环末尾的 sendZeroVelocity()
+// 根本来不及执行，电机板失去通信后会按"最后一条指令"短暂窜一下。
+// 这里把 SIGHUP/SIGTERM 也接到 rclcpp::shutdown()：它会唤醒主循环、让
+// rclcpp::ok() 变 false，从而走完"退出循环 → 发零速"这段优雅退出。
+// （rclcpp 自己处理 SIGINT 时也是调用 rclcpp::shutdown()，同一个套路。）
+void signal_shutdown(int sig) {
+  (void)sig;
+  rclcpp::shutdown();
+}
+}  // namespace
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
@@ -88,6 +102,10 @@ int main(int argc, char **argv) {
     RCLCPP_INFO(node->get_logger(), "CAN 已启动: %s", can_interface.c_str());
   }
   node->initialize();
+
+  // 关终端(SIGHUP)/被 kill(SIGTERM) 时也走优雅退出（发零速），见上面的 signal_shutdown
+  std::signal(SIGHUP, signal_shutdown);
+  std::signal(SIGTERM, signal_shutdown);
 
   rclcpp::Rate rate(1000.0 / static_cast<double>(period_ms));
   while (rclcpp::ok()) {
