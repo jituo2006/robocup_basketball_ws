@@ -40,22 +40,37 @@ def goto_command(cur_x: float, cur_y: float, cur_yaw: float,
                  tgt_x: float, tgt_y: float,
                  kp_lin: float, kp_yaw: float,
                  max_lin: float, max_ang: float,
-                 face_travel: bool = True) -> tuple[float, float, float, float]:
+                 face_travel: bool = True,
+                 approach_radius: float = 0.0,
+                 approach_speed: float = 0.0) -> tuple[float, float, float, float]:
     """朝目标点走的 P 控制器（场地坐标系 → 车体系速度）。
 
     返回 (vx, vy, wz, distance)。vx/vy/wz 已经是车体系。
+
+    ⚠️ 为什么需要 approach_radius / approach_speed（接近限速）：
+      反馈链路有 ~300ms 延迟（雷达扫描 100ms → FAST-LIO ~200ms → 定位 2ms，
+      实测 /Odometry 消息时延中位 304ms）。P 控制器在离目标 0.27m 时仍是
+      满速 max_lin，于是"指令停下时车已经冲过头"：
+          超调 ≈ 延迟 × 接近速度
+      限速后：0.3s × 0.12m/s ≈ 3.6cm（原来 0.3s × 0.40 ≈ 12cm）。
+      在 approach_radius 内把速度上限压到 approach_speed，换取到位精度。
     """
     dx = tgt_x - cur_x
     dy = tgt_y - cur_y
     dist = math.hypot(dx, dy)
 
+    # 接近限速：进入 approach_radius 后把速度上限压到 approach_speed
+    eff_max = max_lin
+    if approach_radius > 0.0 and approach_speed > 0.0 and dist < approach_radius:
+        eff_max = min(max_lin, approach_speed)
+
     # 世界系期望速度方向
     vwx = kp_lin * dx
     vwy = kp_lin * dy
     speed = math.hypot(vwx, vwy)
-    if speed > max_lin and speed > 1e-9:
-        vwx *= max_lin / speed
-        vwy *= max_lin / speed
+    if speed > eff_max and speed > 1e-9:
+        vwx *= eff_max / speed
+        vwy *= eff_max / speed
 
     # 转到车体系
     c, s = math.cos(cur_yaw), math.sin(cur_yaw)

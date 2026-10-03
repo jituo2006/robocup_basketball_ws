@@ -82,6 +82,9 @@ class MissionNode(Node):
         #   ① 目标很近时，行进方向被几厘米的定位噪声带偏 → 车原地乱转
         #   ② 转向与平移耦合，看起来就是"乱飘乱转"
         self.face_travel = bool(lim.get("face_travel", False))
+        # 接近限速：消除"冲过目标点"（反馈链路 ~300ms 延迟，见 geometry.goto_command）
+        self.approach_radius = float(lim.get("approach_radius_m", 0.0))
+        self.approach_speed = float(lim.get("approach_speed", 0.0))
         # 点地图（/goal_pose，RViz 的 2D Goal Pose）到位后是否转向对准目标朝向。
         # RViz 点一下默认带朝向 0°（四元数 identity），若开着，车到位后会
         # 转向对准 +x 方向 —— 用户以为"点一下就走"，结果车在转，很困惑。
@@ -414,7 +417,9 @@ class MissionNode(Node):
         x, y, yaw = self.last_pose
         vx, vy, wz, dist = goto_command(x, y, yaw, tgt[0], tgt[1],
                                         self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel)
+                                        face_travel=self.face_travel,
+                                        approach_radius=self.approach_radius,
+                                        approach_speed=self.approach_speed)
         if dist < self.pos_tol:
             self.publish_zero()
             self.set_phase(P_ALIGN, "已到动作区，开始对准")
@@ -465,7 +470,9 @@ class MissionNode(Node):
         x, y, yaw = self.last_pose
         vx, vy, wz, dist = goto_command(x, y, yaw, hx, hy, self.kp_lin, self.kp_yaw,
                                         self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel)
+                                        face_travel=self.face_travel,
+                                        approach_radius=self.approach_radius,
+                                        approach_speed=self.approach_speed)
         if dist < self.pos_tol:
             self.publish_zero()
             self.set_phase(P_DONE, "已回到出发区")
@@ -486,7 +493,9 @@ class MissionNode(Node):
         x, y, yaw = self.last_pose
         vx, vy, wz, dist = goto_command(x, y, yaw, gx, gy,
                                         self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel)
+                                        face_travel=self.face_travel,
+                                        approach_radius=self.approach_radius,
+                                        approach_speed=self.approach_speed)
         if dist >= self.pos_tol:
             self.publish_motion(vx, vy, wz)
             self.detail = f"GOTO ({gx:.2f},{gy:.2f}) 剩余 {dist:.2f}m"
