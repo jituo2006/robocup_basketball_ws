@@ -60,14 +60,21 @@ void OmniChassis::execute() {
   //
   // 原 2025 篮球实现**没有**这一层：一旦收不到新 /cmd_vel，会一直沿用最后一条速度。
   // 这正是 2026-07-08 那次"发了指令当时不动、随后突然窜车、紧急断电"的成因。
-  // 这里补上：超时后只发一次零速并回到安全状态。
+  //
+  // ⚠️ 必须**持续**下发零速，而不是只发一次：
+  //   电机板的看门狗靠"持续收到帧"喂。只发一次零速、之后停发，板子照样会锁
+  //   "通信超时"故障（软件 MotorOn 清不掉、只能断电）—— 这正是"关终端/杀节点
+  //   之后板子锁死、下次上车不动"的成因。每周期都发零速，板子就不会锁。
   if (!hasFreshVelocityCommand()) {
     if (!timeout_zero_sent_) {
-      sendZeroVelocity();
-      timeout_zero_sent_ = true;
-      RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，已下发零轮速",
+      RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，持续下发零轮速",
                   static_cast<long>(commandTimeout().count()));
+      timeout_zero_sent_ = true;
     }
+    // 清空目标 + 同步 slew 状态：避免恢复指令时从旧的非零速度猛加速
+    target_vel = geometry_msgs::msg::Twist{};
+    last_sent_vel_ = target_vel;
+    sendZeroVelocity();
     return;
   }
   timeout_zero_sent_ = false;
