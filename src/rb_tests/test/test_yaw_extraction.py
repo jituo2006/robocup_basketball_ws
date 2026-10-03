@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import types
 
-from rb_mission.geometry import yaw_from_pose_msg
+from rb_mission.geometry import yaw_from_pose_msg, yaw_from_stamped_pose
 
 
 def _msg(x: float, y: float, z: float, yaw: float):
@@ -56,3 +56,29 @@ def test_falls_back_to_z_when_quaternion_is_zero():
     m = _msg(0.0, 0.0, z=0.75, yaw=0.0)
     m.pose.pose.orientation = types.SimpleNamespace(x=0.0, y=0.0, z=0.0, w=0.0)
     assert abs(yaw_from_pose_msg(m) - 0.75) < 1e-9
+
+
+# ── PoseStamped 版本（RViz "2D Goal Pose"）─────────────────────────────────
+
+def test_stamped_pose_yaw_zero_ignores_height():
+    """RViz 点击给的 position.z 常是 0，但若有人填了高度，绝不能被当朝向。"""
+    from rb_mission.geometry import yaw_from_stamped_pose
+
+    m = types.SimpleNamespace()
+    m.pose = types.SimpleNamespace()
+    m.pose.position = types.SimpleNamespace(x=3.0, y=-1.0, z=0.42)   # 高度 42cm
+    m.pose.orientation = types.SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0)  # 朝向 0°
+    got = yaw_from_stamped_pose(m)
+    assert abs(got) < 1e-9, f"应返回 0，实际 {got}（把 0.42m 高度当成了朝向）"
+
+
+def test_stamped_pose_recovers_orientation():
+    from rb_mission.geometry import yaw_from_stamped_pose
+
+    for yaw in (0.0, 0.7, -2.0, math.pi / 2):
+        m = types.SimpleNamespace()
+        m.pose = types.SimpleNamespace()
+        m.pose.position = types.SimpleNamespace(x=0.0, y=0.0, z=0.0)
+        m.pose.orientation = types.SimpleNamespace(
+            x=0.0, y=0.0, z=math.sin(yaw / 2.0), w=math.cos(yaw / 2.0))
+        assert abs(yaw_from_stamped_pose(m) - yaw) < 1e-6

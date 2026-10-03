@@ -274,7 +274,13 @@ class LocalizationNode(Node):
 
     def on_abs_pose(self, msg: Odometry) -> None:
         pos = msg.pose.pose.position
-        yaw = pos.z if abs(pos.z) > 1e-9 else self._yaw_from_quat(msg.pose.pose.orientation)
+        q = msg.pose.pose.orientation
+        # 同一坑：不能用 |pos.z|>0 判断（pos.z 是高度），要用四元数模长。
+        # 详见 rb_mission.geometry.yaw_from_pose_msg 的注释。
+        if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
+            yaw = self._yaw_from_quat(q)
+        else:
+            yaw = pos.z
         self.ekf.update_pose(pos.x, pos.y, yaw)
 
     # -- 视觉定位柱：方位角更新 --------------------------------------------

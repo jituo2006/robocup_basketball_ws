@@ -119,3 +119,16 @@ def yaw_from_pose_msg(msg) -> float:
         return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                           1.0 - 2.0 * (q.y * q.y + q.z * q.z))
     return msg.pose.pose.position.z
+
+def yaw_from_stamped_pose(msg) -> float:
+    """从 PoseStamped（RViz 的 "2D Goal Pose" 就是这种）取 yaw。
+
+    与 yaw_from_pose_msg 同一约定：**四元数模长≈1 就用四元数**，
+    不要用 `hypot(q.x,q.y,q.z)` 判断 —— 朝向≈0° 时它也是 0，
+    会把 position.z（高度）当成朝向。
+    """
+    q = msg.pose.orientation
+    if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+    return msg.pose.position.z

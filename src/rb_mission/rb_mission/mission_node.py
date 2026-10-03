@@ -40,7 +40,7 @@ from std_msgs.msg import String as StringMsg
 from rb_msgs.msg import DetectionArray, MissionStatus, RobotState
 from rb_msgs.srv import GotoPose, Launch, SetMission
 
-from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi, yaw_from_pose_msg
+from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi, yaw_from_pose_msg, yaw_from_stamped_pose
 
 # 阶段常量
 P_IDLE = "IDLE"
@@ -254,12 +254,8 @@ class MissionNode(Node):
         这样就能在 RViz 的实时点云地图上直接点一个点让车过去，不用再开别的窗口。
         position.z 沿用本队约定「yaw 塞在 z 里」；若 RViz 用四元数给朝向则优先取四元数。
         """
-        q = msg.pose.orientation
-        if abs(math.hypot(q.x, q.y)) < 1e-6 and abs(q.z) < 1e-6:
-            yaw = float(msg.pose.position.z)
-        else:
-            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        # yaw 取法见 geometry.yaw_from_stamped_pose（同一"别把高度当朝向"的坑）
+        yaw = yaw_from_stamped_pose(msg)
         ok, why = self._accept_goto(float(msg.pose.position.x), float(msg.pose.position.y),
                                     yaw, self.goto_align_yaw)
         (self.get_logger().info if ok else self.get_logger().warn)(
