@@ -9,6 +9,10 @@ WS=/home/user/robocup_basketball_ws
 cd "$WS" || exit 1
 
 source /opt/ros/humble/setup.bash 2>/dev/null
+# ⚠️ 必须 source 雷达工作空间：/livox/lidar 是 livox_ros_driver2/msg/CustomMsg，
+#    不 source 的话 ros2 topic hz 认不出类型，会误报"没数据"。
+source /home/user/lidar_360/ws_livox/install/setup.bash 2>/dev/null
+source /home/user/lidar_360/fast_prop_ws/install/setup.bash 2>/dev/null
 source "$WS/install/setup.bash" 2>/dev/null
 export ROS_DOMAIN_ID=2
 
@@ -18,7 +22,9 @@ ok=0; bad=0
 check_topic() {  # $1=话题  $2=期望最低频率
   local t="$1" min="$2"
   local rate
-  rate=$(timeout 4 ros2 topic hz "$t" 2>/dev/null | grep -oE "average rate: [0-9.]+" | head -1 | awk '{print $3}')
+  # ⚠️ 超时给足 12 秒：点云是大消息，ros2 topic hz 建立订阅 + 收到第一个包
+  #    要好几秒（会先打一行 "does not appear" 再出 rate）。4 秒会误报"没数据"。
+  rate=$(timeout 12 ros2 topic hz "$t" 2>/dev/null | grep -oE "average rate: [0-9.]+" | head -1 | awk '{print $3}')
   if [ -z "$rate" ]; then
     printf "  ${R}✗${N} %-24s 没数据\n" "$t"
     bad=$((bad+1))
@@ -45,6 +51,7 @@ fi
 echo "  ── 数据链 ──"
 check_topic /livox/lidar 5
 check_topic /livox/imu 100
+check_topic /cloud_registered 5
 check_topic /Odometry 5
 check_topic /localization/pose 10
 
