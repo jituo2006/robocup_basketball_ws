@@ -88,6 +88,11 @@ limits:
   kp_linear: 1.5
   kp_yaw: 2.0
   position_tolerance: 0.10  # m
+  # 导航时是否"转向行进方向"（前进/回位/点地图 GOTO 三个阶段都生效）。
+  # 全向底盘**不需要**：可以直接平移过去，朝向由对齐阶段单独管。
+  # ⚠️ 开着的副作用：目标很近时行进方向被几厘米的定位噪声带偏
+  #    → 车原地乱转 + 乱飘（实测症状："点车附近，车乱转乱飘"），故默认 false。
+  face_travel: false
   yaw_tolerance: 0.08       # rad (~4.6°)
   close_lost_distance_m: 0.9  # 球曾近于此距离后消失 → 视为已贴上（球会移出视野）
   seek_speed_ratio: 0.8       # 找球时的速度 = max_linear × 此比例（有距离估计时再按距离减速）

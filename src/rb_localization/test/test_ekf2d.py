@@ -14,6 +14,7 @@ from rb_localization.ekf2d import (
     EkfConfig,
     camera_bearing_to_world,
     sensor_to_base_xy,
+    world_vel_to_body,
     wrap_pi,
 )
 
@@ -388,3 +389,40 @@ def test_sensor_to_base_matches_expected_buggy_vs_fixed():
     fixed = sensor_to_base_xy(0.0, 0.0, 0.0, -0.30, 0.0, math.radians(-85.0))
     assert buggy[0] == pytest.approx(-0.30, abs=1e-9)
     assert abs(fixed[1]) > 0.29, "修好后应主要落在 y 方向（差 90°）"
+
+
+# -- 里程计 twist 的坐标系：world → body -------------------------------------
+#
+# FAST-LIO 的 /Odometry.twist 是 **world(camera_init) 系**速度
+# （common_lib.h: "the estimated velocity at the end lidar point (world frame)"），
+# 而 Ekf2D.predict() 要的是**车体系**（内部会再按 yaw 旋转一次）。
+# 直接喂 = 多转一次 yaw，预测方向全错 → 运动时定位发飘。
+
+
+def test_world_vel_to_body_rotates_back():
+    """⭐ 回归测试：车体朝 +90° 时，世界系 (0,1) 应转成车体系 (1,0)（正前方）。"""
+    vx, vy = world_vel_to_body(0.0, 1.0, math.pi / 2)
+    assert (vx, vy) == pytest.approx((1.0, 0.0), abs=1e-9)
+
+
+def test_world_vel_to_body_identity_at_zero_yaw():
+    """车体朝 0° 时不应改变速度。"""
+    assert world_vel_to_body(1.0, 2.0, 0.0) == pytest.approx((1.0, 2.0), abs=1e-12)
+
+
+def test_world_vel_to_body_preserves_speed():
+    """纯旋转，不改变速度大小。"""
+    for yaw in (0.0, 0.7, -1.9, math.pi, math.radians(-85.0)):
+        vx, vy = world_vel_to_body(0.3, -0.4, yaw)
+        assert math.hypot(vx, vy) == pytest.approx(0.5, abs=1e-9)
+
+
+def test_world_vel_to_body_is_inverse_of_body_to_world():
+    """与 Ekf2D.predict 内部的 R(yaw) 必须恰好互为逆变换（否则就是重复旋转）。"""
+    yaw = math.radians(37.0)
+    vx_w, vy_w = 0.4, -0.2
+    vx_b, vy_b = world_vel_to_body(vx_w, vy_w, yaw)
+    c, s = math.cos(yaw), math.sin(yaw)
+    # predict 内部做的旋转：world = R(yaw) · body
+    assert vx_b * c - vy_b * s == pytest.approx(vx_w, abs=1e-9)
+    assert vx_b * s + vy_b * c == pytest.approx(vy_w, abs=1e-9)

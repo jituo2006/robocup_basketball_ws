@@ -43,6 +43,7 @@ from .ekf2d import (
     EkfConfig,
     camera_bearing_to_world,
     sensor_to_base_xy,
+    world_vel_to_body,
     wrap_pi,
 )
 
@@ -234,20 +235,28 @@ class LocalizationNode(Node):
         if dt <= 0.0 or dt > 0.5:
             dt = 0.0
 
+        # yaw 的取法：优先看四元数；本队老代码把 yaw 塞在 position.z，两种都兼容
+        pos = msg.pose.pose.position
+        if abs(math.hypot(msg.pose.pose.orientation.x,
+                          msg.pose.pose.orientation.y,
+                          msg.pose.pose.orientation.z)) < 1e-6:
+            yaw = pos.z
+        else:
+            yaw = self._yaw_from_quat(msg.pose.pose.orientation)
+
+        # 车体在里程计系下的朝向（= 雷达 yaw + 安装偏航）
+        byaw = wrap_pi(yaw + self.s2b_yaw)
+
         tw = msg.twist.twist
         if dt > 0.0:
-            self.ekf.predict(tw.linear.x, tw.linear.y, tw.angular.z, dt)
+            # ⚠️ FAST-LIO 的 twist 是【world(camera_init)系】速度，而 Ekf2D.predict()
+            #    要的是**车体系**（它内部会再按 yaw 旋转）。直接喂 = 多转一次 yaw，
+            #    预测方向全错。转换细节见 ekf2d.world_vel_to_body（有单测锁住）。
+            vx_b, vy_b = world_vel_to_body(tw.linear.x, tw.linear.y, byaw)
+            self.ekf.predict(vx_b, vy_b, tw.angular.z, dt)
 
         # 若这路里程计本身带绝对位姿（雷达 FAST-LIO / 全场定位板），做一次观测更新
         if self.use_odom_pose_as_abs:
-            pos = msg.pose.pose.position
-            # yaw 的取法：优先看四元数；本队老代码把 yaw 塞在 position.z，两种都兼容
-            if abs(math.hypot(msg.pose.pose.orientation.x,
-                              msg.pose.pose.orientation.y,
-                              msg.pose.pose.orientation.z)) < 1e-6:
-                yaw = pos.z
-            else:
-                yaw = self._yaw_from_quat(msg.pose.pose.orientation)
             fx, fy, fyaw = self.odom_to_field(pos.x, pos.y, yaw)
             self.ekf.update_pose(fx, fy, fyaw)
             self.abs_count += 1

@@ -30,6 +30,26 @@ def wrap_pi(a: float) -> float:
     return a
 
 
+def world_vel_to_body(vx_w: float, vy_w: float, body_yaw: float
+                      ) -> tuple[float, float]:
+    """把【世界(里程计)系】速度转成【车体系】速度。
+
+    ⚠️ 第三个容易写错的地方：**FAST-LIO 的 /Odometry.twist 是世界系速度**。
+
+    证据（`~/lidar_360/fast_prop_ws/.../include/common_lib.h:147`）：
+        V3D vel_end;   // the estimated velocity at the end lidar point (world frame)
+    而 `laserMapping.cpp` 把它直接塞进 twist，且 `header.frame_id = "camera_init"`。
+
+    但 `Ekf2D.predict()` 的入参约定是**车体系**（它内部会再按 yaw 旋转一次）。
+    若把世界系速度直接喂进去，等于**多转了一次 yaw** —— 预测方向完全错，
+    表现为定位在车运动时抖动/发飘。
+
+        v_body = R(−body_yaw) · v_world
+    """
+    c, s = math.cos(body_yaw), math.sin(body_yaw)
+    return vx_w * c + vy_w * s, -vx_w * s + vy_w * c
+
+
 def sensor_to_base_xy(ox: float, oy: float, oyaw: float,
                       s2b_x: float, s2b_y: float, s2b_yaw: float
                       ) -> tuple[float, float, float]:

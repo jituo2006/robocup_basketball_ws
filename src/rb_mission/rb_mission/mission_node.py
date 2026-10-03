@@ -75,6 +75,12 @@ class MissionNode(Node):
         self.kp_yaw = float(lim.get("kp_yaw", 2.0))
         self.pos_tol = float(lim.get("position_tolerance", 0.10))
         self.yaw_tol = float(lim.get("yaw_tolerance", 0.08))
+        # 导航时是否"转向行进方向"。
+        # 全向底盘**没必要**：可以直接平移过去，朝向由 align_yaw/对准阶段单独管。
+        # 开着会有两个副作用：
+        #   ① 目标很近时，行进方向被几厘米的定位噪声带偏 → 车原地乱转
+        #   ② 转向与平移耦合，看起来就是"乱飘乱转"
+        self.face_travel = bool(lim.get("face_travel", False))
 
         tm = self.cfg.get("timeouts", {}) or {}
         self.start_delay_s = float(tm.get("start_delay_s", 8.0))
@@ -400,7 +406,8 @@ class MissionNode(Node):
         tgt = self._zone_target()
         x, y, yaw = self.last_pose
         vx, vy, wz, dist = goto_command(x, y, yaw, tgt[0], tgt[1],
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
+                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
+                                        face_travel=self.face_travel)
         if dist < self.pos_tol:
             self.publish_zero()
             self.set_phase(P_ALIGN, "已到动作区，开始对准")
@@ -449,7 +456,9 @@ class MissionNode(Node):
             self.publish_zero()
             return
         x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, hx, hy, self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
+        vx, vy, wz, dist = goto_command(x, y, yaw, hx, hy, self.kp_lin, self.kp_yaw,
+                                        self.max_lin, self.max_ang,
+                                        face_travel=self.face_travel)
         if dist < self.pos_tol:
             self.publish_zero()
             self.set_phase(P_DONE, "已回到出发区")
@@ -469,7 +478,8 @@ class MissionNode(Node):
         gx, gy, gyaw, align = self.goto_goal
         x, y, yaw = self.last_pose
         vx, vy, wz, dist = goto_command(x, y, yaw, gx, gy,
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
+                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
+                                        face_travel=self.face_travel)
         if dist >= self.pos_tol:
             self.publish_motion(vx, vy, wz)
             self.detail = f"GOTO ({gx:.2f},{gy:.2f}) 剩余 {dist:.2f}m"
