@@ -17,7 +17,7 @@
 #   否则 MotorOn 落到"还没上电的板子"上就丢了，板子不会使能。
 #   雷达则相反：驱动启动后广播找雷达，雷达上电后回应握手即可，顺序无碍
 #   （只要雷达不是"上一个会话残留的流状态"）。
-set -uo pipefail
+set -o pipefail
 
 WS=/home/user/robocup_basketball_ws
 cd "$WS" || exit 1
