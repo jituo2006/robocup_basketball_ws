@@ -84,18 +84,27 @@ void OmniChassis::execute() {
 
   // ---------- ③ 全向运动学 ----------
   //
-  // yaw 取自里程计的 position.z（本队约定：yaw 塞在 z 里）。
-  // 没有里程计时 yaw=0，此时指令按车体系直接下发 —— 方向仍然对，只是不做世界系旋转。
-  if (!has_odom_ && !warned_no_odom_) {
-    RCLCPP_WARN(get_logger(),
-                "尚未收到里程计，yaw 按 0 处理（指令将作为车体系速度下发）。"
-                "若定位未起来，这是预期行为。");
-    warned_no_odom_ = true;
+  // ⚠️⚠️ /cmd_vel 的坐标系（曾经的真 BUG）：
+  //   任务侧 rb_mission.goto_command 输出的**已经是车体系**速度（它内部做了
+  //   R(−yaw) 把场地系目标方向转到车体）。这里若再按里程计 yaw 转一次，就会
+  //   **双重旋转** —— 实测症状：车朝左时想往前走，底盘却让它倒退（yaw=0 时
+  //   恰好抵消，所以"看着一开始正常"）。
+  //   现在按 ROS 标准：/cmd_vel = 车体系，直接下发；只有显式配置
+  //   cmd_vel_frame: world 时才做世界系→车体系旋转（供老的场地系发布者用）。
+  double vx = cmd.linear.x;
+  double vy = cmd.linear.y;
+  if (cmd_vel_frame_world_) {
+    // yaw 取自里程计的 position.z（本队约定：yaw 塞在 z 里）。
+    // 没有里程计时 yaw=0，此时退化为直接下发车体系，方向仍然对。
+    if (!has_odom_ && !warned_no_odom_) {
+      RCLCPP_WARN(get_logger(),
+                  "cmd_vel_frame=world 但尚未收到里程计，yaw 按 0 处理。");
+      warned_no_odom_ = true;
+    }
+    const double yaw = has_odom_ ? current_odom_.pose.pose.position.z : 0.0;
+    vx = cmd.linear.x * std::cos(yaw) + cmd.linear.y * std::sin(yaw);
+    vy = cmd.linear.y * std::cos(yaw) - cmd.linear.x * std::sin(yaw);
   }
-  const double yaw = has_odom_ ? current_odom_.pose.pose.position.z : 0.0;
-
-  const double vx = cmd.linear.x * std::cos(yaw) + cmd.linear.y * std::sin(yaw);
-  const double vy = cmd.linear.y * std::cos(yaw) - cmd.linear.x * std::sin(yaw);
   // 旋转方向符号：
   //   原 2025 代码这里是 `-cmd.angular.z`。实车测试发现顺逆反了（正 angular.z 却顺时针转），
   //   说明这辆车的轮子安装朝向与公式默认相反，故把默认符号从 -1 改为 +1，

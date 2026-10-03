@@ -38,6 +38,13 @@ rb_chassis:
     wheel_radius: 0.075     # 实测：轮径 15cm → 半径 0.075 m
     ratio: 1.0              # 必须为 1.0（见文件头说明）
 
+    # /cmd_vel 的坐标系。**必须保持 body**（ROS 标准：/cmd_vel 就是车体系速度）。
+    # 任务侧 rb_mission.goto_command 输出的已经是车体系（它内部做了 R(−yaw)）。
+    # 若改成 world，底盘会再按里程计 yaw 转一次 = **双重旋转**，方向全错
+    # （实测症状：车朝左时想往前走却倒退；yaw=0 时恰好看不出问题）。
+    # 只有外部发布者确实发场地系速度时才该改成 world。
+    cmd_vel_frame: body
+
     cmd_vel_timeout_ms: 200 # 收不到 /cmd_vel 就发零速（安全网，不要调大）
     control_period_ms: 10   # 100 Hz
     dry_run: false          # true = 只解算不下发 CAN

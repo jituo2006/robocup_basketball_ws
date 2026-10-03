@@ -68,7 +68,9 @@ esac
 # 症状：RViz 里位姿箭头乱飘、点云被平移成"几千公里外的异常点"、地图全乱。
 # 发散不可逆，只能重启 FAST-LIO。这一步就是为了在发散早期抓出来。
 odom_x=$(timeout 8 ros2 topic echo /Odometry --once --field pose.pose.position.x 2>/dev/null | head -1 | tr -d ' ')
-if [ -z "$odom_x" ]; then
+# ⚠️ 没数据时 ros2 会把 "WARNING: topic [...] ..." 打到 **stdout**，直接喂给 awk
+#    会变成语法错误。所以先校验它确实是个数（正则匹配可选负号的浮点/科学计数）。
+if [ -z "$odom_x" ] || ! printf '%s' "$odom_x" | grep -qE '^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$'; then
   printf "  ${R}✗${N} %-24s 无输出\n" "/Odometry.x"; bad=$((bad+1))
 elif awk "BEGIN{exit !(($odom_x > -100) && ($odom_x < 100))}"; then
   printf "  ${G}✓${N} %-24s %.2f m（未发散）\n" "/Odometry.x" "$odom_x"; ok=$((ok+1))

@@ -98,3 +98,24 @@ def face_bearing_command(cur_yaw: float, target_bearing_body: float,
     """
     err = wrap_pi(-target_bearing_body)
     return clamp(kp_yaw * err, -max_ang, max_ang), err
+
+def yaw_from_pose_msg(msg) -> float:
+    """从 (PoseStamped/PoseWithCovarianceStamped/Odometry) 消息里取 yaw。
+
+    ⚠️⚠️ 这里曾经有个真 BUG，务必别改回去：
+
+      FAST-LIO 的 `pose.position.z` 是**高度**（实测 -0.007 m），**不是 yaw**。
+      "yaw 塞在 z 里" 只是本队自家消息的老约定，对第三方里程计不成立。
+
+      原判据是 `hypot(q.x, q.y, q.z) < 1e-6` —— 机器人朝向≈0° 时四元数的
+      x,y,z **恰好都是 0**，于是走进分支把高度当成了朝向；高度一漂朝向就漂，
+      车体系速度方向跟着错 → 表现为**过冲、往回走**。
+
+      正确判据：四元数的**模长**（q.x²+q.y²+q.z²+q.w²）≈1 就是有效旋转，用它；
+      只有四元数整体为零（自家老消息不带姿态）才退回 position.z。
+    """
+    q = msg.pose.pose.orientation
+    if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+    return msg.pose.pose.position.z

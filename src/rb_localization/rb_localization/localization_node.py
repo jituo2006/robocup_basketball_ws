@@ -235,14 +235,19 @@ class LocalizationNode(Node):
         if dt <= 0.0 or dt > 0.5:
             dt = 0.0
 
-        # yaw 的取法：优先看四元数；本队老代码把 yaw 塞在 position.z，两种都兼容
+        # yaw 的取法（⚠️ 这里曾有个真 BUG）：
+        #   FAST-LIO 的 `position.z` 是【高度】（实测 -0.007 m），**不是 yaw**。
+        #   "yaw 塞在 z 里" 是本队自家消息的老约定，只对自家发的话题成立。
+        #   原判据是 `hypot(q.x,q.y,q.z) < 1e-6` —— 机器人朝向≈0° 时四元数的
+        #   x,y,z 恰好都是 0，于是走进分支把**高度当成了朝向**；高度一漂，
+        #   朝向就跟着漂 → 车体系速度方向错 → 表现为过冲/往回走。
+        #   正确做法：四元数模长≈1（有效旋转）就用它；只有四元数全零才退回 z。
         pos = msg.pose.pose.position
-        if abs(math.hypot(msg.pose.pose.orientation.x,
-                          msg.pose.pose.orientation.y,
-                          msg.pose.pose.orientation.z)) < 1e-6:
-            yaw = pos.z
+        q = msg.pose.pose.orientation
+        if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
+            yaw = self._yaw_from_quat(q)
         else:
-            yaw = self._yaw_from_quat(msg.pose.pose.orientation)
+            yaw = pos.z
 
         # 车体在里程计系下的朝向（= 雷达 yaw + 安装偏航）
         byaw = wrap_pi(yaw + self.s2b_yaw)

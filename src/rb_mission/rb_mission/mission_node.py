@@ -40,7 +40,7 @@ from std_msgs.msg import String as StringMsg
 from rb_msgs.msg import DetectionArray, MissionStatus, RobotState
 from rb_msgs.srv import GotoPose, Launch, SetMission
 
-from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi
+from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi, yaw_from_pose_msg
 
 # 阶段常量
 P_IDLE = "IDLE"
@@ -186,13 +186,8 @@ class MissionNode(Node):
     # -- 输入回调 ----------------------------------------------------------
     def on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose.position
-        yaw = p.z
-        q = msg.pose.pose.orientation
-        if abs(math.hypot(q.x, q.y, q.z)) < 1e-6:
-            yaw = p.z
-        else:
-            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        self.last_pose = (p.x, p.y, yaw)
+        # yaw 的取法见 geometry.yaw_from_pose_msg（那里记录了"把高度当成朝向"的坑）
+        self.last_pose = (p.x, p.y, yaw_from_pose_msg(msg))
         self.has_pose = True
 
     def on_loc_ok(self, msg: Bool) -> None:

@@ -22,6 +22,12 @@ private:
   // 害得排查时误以为"配置是 1 但实际用了 0"，白白去改了能用的配置。
   uint32_t board_id_ = 0;
   double angular_z_sign_ = 1.0;   // 旋转方向符号（物理装轮方式决定，默认 +1）
+  // /cmd_vel 的坐标系：false(默认)=**车体系**（ROS 标准，直接下发）；
+  // true=场地系（会按里程计 yaw 旋转到车体系）。
+  // ⚠️ 任务侧 rb_mission.goto_command 输出的**已经是车体系**速度，
+  //    所以这里必须是 false —— 否则转了两次（曾经的真 BUG：
+  //    车朝左时想往前走，底盘却让它倒退）。
+  bool cmd_vel_frame_world_ = false;
   std::array<int16_t, 4> wheel_speed{};
   bool timeout_zero_sent_ = false;
 
@@ -39,6 +45,11 @@ public:
   /// 旋转方向符号。若实车自转方向与指令相反，把它设成 -1（不用改代码重编译）。
   void setAngularZSign(double sign) { angular_z_sign_ = (sign < 0 ? -1.0 : 1.0); }
   double angularZSign() const { return angular_z_sign_; }
+
+  /// /cmd_vel 是否按【场地系】解释（默认 false = 车体系 / ROS 标准）。
+  /// 只有在外部发布者（如老的遥控脚本）发的是场地系速度时才该设 true。
+  void setCmdVelFrameWorld(bool world) { cmd_vel_frame_world_ = world; }
+  bool cmdVelFrameWorld() const { return cmd_vel_frame_world_; }
 
   /// 立即下发零轮速
   void sendZeroVelocity();
