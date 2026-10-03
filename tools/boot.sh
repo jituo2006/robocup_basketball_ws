@@ -25,8 +25,49 @@ cd "$WS" || exit 1
 echo "🤖 篮球机器人一键启动 $(date '+%H:%M:%S')"
 echo ""
 
+# ── ⓪ 清理残留进程（**最关键的一步**）──────────────────────────────────────
+#
+# ⚠️ 这是"雷达反复没数据"的真正根因：
+#   launch 重启时 livox 驱动常常不被带走，变成孤儿进程（ppid=1）。
+#   第二个驱动起来后，两个进程**同时持有 56301/56401 端口**（SO_REUSEPORT），
+#   雷达 UDP 数据被内核随机分给两个进程 → 点云时有时无、IMU 丢失、地图消失。
+#   症状看起来像"雷达坏了"，其实是重复驱动抢端口。
+#
+#   解决：每次启动前把要起的节点全部清干净，保证"只有一个"。
+#   （用 -9：livox 驱动卡死时 SIGTERM 可能不生效。）
+echo "[1/3] 清理残留进程（防止重复驱动抢端口）…"
+killed=0
+for pat in \
+    livox_ros_driver2_node \
+    fastlio_mapping \
+    mapping.launch.py \
+    msg_MID360_launch.py \
+    localization_node \
+    rb_chassis_node \
+    mission_node \
+    camera_node \
+    perception_node \
+    rb_launcher_node ; do
+  n=$(pgrep -f "$pat" 2>/dev/null | wc -l)
+  if [ "$n" -gt 0 ]; then
+    pkill -9 -f "$pat" 2>/dev/null
+    killed=$((killed + n))
+  fi
+done
+sleep 2
+if [ "$killed" -gt 0 ]; then
+  echo "      已清理 $killed 个残留进程"
+else
+  echo "      干净，无残留"
+fi
+left=$(pgrep -f "livox_ros_driver2_node" 2>/dev/null | wc -l)
+if [ "$left" -gt 0 ]; then
+  echo "      ⚠️ 还有 $left 个雷达驱动，手动：pkill -9 -f livox_ros_driver2_node"
+fi
+echo ""
+
 # ── ① 确保 CAN 起来（udev 规则应已自动做，这里兜底复查）────────────────────
-echo "[1/2] 检查 CAN …"
+echo "[2/3] 检查 CAN …"
 if ip link show can0 >/dev/null 2>&1; then
   state=$(ip -details link show can0 2>/dev/null | grep -oE "state [A-Z-]+" | head -1)
   bitrate=$(ip -details link show can0 2>/dev/null | grep -oE "bitrate [0-9]+" | head -1)
@@ -43,7 +84,7 @@ fi
 echo ""
 
 # ── ② 起整套软件（前台，Ctrl-C 停）──────────────────────────────────────────
-echo "[2/2] 起整套软件（雷达驱动 → FAST-LIO → 相机/感知/定位/底盘/机构/任务）"
+echo "[3/3] 起整套软件（雷达驱动 → FAST-LIO → 相机/感知/定位/底盘/机构/任务）"
 echo "      看到「底盘已使能 4 个电机」「mission 就绪」就是成功了"
 echo "      Ctrl-C 停止（会走优雅退出、先发零速）"
 echo ""
