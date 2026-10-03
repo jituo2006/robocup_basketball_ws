@@ -45,7 +45,8 @@ def main() -> int:
     proc = subprocess.Popen(
         ["bash", "-c", "source /opt/ros/humble/setup.bash && "
                        f"source {WS}/install/setup.bash && "
-                       "exec ros2 run rb_mission mission_node"],
+                       "exec ros2 run rb_mission mission_node "
+                       f"--ros-args -p config_file:={WS}/src/rb_tests/resource/mission_goto_avoid.yaml"],
         cwd=str(WS), stdout=logf, stderr=subprocess.STDOUT,
         env=env, start_new_session=True)
 

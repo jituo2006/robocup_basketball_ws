@@ -29,6 +29,7 @@ import os
 from typing import Any
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
@@ -703,6 +704,11 @@ def main(argv: list[str] | None = None) -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except ExternalShutdownException:
+        # rclpy 的"上下文被外部关闭"（通常是收到了 SIGTERM，或别处调用了
+        # rclpy.shutdown()）。这不是崩溃，是正常关闭信号 —— 当正常退出处理，
+        # 别当成异常 re-raise（否则 exit code 1，看起来像崩溃）。
+        pass
     except Exception:  # noqa: BLE001
         # 让崩溃点暴露出来：之前 mission 节点 exit code 1 直接死掉、
         # traceback 只进终端不进 ROS 日志，排查无从下手。
@@ -738,6 +744,7 @@ def _install_sigint_handler() -> None:
 
     try:
         _signal.signal(_signal.SIGINT, _handler)
+        _signal.signal(_signal.SIGTERM, _handler)
     except (ValueError, OSError):
         # 非主线程不允许注册信号处理器，忽略即可
         pass
