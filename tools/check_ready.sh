@@ -44,6 +44,7 @@ fi
 
 echo "  ── 数据链 ──"
 check_topic /livox/lidar 5
+check_topic /livox/imu 100
 check_topic /Odometry 5
 check_topic /localization/pose 10
 
@@ -61,7 +62,7 @@ if [ "$bad" -eq 0 ]; then
   exit 0
 else
   echo "  ${R}⚠️ 还有 $bad 项没就绪${N}"
-  echo "     雷达没数据 → 断电重启雷达，等 15 秒"
+  echo "     雷达/IMU 没数据 → 断电重启雷达，等 15 秒（点云有但 imu 无，也是断电重启雷达）"
   echo "     CAN 没 UP → bash tools/can_recover.sh"
   echo "     定位没起来 → 确认整套软件（boot.sh）在跑"
   exit 1
