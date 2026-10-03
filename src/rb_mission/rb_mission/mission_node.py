@@ -703,6 +703,19 @@ def main(argv: list[str] | None = None) -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except Exception:  # noqa: BLE001
+        # 让崩溃点暴露出来：之前 mission 节点 exit code 1 直接死掉、
+        # traceback 只进终端不进 ROS 日志，排查无从下手。
+        # 这里把完整堆栈写进 ROS 日志（和 stderr），下次崩溃一眼定位。
+        import sys
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            node.get_logger().error("未处理异常，进程即将退出：\n" + tb)
+        except Exception:  # noqa: BLE001
+            pass
+        print(tb, file=sys.stderr)
+        raise
     finally:
         _shutdown(node)
 
