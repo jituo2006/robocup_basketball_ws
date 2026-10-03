@@ -35,6 +35,33 @@ echo ""
 #
 #   解决：每次启动前把要起的节点全部清干净，保证"只有一个"。
 #   （用 -9：livox 驱动卡死时 SIGTERM 可能不生效。）
+#
+# ⚠️⚠️ 必须排除"自己 + 所有祖先进程"：
+#   `pkill -9 -f <模式>` 会匹配*整条命令行*。如果调用 boot.sh 的那个 shell
+#   （或它的父进程）命令行里恰好含 "mission_node" 之类字样，就会把自己杀掉
+#   —— 实测踩过：`bash -c '... mission_node ...'` 调用 boot.sh，boot.sh
+#   把自己的父 shell SIGKILL 了。所以下面逐 PID 判断，跳过祖先链。
+_self=$$
+_anc=" $_self "
+_p=$_self
+while :; do
+  _p=$(ps -o ppid= -p "$_p" 2>/dev/null | tr -d ' ')
+  [ -z "$_p" ] && break
+  [ "$_p" = "0" ] && break
+  [ "$_p" = "1" ] && break
+  _anc="$_anc$_p "
+done
+
+# 安全清理：返回实际杀掉的进程数（排除祖先链）
+safe_kill() {
+  local pat="$1" pid cnt=0
+  for pid in $(pgrep -f "$pat" 2>/dev/null); do
+    case "$_anc" in *" $pid "*) continue ;; esac   # 跳过自己/祖先
+    kill -9 "$pid" 2>/dev/null && cnt=$((cnt + 1))
+  done
+  echo "$cnt"
+}
+
 echo "[1/3] 清理残留进程（防止重复驱动抢端口）…"
 killed=0
 for pat in \
@@ -48,11 +75,8 @@ for pat in \
     camera_node \
     perception_node \
     rb_launcher_node ; do
-  n=$(pgrep -f "$pat" 2>/dev/null | wc -l)
-  if [ "$n" -gt 0 ]; then
-    pkill -9 -f "$pat" 2>/dev/null
-    killed=$((killed + n))
-  fi
+  n=$(safe_kill "$pat")
+  killed=$((killed + n))
 done
 sleep 2
 if [ "$killed" -gt 0 ]; then
@@ -61,8 +85,11 @@ else
   echo "      干净，无残留"
 fi
 left=$(pgrep -f "livox_ros_driver2_node" 2>/dev/null | wc -l)
+for pid in $(pgrep -f "livox_ros_driver2_node" 2>/dev/null); do
+  case "$_anc" in *" $pid "*) left=$((left - 1)) ;; esac
+done
 if [ "$left" -gt 0 ]; then
-  echo "      ⚠️ 还有 $left 个雷达驱动，手动：pkill -9 -f livox_ros_driver2_node"
+  echo "      ⚠️ 还有 $left 个雷达驱动残留，手动确认：pgrep -af livox_ros_driver2_node"
 fi
 echo ""
 

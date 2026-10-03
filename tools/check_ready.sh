@@ -63,6 +63,19 @@ case "$lok" in
   *)     printf "  ${R}✗${N} %-24s 无\n" "/localization/ok"; bad=$((bad+1));;
 esac
 
+# ── FAST-LIO 发散检测 ──────────────────────────────────────────────────────
+# ⚠️ FAST-LIO 跟丢后会**发散**：位置跑到几千公里外，而且数值持续增大。
+# 症状：RViz 里位姿箭头乱飘、点云被平移成"几千公里外的异常点"、地图全乱。
+# 发散不可逆，只能重启 FAST-LIO。这一步就是为了在发散早期抓出来。
+odom_x=$(timeout 8 ros2 topic echo /Odometry --once --field pose.pose.position.x 2>/dev/null | head -1 | tr -d ' ')
+if [ -z "$odom_x" ]; then
+  printf "  ${R}✗${N} %-24s 无输出\n" "/Odometry.x"; bad=$((bad+1))
+elif awk "BEGIN{exit !(($odom_x > -100) && ($odom_x < 100))}"; then
+  printf "  ${G}✓${N} %-24s %.2f m（未发散）\n" "/Odometry.x" "$odom_x"; ok=$((ok+1))
+else
+  printf "  ${R}✗${N} %-24s %.0f m 【发散！重启 FAST-LIO】\n" "/Odometry.x" "$odom_x"; bad=$((bad+1))
+fi
+
 echo ""
 if [ "$bad" -eq 0 ]; then
   echo "  ${G}✅ 全部就绪，可以开车 / 开地图了${N}"
@@ -72,5 +85,6 @@ else
   echo "     雷达/IMU 没数据 → 断电重启雷达，等 15 秒（点云有但 imu 无，也是断电重启雷达）"
   echo "     CAN 没 UP → bash tools/can_recover.sh"
   echo "     定位没起来 → 确认整套软件（boot.sh）在跑"
+  echo "     /Odometry.x 发散 → 重启 FAST-LIO（不可逆）"
   exit 1
 fi
