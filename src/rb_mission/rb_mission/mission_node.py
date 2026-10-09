@@ -29,18 +29,21 @@ import os
 from typing import Any
 
 import rclpy
-from rclpy.executors import ExternalShutdownException
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import Bool, Header
 from std_msgs.msg import String as StringMsg
 
 from rb_msgs.msg import DetectionArray, MissionStatus, RobotState
 from rb_msgs.srv import GotoPose, Launch, SetMission
 
-from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi, yaw_from_pose_msg, yaw_from_stamped_pose
+from .geometry import (clamp, face_bearing_command, goto_command,
+                       point_in_polygon, wrap_pi, yaw_from_stamped_pose)
+from .navigation import ArrivalConfig, ArrivalGate, PoseFeedback, fresh
 
 # 阶段常量
 P_IDLE = "IDLE"
@@ -70,26 +73,21 @@ class MissionNode(Node):
         self.load_config()
 
         lim = self.cfg.get("limits", {}) or {}
-        self.max_lin = float(lim.get("max_linear", 0.4))
-        self.max_ang = float(lim.get("max_angular", 0.8))
-        self.kp_lin = float(lim.get("kp_linear", 1.5))
-        self.kp_yaw = float(lim.get("kp_yaw", 2.0))
-        self.pos_tol = float(lim.get("position_tolerance", 0.10))
-        self.yaw_tol = float(lim.get("yaw_tolerance", 0.08))
-        # 导航时是否"转向行进方向"。
-        # 全向底盘**没必要**：可以直接平移过去，朝向由 align_yaw/对准阶段单独管。
-        # 开着会有两个副作用：
-        #   ① 目标很近时，行进方向被几厘米的定位噪声带偏 → 车原地乱转
-        #   ② 转向与平移耦合，看起来就是"乱飘乱转"
-        self.face_travel = bool(lim.get("face_travel", False))
-        # 接近限速：消除"冲过目标点"（反馈链路 ~300ms 延迟，见 geometry.goto_command）
-        self.approach_radius = float(lim.get("approach_radius_m", 0.0))
-        self.approach_speed = float(lim.get("approach_speed", 0.0))
-        # 点地图（/goal_pose，RViz 的 2D Goal Pose）到位后是否转向对准目标朝向。
-        # RViz 点一下默认带朝向 0°（四元数 identity），若开着，车到位后会
-        # 转向对准 +x 方向 —— 用户以为"点一下就走"，结果车在转，很困惑。
-        # 所以默认 false：点一下只平移过去，不转朝向。想转朝向就用服务
-        # /rb_mission/goto_pose 显式传 align_yaw=true。
+        nav = self.cfg.get("navigation", {}) or {}
+        self._tuning = {}
+        for name, default in self._tuning_defaults().items():
+            section, key = name.split(".")
+            value = (lim if section == "limits" else nav).get(key, default)
+            self._tuning[name] = float(self.declare_parameter(name, float(value)).value)
+        self._validate_tuning(self._tuning)
+        self._apply_tuning(self._tuning)
+        self.arrival = ArrivalGate()
+        self.feedback = PoseFeedback()
+        self.last_loc_ok_time = None
+        self.add_on_set_parameters_callback(self.on_tuning_parameters)
+        # RViz 的 2D Goal Pose 到位后是否原地转向对准目标朝向。
+        # 默认 false：RViz 点一下默认带 identity 四元数（yaw=0），开着会让车
+        # 到位后转向 +x，用户以为"点一下就走"却在转 —— 很困惑。
         self.goto_align_yaw = bool(lim.get("goto_align_yaw", False))
 
         tm = self.cfg.get("timeouts", {}) or {}
@@ -147,14 +145,17 @@ class MissionNode(Node):
 
         topics = self.cfg.get("topics", {}) or {}
         self.create_subscription(PoseWithCovarianceStamped, topics.get("pose", "/localization/pose"), self.on_pose, 10)
+
+        # RViz 的 2D Goal Pose 工具 -> 点一下就过去（与 goto_pose 服务同样校验）
+
+        self.create_subscription(PoseStamped, topics.get("goal_pose", "/goal_pose"),
+
+                                 self.on_goal_pose, 5)
         self.create_subscription(Bool, topics.get("loc_ok", "/localization/ok"), self.on_loc_ok, 5)
         self.create_subscription(DetectionArray, topics.get("detections", "/perception/detections"), self.on_detections, 5)
         self.create_subscription(Bool, topics.get("launcher_ok", "/rb_launcher/ok"), self.on_launcher_ok, 5)
         self.create_subscription(Bool, topics.get("estop", "/mission/estop"), self.on_estop, 5)
         self.create_subscription(Bool, topics.get("has_ball", "/mission/has_ball"), self.on_has_ball, 5)
-        # RViz 的 "2D Goal Pose" 工具 → 在实时点云地图上点一下就能让车过去
-        self.create_subscription(PoseStamped, topics.get("goal_pose", "/goal_pose"),
-                                 self.on_goal_pose, 5)
 
         self.srv = self.create_service(SetMission, "~/set_mission", self.on_set_mission)
         self.goto_srv = self.create_service(GotoPose, "~/goto_pose", self.on_goto_pose)
@@ -183,15 +184,100 @@ class MissionNode(Node):
             self.get_logger().error(f"配置文件不存在: {self.config_file}")
             self.cfg = {}
 
+    @staticmethod
+    def _tuning_defaults():
+        return {
+            "limits.max_linear": 0.4, "limits.max_angular": 0.8,
+            "limits.kp_linear": 1.5, "limits.kp_yaw": 2.0,
+            "limits.position_tolerance": 0.10, "limits.yaw_tolerance": 0.08,
+            "navigation.pose_timeout_s": 0.5,
+            "navigation.loc_ok_timeout_s": 0.5,
+            "navigation.velocity_window_s": 0.15,
+            "navigation.exit_margin_m": 0.02,
+            "navigation.linear_speed_tolerance": 0.03,
+            "navigation.angular_speed_tolerance": 0.05,
+            "navigation.settle_time_s": 0.5,
+            "navigation.settle_timeout_s": 5.0,
+            "navigation.correction_max_linear": 0.08,
+            "limits.goto_align_yaw": 0.0,   # 仅占位：实际是 bool，见下面单独读
+        }
+
+    @staticmethod
+    def _validate_tuning(values):
+        for name, value in values.items():
+            if not math.isfinite(value) or value < 0 or (value == 0 and name != "navigation.exit_margin_m"):
+                raise ValueError(f"{name} 必须是有限正数（exit_margin_m 可为 0）")
+        if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
+            raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
+        if values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]:
+            raise ValueError("settle_time_s 必须小于 settle_timeout_s")
+
+    def _apply_tuning(self, values):
+        for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
+                          "kp_linear": "kp_lin", "kp_yaw": "kp_yaw",
+                          "position_tolerance": "pos_tol", "yaw_tolerance": "yaw_tol"}.items():
+            setattr(self, attr, values["limits." + key])
+        for name, value in values.items():
+            if name.startswith("navigation."):
+                setattr(self, name.split(".")[1], value)
+
+    def on_tuning_parameters(self, parameters):
+        # 连续调参可能发生在同一控制周期内，校验必须基于服务器已接受的值。
+        values = {name: float(self.get_parameter(name).value) for name in self._tuning}
+        for parameter in parameters:
+            if parameter.name == "config_file":
+                return SetParametersResult(successful=False, reason="config_file 修改需重启；现场调参请用 limits.* / navigation.*")
+            if parameter.name in values:
+                if isinstance(parameter.value, bool) or not isinstance(parameter.value, (int, float)):
+                    return SetParametersResult(successful=False, reason="导航参数必须为数值")
+                values[parameter.name] = float(parameter.value)
+        try:
+            self._validate_tuning(values)
+        except ValueError as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+        # 这里只验证，不能提前修改控制状态：其他参数回调还可能拒绝此次请求。
+        return SetParametersResult(successful=True)
+
+    def _refresh_tuning(self):
+        values = {name: float(self.get_parameter(name).value) for name in self._tuning}
+        if values != self._tuning:
+            self._tuning = values
+            self._apply_tuning(values)
+            self.arrival.reset()
+            self.feedback = PoseFeedback()
+            self.publish_zero()
+
+    def _now_seconds(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _localization_ready(self):
+        now = self._now_seconds()
+        return (self.has_pose and self.loc_ok
+                and fresh(now, self.feedback.stamp, self.pose_timeout_s)
+                and fresh(now, self.last_loc_ok_time, self.loc_ok_timeout_s))
+
     # -- 输入回调 ----------------------------------------------------------
     def on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose.position
-        # yaw 的取法见 geometry.yaw_from_pose_msg（那里记录了"把高度当成朝向"的坑）
-        self.last_pose = (p.x, p.y, yaw_from_pose_msg(msg))
-        self.has_pose = True
+        q = msg.pose.pose.orientation
+        norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        if not math.isfinite(norm):
+            return
+        if norm > 1e-6:
+            yaw = math.atan2(2.0 * (q.w*q.z + q.x*q.y) / (norm*norm),
+                             1.0 - 2.0 * (q.y*q.y + q.z*q.z) / (norm*norm))
+        else:
+            yaw = p.z  # 仅零四元数兼容旧消息；单位四元数对应 yaw=0
+        pose = (p.x, p.y, yaw)
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.feedback.update(pose, stamp, self._now_seconds(),
+                                self.pose_timeout_s, self.velocity_window_s):
+            self.last_pose = pose
+            self.has_pose = True
 
     def on_loc_ok(self, msg: Bool) -> None:
         self.loc_ok = bool(msg.data)
+        self.last_loc_ok_time = self._now_seconds()
 
     def on_launcher_ok(self, msg: Bool) -> None:
         self.launch_ok = bool(msg.data)
@@ -223,49 +309,54 @@ class MissionNode(Node):
             res.accepted, res.message = False, f"未知任务 '{req.mission}'（可用 PASS/SHOOT/IDLE）"
         return res
 
-    def _accept_goto(self, x: float, y: float, yaw: float, align_yaw: bool) -> tuple[bool, str]:
-        """校验并接受一个"走到场地某点"的请求。服务与 /goal_pose 共用同一套校验，
-        避免两条入口行为不一致（尤其是"只在 IDLE 下可用"这条安全约束）。"""
+    def _accept_goto(self, x: float, y: float, yaw: float, align_yaw: bool):
+        """校验并接受一个"走到场地某点"。**服务与 /goal_pose 话题共用这一套校验**，
+        避免两条入口行为不一致（曾经只有服务做了软限位）。
+        返回 (ok, why)。
+        """
         if self.estop:
             return False, "急停中，拒绝 GOTO"
         if self.mission != "IDLE":
-            return False, (
-                f"当前任务 {self.mission} 非 IDLE，请先 ros2 service call /rb_mission/set_mission ... mission:=IDLE")
-        if not math.isfinite(x) or not math.isfinite(y):
+            return False, (f"当前任务 {self.mission} 非 IDLE，请先 "
+                           "ros2 service call /rb_mission/set_mission ... mission:=IDLE")
+        if not all(math.isfinite(v) for v in (x, y, yaw)):
             return False, "目标坐标无效"
         # 场内软限位（宽松，只挡明显越界）
-        fl, fw = float(self.field.get("length_m", 14.0)), float(self.field.get("width_m", 7.5))
+        fl = float(self.field.get("length_m", 14.0))
+        fw = float(self.field.get("width_m", 7.5))
         if not (-2.0 <= x <= fl + 2.0 and -2.0 <= y <= fw + 2.0):
             return False, f"目标 ({x:.2f},{y:.2f}) 超出场地范围"
-        self.goto_goal = (x, y, float(yaw), bool(align_yaw))
+        self.goto_goal = (x, y, yaw, bool(align_yaw))
         self.publish_zero()
         self.set_phase(P_GOTO, f"GOTO ({x:.2f}, {y:.2f})" + (f" yaw={yaw:.2f}" if align_yaw else ""))
         return True, "已开始 GOTO"
 
     def on_goto_pose(self, req: GotoPose.Request, res: GotoPose.Response) -> GotoPose.Response:
         """电脑端/标定用的"走到场地某点"。仅在 IDLE 下可用，避免和自主任务抢 /cmd_vel。"""
-        res.accepted, res.message = self._accept_goto(
-            float(req.x), float(req.y), float(req.yaw), bool(req.align_yaw))
+        ok, why = self._accept_goto(float(req.x), float(req.y), float(req.yaw),
+                                    bool(req.align_yaw))
+        res.accepted, res.message = ok, why
         return res
 
     def on_goal_pose(self, msg: PoseStamped) -> None:
-        """RViz 的 "2D Goal Pose" 工具发到这里。
+        """RViz 的 "2D Goal Pose" 工具发到这里 —— 在实时点云地图上直接点一下让车过去。
 
-        这样就能在 RViz 的实时点云地图上直接点一个点让车过去，不用再开别的窗口。
-        position.z 沿用本队约定「yaw 塞在 z 里」；若 RViz 用四元数给朝向则优先取四元数。
+        ⚠️ 队友的重构版一度没有这条订阅，会让 RViz 点击导航**静默失效**
+        （点了没反应，也不报错）。这里补回，并与 goto_pose 服务共用同一套校验。
+        yaw 取法见 geometry.yaw_from_stamped_pose（别用 hypot(q.x,q.y,q.z) 判断，
+        朝向≈0° 时那个判据会把 position.z（高度）当成朝向）。
         """
-        # yaw 取法见 geometry.yaw_from_stamped_pose（同一"别把高度当朝向"的坑）
+        p = msg.pose.position
         yaw = yaw_from_stamped_pose(msg)
-        ok, why = self._accept_goto(float(msg.pose.position.x), float(msg.pose.position.y),
-                                    yaw, self.goto_align_yaw)
+        ok, why = self._accept_goto(float(p.x), float(p.y), yaw, self.goto_align_yaw)
         (self.get_logger().info if ok else self.get_logger().warn)(
-            f"/goal_pose 目标 ({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}) "
-            f"yaw={math.degrees(yaw):+.0f}° → {why}")
+            f"/goal_pose 目标 ({p.x:.2f}, {p.y:.2f}) yaw={math.degrees(yaw):+.0f}° → {why}")
 
     # -- 状态机 ------------------------------------------------------------
     def set_phase(self, phase: str, detail: str = "") -> None:
         if phase != self.phase:
             self.get_logger().info(f"[{self.mission}] {self.phase} -> {phase}  {detail}")
+        self.arrival.reset()
         self.phase = phase
         self.phase_enter_time = self.get_clock().now()
         self.detail = detail
@@ -300,8 +391,20 @@ class MissionNode(Node):
         return str(entry.get(kind, ""))
 
     def tick(self) -> None:
+        self._refresh_tuning()
         if self.estop:
             self.publish_zero()
+            self.publish_outputs()
+            return
+
+        if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
+            self.arrival.reset()
+            self.publish_zero()
+            self.detail = "定位无效或过期，已停车；目标保留等待恢复"
+            # 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
+            if self.elapsed() > self.nav_timeout_s:
+                self.goto_goal = None
+                self.set_phase(P_FAULT, "定位失效等待超时")
             self.publish_outputs()
             return
 
@@ -400,23 +503,8 @@ class MissionNode(Node):
         self.set_phase(P_NAV_ZONE, "假定已持球，前往动作区")
 
     def _phase_nav_to_zone(self) -> None:
-        if not self.has_pose:
-            self.publish_zero()
-            self.detail = "等待定位…"
-            return
-        tgt = self._zone_target()
-        x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, tgt[0], tgt[1],
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel,
-                                        approach_radius=self.approach_radius,
-                                        approach_speed=self.approach_speed)
-        if dist < self.pos_tol:
-            self.publish_zero()
-            self.set_phase(P_ALIGN, "已到动作区，开始对准")
-            return
-        self.publish_motion(vx, vy, wz)
-        self.detail = f"前往动作区 剩余 {dist:.2f}m"
+        if self._navigate_to(*self._zone_target()):
+            self.set_phase(P_ALIGN, "已停稳到动作区，开始对准")
 
     def _phase_align(self) -> None:
         aim_label = self.target_label("aim")
@@ -454,53 +542,56 @@ class MissionNode(Node):
 
     def _phase_return_home(self) -> None:
         home = self.field.get("home", {}) or {}
-        hx, hy = float(home.get("x", 0.0)), float(home.get("y", 0.0))
-        if not self.has_pose:
-            self.publish_zero()
-            return
-        x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, hx, hy, self.kp_lin, self.kp_yaw,
-                                        self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel,
-                                        approach_radius=self.approach_radius,
-                                        approach_speed=self.approach_speed)
-        if dist < self.pos_tol:
-            self.publish_zero()
-            self.set_phase(P_DONE, "已回到出发区")
-            return
-        self.publish_motion(vx, vy, wz)
-        self.detail = f"回位 剩余 {dist:.2f}m"
+        if self._navigate_to(float(home.get("x", 0.0)), float(home.get("y", 0.0))):
+            self.set_phase(P_DONE, "已停稳回到出发区")
 
     def _phase_goto(self) -> None:
         if self.goto_goal is None:
             self.publish_zero()
             self.set_phase(P_IDLE)
             return
-        if not self.has_pose:
-            self.publish_zero()
-            self.detail = "GOTO 等待定位…"
-            return
         gx, gy, gyaw, align = self.goto_goal
+        if self._navigate_to(gx, gy, gyaw if align else None):
+            self.goto_goal = None
+            self.set_phase(P_IDLE, "GOTO 已稳定到位")
+
+    def _navigate_to(self, gx, gy, goal_yaw=None):
+        if not self._localization_ready():
+            self.arrival.reset()
+            self.publish_zero()
+            return False
         x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, gx, gy,
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang,
-                                        face_travel=self.face_travel,
-                                        approach_radius=self.approach_radius,
-                                        approach_speed=self.approach_speed)
-        if dist >= self.pos_tol:
-            self.publish_motion(vx, vy, wz)
-            self.detail = f"GOTO ({gx:.2f},{gy:.2f}) 剩余 {dist:.2f}m"
-            return
-        # 到位后：可选地原地转向
-        if align:
-            err = wrap_pi(gyaw - yaw)
-            if abs(err) > self.yaw_tol:
-                self.publish_cmd(0.0, 0.0, clamp(self.kp_yaw * err, -self.max_ang, self.max_ang))
-                self.detail = f"GOTO 到位，对准 yaw 误差 {math.degrees(err):+.1f}°"
-                return
-        self.publish_zero()
-        self.goto_goal = None
-        self.set_phase(P_IDLE, "GOTO 完成")
+        distance = math.hypot(gx - x, gy - y)
+        yaw_error = 0.0 if goal_yaw is None else wrap_pi(goal_yaw - yaw)
+        cfg = ArrivalConfig(self.pos_tol, self.yaw_tol, self.exit_margin_m,
+                            self.linear_speed_tolerance, self.angular_speed_tolerance,
+                            self.settle_time_s, self.settle_timeout_s)
+        mode = self.arrival.update(self._now_seconds(), distance, yaw_error,
+                                   self.feedback.linear_speed, self.feedback.angular_speed, cfg, self.feedback.stamp)
+        self.detail = (f"导航 {mode} 距离={distance:.3f}m "
+                       f"实测v={self.feedback.linear_speed:.3f}m/s "
+                       f"w={self.feedback.angular_speed:.3f}rad/s")
+        if mode == "timeout":
+            self.publish_zero()
+            self.goto_goal = None
+            self.set_phase(P_FAULT, "到位确认超时，已停车")
+            return False
+        if mode == "complete":
+            self.publish_zero()
+            return True
+        if mode == "settling":
+            wz = 0.0
+            if goal_yaw is not None and abs(yaw_error) > self.yaw_tol:
+                wz = clamp(self.kp_yaw * yaw_error, -self.max_ang, self.max_ang)
+            self.publish_cmd(0.0, 0.0, wz)
+            return False
+        max_speed = self.max_lin
+        if self.arrival.started is not None:
+            max_speed = min(max_speed, self.correction_max_linear)
+        vx, vy, wz, _ = goto_command(x, y, yaw, gx, gy, self.kp_lin, self.kp_yaw,
+                                     max_speed, self.max_ang, face_travel=(mode == "approach"))
+        self.publish_motion(vx, vy, wz, max_linear=max_speed)
+        return False
 
     def _phase_done(self) -> None:
         self.publish_zero()
@@ -603,14 +694,9 @@ class MissionNode(Node):
     def _avoidance_adjust(self, vx: float, vy: float) -> tuple[float, float]:
         """视觉势场避障：把期望车体系速度 (vx, vy) 叠加上附近障碍物的排斥速度。
 
-        障碍物在车体系的方向由 bearing_rad（相对相机光轴，**右正左负**）给出，
+        障碍物在车体系的方向由 bearing_rad（相对相机光轴，右正左负）给出，
         距离由单目测距给出（未标定时 NaN，安全跳过）。
-
-        ⚠️ 符号：车体系是 **y 朝左**（goto_command 用的标准 R(−yaw)），
-        而 bearing_rad 是 **右正**，所以障碍物的方向向量是
-            [cos b, −sin b]        （不是 [cos b, +sin b]！）
-        排斥方向取其反：
-            −[cos b, −sin b] = [−cos b, +sin b]
+        排斥速度方向 = 从障碍物指向机器人（即 -[cos b, sin b]）。
         """
         if not self.avoid_enabled:
             return vx, vy
@@ -633,7 +719,7 @@ class MissionNode(Node):
             mag = self.avoid_gain * (1.0 / max(dist, 0.15) - 1.0 / self.avoid_range)
             mag = clamp(mag, 0.0, self.avoid_max)
             fx -= mag * math.cos(b)
-            fy += mag * math.sin(b)
+            fy -= mag * math.sin(b)
         # 限幅，避免排斥叠加后超过 max_lin
         speed = math.hypot(fx, fy)
         if speed > self.max_lin:
@@ -641,9 +727,13 @@ class MissionNode(Node):
             fy *= self.max_lin / speed
         return fx, fy
 
-    def publish_motion(self, vx: float, vy: float, wz: float) -> None:
+    def publish_motion(self, vx: float, vy: float, wz: float, max_linear=None) -> None:
         """带避障的发布：所有"有前进分量"的阶段都应走这里，而不是 publish_cmd。"""
         vx, vy = self._avoidance_adjust(vx, vy)
+        if max_linear is not None:
+            speed = math.hypot(vx, vy)
+            if speed > max_linear:
+                vx, vy = vx * max_linear / speed, vy * max_linear / speed
         self.publish_cmd(vx, vy, wz)
 
     def publish_cmd(self, vx: float, vy: float, wz: float) -> None:
@@ -674,7 +764,7 @@ class MissionNode(Node):
         state.ball_count = int(self.ball_count)
         state.ball_type = self.target_label("ball") if self.has_ball else "none"
         state.estop = bool(self.estop)
-        state.localization_ok = bool(self.loc_ok and self.has_pose)
+        state.localization_ok = bool(self._localization_ready())
         state.launcher_ok = bool(self.launch_ok)
         state.perception_ok = bool(self.detections)
         if self.has_pose:
@@ -705,19 +795,18 @@ def main(argv: list[str] | None = None) -> None:
     except KeyboardInterrupt:
         pass
     except ExternalShutdownException:
-        # rclpy 的"上下文被外部关闭"（通常是收到了 SIGTERM，或别处调用了
+        # rclpy 的"上下文被外部关闭"（通常是收到 SIGTERM，或别处调了
         # rclpy.shutdown()）。这不是崩溃，是正常关闭信号 —— 当正常退出处理，
-        # 别当成异常 re-raise（否则 exit code 1，看起来像崩溃）。
+        # 别 re-raise（否则 exit code 1，看着像崩溃，其实是被要求关的）。
         pass
     except Exception:  # noqa: BLE001
-        # 让崩溃点暴露出来：之前 mission 节点 exit code 1 直接死掉、
-        # traceback 只进终端不进 ROS 日志，排查无从下手。
-        # 这里把完整堆栈写进 ROS 日志（和 stderr），下次崩溃一眼定位。
+        # 让崩溃点暴露：之前 mission 节点 exit code 1 直接死掉、traceback 只进
+        # 终端不进 ROS 日志，排查无从下手。这里把堆栈同时写进 ROS 日志和 stderr。
         import sys
         import traceback
         tb = traceback.format_exc()
         try:
-            node.get_logger().error("未处理异常，进程即将退出：\n" + tb)
+            node.get_logger().error("未处理异常，进程即将退出:\n" + tb)
         except Exception:  # noqa: BLE001
             pass
         print(tb, file=sys.stderr)
@@ -744,6 +833,9 @@ def _install_sigint_handler() -> None:
 
     try:
         _signal.signal(_signal.SIGINT, _handler)
+        # SIGTERM 也要接管：launch 关停 / 终端关闭发的是 SIGTERM。不接管的话
+        # rclpy 默认处理器直接 shutdown context，节点以 exit code 1 死掉
+        # （看着像崩溃），而且来不及优雅停车。
         _signal.signal(_signal.SIGTERM, _handler)
     except (ValueError, OSError):
         # 非主线程不允许注册信号处理器，忽略即可

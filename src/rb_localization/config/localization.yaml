@@ -71,6 +71,8 @@ sources:
   # 雷达 FAST-LIO 的输出。既提供 twist（做预测）也提供 pose（做绝对观测）
   odom_topic: "/Odometry"
   use_odom_pose_as_abs: true
+  # 真实位置输入过期即发布 ok=false；ROS 参数 source_timeout_s 支持在线调参。
+  source_timeout_s: 0.5
 
   # 可选：另一路独立的绝对位姿。雷达方案下留空。
   abs_pose_topic: ""

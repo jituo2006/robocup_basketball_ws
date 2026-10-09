@@ -44,21 +44,15 @@ int main(int argc, char **argv) {
   const auto board_id = param_node->declare_parameter<int>("board_id", 1);
   const auto limit_vel = param_node->declare_parameter<double>("limit_vel", 1.0);
   const auto limit_acc = param_node->declare_parameter<double>("limit_acc", 1.5);
-  const auto width = param_node->declare_parameter<double>("width", 0.40);
-  const auto length = param_node->declare_parameter<double>("length", 0.40);
-  const auto wheel_radius = param_node->declare_parameter<double>("wheel_radius", 0.10);
+  // CAD 设计初值，与 chassis.yaml 一致；实车标定后可用 ROS 参数覆盖。
+  const auto width = param_node->declare_parameter<double>("width", 0.477059538);
+  const auto length = param_node->declare_parameter<double>("length", 0.477059538);
+  const auto wheel_radius = param_node->declare_parameter<double>("wheel_radius", 0.0765);
   const auto ratio = param_node->declare_parameter<double>("ratio", 1.0);
   const auto timeout_ms = param_node->declare_parameter<int>("cmd_vel_timeout_ms", 200);
   const auto period_ms = param_node->declare_parameter<int>("control_period_ms", 10);
   const auto dry_run = param_node->declare_parameter<bool>("dry_run", false);
   const auto angular_z_sign = param_node->declare_parameter<double>("angular_z_sign", 1.0);
-  // /cmd_vel 的坐标系："body"(默认，ROS 标准，直接下发) 或 "world"(按里程计 yaw 旋转)。
-  // ⚠️ 任务侧发的已经是车体系，所以默认必须是 body；选 world 会双重旋转。
-  const auto cmd_vel_frame = param_node->declare_parameter<std::string>("cmd_vel_frame", "body");
-  if (cmd_vel_frame != "body" && cmd_vel_frame != "world") {
-    RCLCPP_WARN(rclcpp::get_logger("rb_chassis"),
-                "cmd_vel_frame='%s' 不认识，按 'body' 处理", cmd_vel_frame.c_str());
-  }
 
   // ⚠️ 注意：这里**必须**始终传一个真实的 Can 对象，即使是 dry_run。
   //
@@ -100,7 +94,6 @@ int main(int argc, char **argv) {
   node->setDryRun(dry_run);
   node->setCommandTimeout(std::chrono::milliseconds(timeout_ms));
   node->setAngularZSign(angular_z_sign);
-  node->setCmdVelFrameWorld(cmd_vel_frame == "world");
   node->setParameter(limit_vel, limit_acc, width, length, wheel_radius, ratio);
 
   auto wheel_pub = node->create_publisher<std_msgs::msg::Int16MultiArray>("/chassis/wheel_speed", 10);

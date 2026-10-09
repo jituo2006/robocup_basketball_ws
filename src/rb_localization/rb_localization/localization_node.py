@@ -32,6 +32,7 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.time import Time
 from std_msgs.msg import Bool
 from tf2_ros import TransformBroadcaster
@@ -46,6 +47,8 @@ from .ekf2d import (
     world_vel_to_body,
     wrap_pi,
 )
+# 输入新鲜度守卫（队友加）：真实位置输入过期就发 ok=false，防止拿陈旧位姿导航
+from .freshness import SourceFreshness
 
 
 def yaw_to_quat(yaw: float):
@@ -78,6 +81,13 @@ class LocalizationNode(Node):
             "abs_pose_topic", str(src.get("abs_pose_topic", ""))).value)
         self.detections_topic = str(self.declare_parameter(
             "detections_topic", str(src.get("detections_topic", "/perception/detections"))).value)
+        self.source_timeout_s = float(self.declare_parameter(
+            "source_timeout_s", float(src.get("source_timeout_s", 0.5))).value)
+        if not math.isfinite(self.source_timeout_s) or self.source_timeout_s <= 0:
+            raise ValueError("source_timeout_s 必须为有限正数")
+        self.source_freshness = SourceFreshness()
+        self.last_source_stamp = None
+        self.add_on_set_parameters_callback(self.on_tuning_parameters)
         self.use_odom_pose_as_abs = bool(src.get("use_odom_pose_as_abs", True))
         self.camera_yaw_offset = float(src.get("camera_yaw_offset_rad", 0.0))
 
@@ -180,6 +190,40 @@ class LocalizationNode(Node):
             self.get_logger().error(f"配置文件不存在: {self.config_file}")
             self.cfg = {}
 
+    def on_tuning_parameters(self, parameters):
+        for parameter in parameters:
+            if parameter.name != "source_timeout_s":
+                return SetParametersResult(successful=False, reason="此参数修改需要重启节点")
+            value = parameter.value
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                return SetParametersResult(successful=False, reason="source_timeout_s 必须为有限正数")
+        return SetParametersResult(successful=True)
+
+    def _refresh_tuning(self):
+        self.source_timeout_s = float(self.get_parameter("source_timeout_s").value)
+
+    def _accept_source(self, msg, source):
+        self._refresh_tuning()
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        tw = msg.twist.twist
+        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w,
+                  tw.linear.x, tw.linear.y, tw.angular.z)
+        if not all(math.isfinite(v) for v in values):
+            return False
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if not self.source_freshness.accept(source, stamp, now, self.source_timeout_s):
+            return False
+        self.last_source_stamp = msg.header.stamp
+        return True
+
+    def _message_yaw(self, msg):
+        q = msg.pose.pose.orientation
+        norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        if norm <= 1e-6:
+            return msg.pose.pose.position.z  # 仅零四元数兼容旧 yaw-in-z 数据
+        return self._yaw_from_quat(q)
+
     # -- 雷达里程计 → 场地坐标系 的刚体变换 ---------------------------------
     def odom_to_field(self, ox: float, oy: float, oyaw: float):
         """把 (雷达/里程计坐标系) 的位姿换算到场地坐标系。
@@ -227,7 +271,9 @@ class LocalizationNode(Node):
 
     # -- 里程计：既做预测，也可能做绝对观测 ---------------------------------
     def on_odom(self, msg: Odometry) -> None:
-        now = self.get_clock().now()
+        if not self._accept_source(msg, "odom"):
+            return
+        now = Time.from_msg(msg.header.stamp)
         dt = 0.0
         if self.last_odom_time is not None:
             dt = (now - self.last_odom_time).nanoseconds * 1e-9
@@ -242,12 +288,9 @@ class LocalizationNode(Node):
         #   x,y,z 恰好都是 0，于是走进分支把**高度当成了朝向**；高度一漂，
         #   朝向就跟着漂 → 车体系速度方向错 → 表现为过冲/往回走。
         #   正确做法：四元数模长≈1（有效旋转）就用它；只有四元数全零才退回 z。
+        #   实现见 _message_yaw（队友独立修了同一处，结论一致）。
         pos = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
-            yaw = self._yaw_from_quat(q)
-        else:
-            yaw = pos.z
+        yaw = self._message_yaw(msg)
 
         # 车体在里程计系下的朝向（= 雷达 yaw + 安装偏航）
         byaw = wrap_pi(yaw + self.s2b_yaw)
@@ -269,19 +312,16 @@ class LocalizationNode(Node):
         self.odom_count += 1
 
     def _yaw_from_quat(self, q) -> float:
-        return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        norm2 = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w
+        return math.atan2(2.0 * (q.w*q.z + q.x*q.y) / norm2,
+                          1.0 - 2.0 * (q.y*q.y + q.z*q.z) / norm2)
 
     def on_abs_pose(self, msg: Odometry) -> None:
+        if not self._accept_source(msg, "abs"):
+            return
         pos = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        # 同一坑：不能用 |pos.z|>0 判断（pos.z 是高度），要用四元数模长。
-        # 详见 rb_mission.geometry.yaw_from_pose_msg 的注释。
-        if math.hypot(q.x, q.y, q.z, q.w) > 1e-6:
-            yaw = self._yaw_from_quat(q)
-        else:
-            yaw = pos.z
-        self.ekf.update_pose(pos.x, pos.y, yaw)
+        # 同一坑：不能用 |pos.z|>0 判断（pos.z 是高度）。统一走 _message_yaw。
+        self.ekf.update_pose(pos.x, pos.y, self._message_yaw(msg))
 
     # -- 视觉定位柱：方位角更新 --------------------------------------------
     def on_detections(self, msg: DetectionArray) -> None:
@@ -329,11 +369,14 @@ class LocalizationNode(Node):
 
     # -- 输出 --------------------------------------------------------------
     def publish_state(self, stamp) -> None:
+        self._refresh_tuning()
         x, y, yaw = self.ekf.pose
         sx, sy, syaw = self.ekf.std
 
         out = PoseWithCovarianceStamped()
-        out.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
+        # 保留最近一次真实位置输入的时间，定时器不能给旧位姿续期。
+        if self.last_source_stamp is not None:
+            out.header.stamp = self.last_source_stamp
         out.header.frame_id = self.field_frame
         out.pose.pose.position.x = x
         out.pose.pose.position.y = y
@@ -349,10 +392,12 @@ class LocalizationNode(Node):
         self.pose_pub.publish(out)
 
         ok = Bool()
-        ok.data = bool(math.hypot(sx, sy) <= self.ok_std_threshold)
+        source_ok = self.source_freshness.valid(
+            self.get_clock().now().nanoseconds * 1e-9, self.source_timeout_s)
+        ok.data = bool(source_ok and math.hypot(sx, sy) <= self.ok_std_threshold)
         self.ok_pub.publish(ok)
 
-        if self.tf_broadcaster is not None:
+        if self.tf_broadcaster is not None and source_ok:
             tf = TransformStamped()
             tf.header.stamp = out.header.stamp
             tf.header.frame_id = self.field_frame

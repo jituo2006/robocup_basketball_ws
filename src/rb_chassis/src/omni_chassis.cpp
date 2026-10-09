@@ -1,4 +1,5 @@
 #include "chassis_lib/omni_chassis.h"
+#include "chassis_lib/omni_kinematics.h"
 
 #include <cmath>
 #include <cstdint>
@@ -45,6 +46,9 @@ void OmniChassis::initialize() {
 }
 
 void OmniChassis::sendZeroVelocity() {
+  // 零轮速也要同步斜率限制状态，避免超时恢复时沿用停车前速度。
+  last_sent_vel_ = geometry_msgs::msg::Twist{};
+  last_execute_time_ = std::chrono::steady_clock::now();
   if (dry_run_) {
     wheel_speed.fill(0);
     return;
@@ -84,27 +88,13 @@ void OmniChassis::execute() {
 
   // ---------- ③ 全向运动学 ----------
   //
-  // ⚠️⚠️ /cmd_vel 的坐标系（曾经的真 BUG）：
-  //   任务侧 rb_mission.goto_command 输出的**已经是车体系**速度（它内部做了
-  //   R(−yaw) 把场地系目标方向转到车体）。这里若再按里程计 yaw 转一次，就会
-  //   **双重旋转** —— 实测症状：车朝左时想往前走，底盘却让它倒退（yaw=0 时
-  //   恰好抵消，所以"看着一开始正常"）。
-  //   现在按 ROS 标准：/cmd_vel = 车体系，直接下发；只有显式配置
-  //   cmd_vel_frame: world 时才做世界系→车体系旋转（供老的场地系发布者用）。
-  double vx = cmd.linear.x;
-  double vy = cmd.linear.y;
-  if (cmd_vel_frame_world_) {
-    // yaw 取自里程计的 position.z（本队约定：yaw 塞在 z 里）。
-    // 没有里程计时 yaw=0，此时退化为直接下发车体系，方向仍然对。
-    if (!has_odom_ && !warned_no_odom_) {
-      RCLCPP_WARN(get_logger(),
-                  "cmd_vel_frame=world 但尚未收到里程计，yaw 按 0 处理。");
-      warned_no_odom_ = true;
-    }
-    const double yaw = has_odom_ ? current_odom_.pose.pose.position.z : 0.0;
-    vx = cmd.linear.x * std::cos(yaw) + cmd.linear.y * std::sin(yaw);
-    vy = cmd.linear.y * std::cos(yaw) - cmd.linear.x * std::sin(yaw);
-  }
+  // /cmd_vel 统一为车体系：+x 前进、+y 左移、+wz 逆时针。
+  // 导航已经完成 field→body 转换；遥控/视觉避障也是车体系。
+  // 这里不能再次按里程计 yaw 旋转，否则非零朝向时会重复转换。
+  // （两人独立发现同一 BUG：任务侧 goto_command 已做 R(−yaw)，底盘再转一次
+  //   会双重旋转 —— 车朝左时想往前走却倒退；yaw=0 时恰好抵消。）
+  const double vx = cmd.linear.x;
+  const double vy = cmd.linear.y;
   // 旋转方向符号：
   //   原 2025 代码这里是 `-cmd.angular.z`。实车测试发现顺逆反了（正 angular.z 却顺时针转），
   //   说明这辆车的轮子安装朝向与公式默认相反，故把默认符号从 -1 改为 +1，
@@ -114,15 +104,10 @@ void OmniChassis::execute() {
   // ⚠️ ratio（减速比）在原实现里被 setParameter 设置但**从未参与计算**。
   //    这里保留为显式乘子，默认必须填 1.0 才能与原行为一致。
   //    只有在确认电机侧还有一级减速时才改为真实比值。
-  const double factor = 60.0 / (2.0 * M_PI * wheel_radius) * ratio;
-
-  const double c = std::cos(M_PI_2 / 2.0);  // cos(45°)
-  const double arm = std::hypot(width / 2.0, length / 2.0);
-
-  wheel_speed[0] = static_cast<int16_t>((+vx * c - vy * c - wz * arm) * factor);
-  wheel_speed[1] = static_cast<int16_t>((+vx * c + vy * c - wz * arm) * factor);
-  wheel_speed[2] = static_cast<int16_t>((-vx * c + vy * c - wz * arm) * factor);
-  wheel_speed[3] = static_cast<int16_t>((-vx * c - vy * c - wz * arm) * factor);
+  const auto rpm = omniWheelRpm(vx, vy, wz, width, length, wheel_radius, ratio);
+  for (unsigned i = 0; i < wheel_speed.size(); ++i) {
+    wheel_speed[i] = static_cast<int16_t>(rpm[i]);
+  }
 
   if (!dry_run_) {
     for (int i = 1; i <= 4; i++) {

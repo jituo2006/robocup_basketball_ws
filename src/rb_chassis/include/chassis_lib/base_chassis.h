@@ -15,7 +15,7 @@
  *   1. 新增 /cmd_vel 指令超时检测（原来没有，底盘会一直沿用最后一条速度）
  *      来源：2026_R1 在 2026-07-08 一次"延迟窜车、紧急断电"事故后的修复
  *   2. 新增限速/限加速的实际生效逻辑
- *   3. 记录是否收到过里程计，便于排查"车按世界系还是车体系动"
+ *   3. /cmd_vel 采用车体系，不随里程计输入隐式改变坐标系
  */
 class Chassis : public rclcpp::Node {
 protected:
@@ -24,9 +24,10 @@ protected:
 
   double limit_vel = 1.0;      // 速度上限 (m/s 或 rad/s)
   double limit_acc = 2.0;      // 加速度上限 (m/s^2 或 rad/s^2)
-  double width = 0.5;          // 轮距（左右轮中心距，m）
-  double length = 0.5;         // 轴距（前后轮中心距，m）
-  double wheel_radius = 0.1;   // 驱动轮半径 (m)
+  // CAD 设计初值，与节点参数默认值及 chassis.yaml 一致。
+  double width = 0.477059538;  // 轮距（左右轮中心距，m）
+  double length = 0.477059538; // 轴距（前后轮中心距，m）
+  double wheel_radius = 0.0765;   // 驱动轮半径 (m)
   double ratio = 1.0;          // 减速比
 
   bool dry_run_ = false;                        // true 时只解算不下发 CAN（无需硬件自测）
