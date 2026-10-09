@@ -50,7 +50,11 @@ camera:
 controls:
   enabled: true
   lock_exposure: true
-  exposure: 30              # 手动曝光值（1..5000，单位约 100µs）。⚠️ 现场用 tune_camera.py 定
+  # ⚠️ 2026-10-09 实测：曝光 30 时画面几乎全黑（亮度均值 10.8/255），
+  #    YOLO **完全检不出球**（检出 0 个）；调到 150 以上立刻出 2 个检测
+  #    （ball_basketball 0.93 / ball_volleyball 0.88）。
+  #    → 曝光是「能不能看到球」的开关，现场务必用 tune_camera.py 复核。
+  exposure: 600             # 手动曝光值（1..5000，单位约 100µs）
   lock_white_balance: true
   white_balance_temperature: 4600   # 2800..6500 K，4600 是这台相机的默认值
   power_line_frequency: 1   # 1 = 50Hz（国内，抗灯光闪频）；0=禁用 2=60Hz
