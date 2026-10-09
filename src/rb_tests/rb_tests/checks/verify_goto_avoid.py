@@ -32,7 +32,7 @@ def main() -> int:
     os.environ["ROS_DOMAIN_ID"] = TEST_DOMAIN
     import rclpy
     from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
-    from std_msgs.msg import Header
+    from std_msgs.msg import Bool, Header
     from rb_msgs.msg import Detection, DetectionArray
     from rb_msgs.srv import GotoPose
 
@@ -52,6 +52,7 @@ def main() -> int:
     cmds: list[Twist] = []
     node.create_subscription(Twist, "/cmd_vel", lambda m: cmds.append(m), 20)
     pose_pub = node.create_publisher(PoseWithCovarianceStamped, "/localization/pose", 10)
+    ok_pub = node.create_publisher(Bool, "/localization/ok", 10)
     det_pub = node.create_publisher(DetectionArray, "/perception/detections", 10)
     cli = node.create_client(GotoPose, "/rb_mission/goto_pose")
 
@@ -68,6 +69,7 @@ def main() -> int:
         m.pose.pose.position.y = y
         m.pose.pose.position.z = yaw  # 本队约定 yaw 塞 z
         pose_pub.publish(m)
+        ok_pub.publish(Bool(data=True))
 
     def pub_det(label: str, bearing: float, dist: float) -> None:
         m = DetectionArray()

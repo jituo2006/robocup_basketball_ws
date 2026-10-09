@@ -7,6 +7,7 @@
   <maintainer email="team@bupt.edu.cn">BUPT RobotTeam</maintainer>
   <license>Apache-2.0</license>
   <depend>rclpy</depend>
+  <depend>rcl_interfaces</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>

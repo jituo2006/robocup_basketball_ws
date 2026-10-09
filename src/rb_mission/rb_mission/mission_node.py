@@ -33,6 +33,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import Bool, Header
 from std_msgs.msg import String as StringMsg
 
@@ -40,6 +41,7 @@ from rb_msgs.msg import DetectionArray, MissionStatus, RobotState
 from rb_msgs.srv import GotoPose, Launch, SetMission
 
 from .geometry import clamp, face_bearing_command, goto_command, point_in_polygon, wrap_pi
+from .navigation import ArrivalConfig, ArrivalGate, PoseFeedback, fresh
 
 # 阶段常量
 P_IDLE = "IDLE"
@@ -69,12 +71,18 @@ class MissionNode(Node):
         self.load_config()
 
         lim = self.cfg.get("limits", {}) or {}
-        self.max_lin = float(lim.get("max_linear", 0.4))
-        self.max_ang = float(lim.get("max_angular", 0.8))
-        self.kp_lin = float(lim.get("kp_linear", 1.5))
-        self.kp_yaw = float(lim.get("kp_yaw", 2.0))
-        self.pos_tol = float(lim.get("position_tolerance", 0.10))
-        self.yaw_tol = float(lim.get("yaw_tolerance", 0.08))
+        nav = self.cfg.get("navigation", {}) or {}
+        self._tuning = {}
+        for name, default in self._tuning_defaults().items():
+            section, key = name.split(".")
+            value = (lim if section == "limits" else nav).get(key, default)
+            self._tuning[name] = float(self.declare_parameter(name, float(value)).value)
+        self._validate_tuning(self._tuning)
+        self._apply_tuning(self._tuning)
+        self.arrival = ArrivalGate()
+        self.feedback = PoseFeedback()
+        self.last_loc_ok_time = None
+        self.add_on_set_parameters_callback(self.on_tuning_parameters)
 
         tm = self.cfg.get("timeouts", {}) or {}
         self.start_delay_s = float(tm.get("start_delay_s", 8.0))
@@ -164,20 +172,99 @@ class MissionNode(Node):
             self.get_logger().error(f"配置文件不存在: {self.config_file}")
             self.cfg = {}
 
+    @staticmethod
+    def _tuning_defaults():
+        return {
+            "limits.max_linear": 0.4, "limits.max_angular": 0.8,
+            "limits.kp_linear": 1.5, "limits.kp_yaw": 2.0,
+            "limits.position_tolerance": 0.10, "limits.yaw_tolerance": 0.08,
+            "navigation.pose_timeout_s": 0.5,
+            "navigation.loc_ok_timeout_s": 0.5,
+            "navigation.velocity_window_s": 0.15,
+            "navigation.exit_margin_m": 0.02,
+            "navigation.linear_speed_tolerance": 0.03,
+            "navigation.angular_speed_tolerance": 0.05,
+            "navigation.settle_time_s": 0.5,
+            "navigation.settle_timeout_s": 5.0,
+            "navigation.correction_max_linear": 0.08,
+        }
+
+    @staticmethod
+    def _validate_tuning(values):
+        for name, value in values.items():
+            if not math.isfinite(value) or value < 0 or (value == 0 and name != "navigation.exit_margin_m"):
+                raise ValueError(f"{name} 必须是有限正数（exit_margin_m 可为 0）")
+        if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
+            raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
+        if values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]:
+            raise ValueError("settle_time_s 必须小于 settle_timeout_s")
+
+    def _apply_tuning(self, values):
+        for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
+                          "kp_linear": "kp_lin", "kp_yaw": "kp_yaw",
+                          "position_tolerance": "pos_tol", "yaw_tolerance": "yaw_tol"}.items():
+            setattr(self, attr, values["limits." + key])
+        for name, value in values.items():
+            if name.startswith("navigation."):
+                setattr(self, name.split(".")[1], value)
+
+    def on_tuning_parameters(self, parameters):
+        # 连续调参可能发生在同一控制周期内，校验必须基于服务器已接受的值。
+        values = {name: float(self.get_parameter(name).value) for name in self._tuning}
+        for parameter in parameters:
+            if parameter.name == "config_file":
+                return SetParametersResult(successful=False, reason="config_file 修改需重启；现场调参请用 limits.* / navigation.*")
+            if parameter.name in values:
+                if isinstance(parameter.value, bool) or not isinstance(parameter.value, (int, float)):
+                    return SetParametersResult(successful=False, reason="导航参数必须为数值")
+                values[parameter.name] = float(parameter.value)
+        try:
+            self._validate_tuning(values)
+        except ValueError as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+        # 这里只验证，不能提前修改控制状态：其他参数回调还可能拒绝此次请求。
+        return SetParametersResult(successful=True)
+
+    def _refresh_tuning(self):
+        values = {name: float(self.get_parameter(name).value) for name in self._tuning}
+        if values != self._tuning:
+            self._tuning = values
+            self._apply_tuning(values)
+            self.arrival.reset()
+            self.feedback = PoseFeedback()
+            self.publish_zero()
+
+    def _now_seconds(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _localization_ready(self):
+        now = self._now_seconds()
+        return (self.has_pose and self.loc_ok
+                and fresh(now, self.feedback.stamp, self.pose_timeout_s)
+                and fresh(now, self.last_loc_ok_time, self.loc_ok_timeout_s))
+
     # -- 输入回调 ----------------------------------------------------------
     def on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose.position
-        yaw = p.z
         q = msg.pose.pose.orientation
-        if abs(math.hypot(q.x, q.y, q.z)) < 1e-6:
-            yaw = p.z
+        norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        if not math.isfinite(norm):
+            return
+        if norm > 1e-6:
+            yaw = math.atan2(2.0 * (q.w*q.z + q.x*q.y) / (norm*norm),
+                             1.0 - 2.0 * (q.y*q.y + q.z*q.z) / (norm*norm))
         else:
-            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        self.last_pose = (p.x, p.y, yaw)
-        self.has_pose = True
+            yaw = p.z  # 仅零四元数兼容旧消息；单位四元数对应 yaw=0
+        pose = (p.x, p.y, yaw)
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.feedback.update(pose, stamp, self._now_seconds(),
+                                self.pose_timeout_s, self.velocity_window_s):
+            self.last_pose = pose
+            self.has_pose = True
 
     def on_loc_ok(self, msg: Bool) -> None:
         self.loc_ok = bool(msg.data)
+        self.last_loc_ok_time = self._now_seconds()
 
     def on_launcher_ok(self, msg: Bool) -> None:
         self.launch_ok = bool(msg.data)
@@ -219,7 +306,7 @@ class MissionNode(Node):
                 f"当前任务 {self.mission} 非 IDLE，请先 ros2 service call /rb_mission/set_mission ... mission:=IDLE")
             return res
         x, y = float(req.x), float(req.y)
-        if not math.isfinite(x) or not math.isfinite(y):
+        if not all(math.isfinite(v) for v in (x, y, float(req.yaw))):
             res.accepted, res.message = False, "目标坐标无效"
             return res
         # 场内软限位（宽松，只挡明显越界）
@@ -237,6 +324,7 @@ class MissionNode(Node):
     def set_phase(self, phase: str, detail: str = "") -> None:
         if phase != self.phase:
             self.get_logger().info(f"[{self.mission}] {self.phase} -> {phase}  {detail}")
+        self.arrival.reset()
         self.phase = phase
         self.phase_enter_time = self.get_clock().now()
         self.detail = detail
@@ -271,8 +359,20 @@ class MissionNode(Node):
         return str(entry.get(kind, ""))
 
     def tick(self) -> None:
+        self._refresh_tuning()
         if self.estop:
             self.publish_zero()
+            self.publish_outputs()
+            return
+
+        if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
+            self.arrival.reset()
+            self.publish_zero()
+            self.detail = "定位无效或过期，已停车；目标保留等待恢复"
+            # 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
+            if self.elapsed() > self.nav_timeout_s:
+                self.goto_goal = None
+                self.set_phase(P_FAULT, "定位失效等待超时")
             self.publish_outputs()
             return
 
@@ -371,20 +471,8 @@ class MissionNode(Node):
         self.set_phase(P_NAV_ZONE, "假定已持球，前往动作区")
 
     def _phase_nav_to_zone(self) -> None:
-        if not self.has_pose:
-            self.publish_zero()
-            self.detail = "等待定位…"
-            return
-        tgt = self._zone_target()
-        x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, tgt[0], tgt[1],
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
-        if dist < self.pos_tol:
-            self.publish_zero()
-            self.set_phase(P_ALIGN, "已到动作区，开始对准")
-            return
-        self.publish_motion(vx, vy, wz)
-        self.detail = f"前往动作区 剩余 {dist:.2f}m"
+        if self._navigate_to(*self._zone_target()):
+            self.set_phase(P_ALIGN, "已停稳到动作区，开始对准")
 
     def _phase_align(self) -> None:
         aim_label = self.target_label("aim")
@@ -422,46 +510,56 @@ class MissionNode(Node):
 
     def _phase_return_home(self) -> None:
         home = self.field.get("home", {}) or {}
-        hx, hy = float(home.get("x", 0.0)), float(home.get("y", 0.0))
-        if not self.has_pose:
-            self.publish_zero()
-            return
-        x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, hx, hy, self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
-        if dist < self.pos_tol:
-            self.publish_zero()
-            self.set_phase(P_DONE, "已回到出发区")
-            return
-        self.publish_motion(vx, vy, wz)
-        self.detail = f"回位 剩余 {dist:.2f}m"
+        if self._navigate_to(float(home.get("x", 0.0)), float(home.get("y", 0.0))):
+            self.set_phase(P_DONE, "已停稳回到出发区")
 
     def _phase_goto(self) -> None:
         if self.goto_goal is None:
             self.publish_zero()
             self.set_phase(P_IDLE)
             return
-        if not self.has_pose:
-            self.publish_zero()
-            self.detail = "GOTO 等待定位…"
-            return
         gx, gy, gyaw, align = self.goto_goal
+        if self._navigate_to(gx, gy, gyaw if align else None):
+            self.goto_goal = None
+            self.set_phase(P_IDLE, "GOTO 已稳定到位")
+
+    def _navigate_to(self, gx, gy, goal_yaw=None):
+        if not self._localization_ready():
+            self.arrival.reset()
+            self.publish_zero()
+            return False
         x, y, yaw = self.last_pose
-        vx, vy, wz, dist = goto_command(x, y, yaw, gx, gy,
-                                        self.kp_lin, self.kp_yaw, self.max_lin, self.max_ang)
-        if dist >= self.pos_tol:
-            self.publish_motion(vx, vy, wz)
-            self.detail = f"GOTO ({gx:.2f},{gy:.2f}) 剩余 {dist:.2f}m"
-            return
-        # 到位后：可选地原地转向
-        if align:
-            err = wrap_pi(gyaw - yaw)
-            if abs(err) > self.yaw_tol:
-                self.publish_cmd(0.0, 0.0, clamp(self.kp_yaw * err, -self.max_ang, self.max_ang))
-                self.detail = f"GOTO 到位，对准 yaw 误差 {math.degrees(err):+.1f}°"
-                return
-        self.publish_zero()
-        self.goto_goal = None
-        self.set_phase(P_IDLE, "GOTO 完成")
+        distance = math.hypot(gx - x, gy - y)
+        yaw_error = 0.0 if goal_yaw is None else wrap_pi(goal_yaw - yaw)
+        cfg = ArrivalConfig(self.pos_tol, self.yaw_tol, self.exit_margin_m,
+                            self.linear_speed_tolerance, self.angular_speed_tolerance,
+                            self.settle_time_s, self.settle_timeout_s)
+        mode = self.arrival.update(self._now_seconds(), distance, yaw_error,
+                                   self.feedback.linear_speed, self.feedback.angular_speed, cfg, self.feedback.stamp)
+        self.detail = (f"导航 {mode} 距离={distance:.3f}m "
+                       f"实测v={self.feedback.linear_speed:.3f}m/s "
+                       f"w={self.feedback.angular_speed:.3f}rad/s")
+        if mode == "timeout":
+            self.publish_zero()
+            self.goto_goal = None
+            self.set_phase(P_FAULT, "到位确认超时，已停车")
+            return False
+        if mode == "complete":
+            self.publish_zero()
+            return True
+        if mode == "settling":
+            wz = 0.0
+            if goal_yaw is not None and abs(yaw_error) > self.yaw_tol:
+                wz = clamp(self.kp_yaw * yaw_error, -self.max_ang, self.max_ang)
+            self.publish_cmd(0.0, 0.0, wz)
+            return False
+        max_speed = self.max_lin
+        if self.arrival.started is not None:
+            max_speed = min(max_speed, self.correction_max_linear)
+        vx, vy, wz, _ = goto_command(x, y, yaw, gx, gy, self.kp_lin, self.kp_yaw,
+                                     max_speed, self.max_ang, face_travel=(mode == "approach"))
+        self.publish_motion(vx, vy, wz, max_linear=max_speed)
+        return False
 
     def _phase_done(self) -> None:
         self.publish_zero()
@@ -597,9 +695,13 @@ class MissionNode(Node):
             fy *= self.max_lin / speed
         return fx, fy
 
-    def publish_motion(self, vx: float, vy: float, wz: float) -> None:
+    def publish_motion(self, vx: float, vy: float, wz: float, max_linear=None) -> None:
         """带避障的发布：所有"有前进分量"的阶段都应走这里，而不是 publish_cmd。"""
         vx, vy = self._avoidance_adjust(vx, vy)
+        if max_linear is not None:
+            speed = math.hypot(vx, vy)
+            if speed > max_linear:
+                vx, vy = vx * max_linear / speed, vy * max_linear / speed
         self.publish_cmd(vx, vy, wz)
 
     def publish_cmd(self, vx: float, vy: float, wz: float) -> None:
@@ -630,7 +732,7 @@ class MissionNode(Node):
         state.ball_count = int(self.ball_count)
         state.ball_type = self.target_label("ball") if self.has_ball else "none"
         state.estop = bool(self.estop)
-        state.localization_ok = bool(self.loc_ok and self.has_pose)
+        state.localization_ok = bool(self._localization_ready())
         state.launcher_ok = bool(self.launch_ok)
         state.perception_ok = bool(self.detections)
         if self.has_pose:
