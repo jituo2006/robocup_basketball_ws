@@ -112,14 +112,10 @@ perception:
     # onnxruntime 已装，可直接用。模型用 ultralytics 导出：
     #     yolo export model=best.pt format=onnx imgsz=640
     #
-    # ⚠️ 当前挂的是 **COCO 预训练的 yolov8n**，它只有一类 "sports ball"（通用球），
-    #    **不能区分篮球/排球** —— 所以先映射成 ball_unknown：只用于验证"YOLO 链路通了"，
-    #    不参与任务的目标/干扰判定（mission.yaml 的 mission_labels 认的是
-    #    ball_basketball / ball_volleyball）。
-    #
-    # 等你们自己训出 2 类模型后，只改两行即可：
-    #     model_path: "/home/user/models/ball.onnx"
-    #     name_map: {basketball: ball_basketball, volleyball: ball_volleyball}
+    # ✅ 已换成**自训 2 类模型**（dataset_ball_ms，2026-10-06 导出）：
+    #    元数据 names = {0: '篮球', 1: '排球'}，输出 (1, 6, 8400) = 4框 + 2类。
+    #    ⚠️ 类名是**中文**，所以 name_map 的 key 必须写中文（下面中英文都留了，
+    #       换回英文类名的模型也不用改配置）。
     #
     # 类别映射两种写法（name_map 优先于 class_map）：
     #   name_map:  {模型类别名: 工程label}   ← ultralytics 会把 names 写进 ONNX 元数据，会自动读
@@ -151,6 +147,10 @@ perception:
       # 只保留映射过的类别，其余一律丢弃
       only_mapped: true
       name_map:
+        # ⚠️ key 必须与 ONNX 元数据里的 `names` 完全一致（含中文）
+        "篮球": ball_basketball
+        "排球": ball_volleyball
+        # 兼容英文类名的模型（旧模型 / 别人导出的）
         basketball: ball_basketball
         volleyball: ball_volleyball
 
