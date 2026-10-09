@@ -33,6 +33,8 @@ def node():
     n.pose_pub=NS(publish=n.pose_messages.append);n.ok_pub=NS(publish=n.ok_messages.append)
     n.tf_broadcaster=None;n.field_frame='field';n.ok_std_threshold=.6
     n.last_odom_time=None;n.use_odom_pose_as_abs=True;n.odom_count=0;n.abs_count=0
+    # 合并后 on_odom 会用 s2b_yaw 把 FAST-LIO 的世界系 twist 转成车体系
+    n.s2b_x=-0.30;n.s2b_y=0.0;n.s2b_yaw=0.0
     n.odom_to_field=lambda x,y,yaw:(x,y,yaw)
     return n
 
