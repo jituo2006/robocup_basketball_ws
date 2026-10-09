@@ -6,9 +6,9 @@
 #      但 **ratio 在原实现里被设置后从未参与计算**，所以这里必须填 1.0
 #      才能与原行为一致。等实测确认电机侧是否还有一级减速再改。
 #
-#      width / length / wheel_radius 必须用**实车卷尺量出来的值**替换！
-#      width/length 是"轮子中心到轮子中心"的距离，不是车体外廓。
-#      量错会导致转速整体偏，转向偏得尤其厉害。
+#      几何尺寸已于 2026-10-09 从用户提供的 CAD 核对，见 docs/09_底盘CAD尺寸核查.md。
+#      width/length 是轮心间距，不是车体外廓；wheel_radius 是半径，不是直径。
+#      CAD 给出设计初值，实车仍需标定有效滚动半径及转向精度。
 rb_chassis:
   ros__parameters:
     can_interface: "can0"
@@ -23,19 +23,16 @@ rb_chassis:
     # 若换轮子/改电机接线后自转方向又反了，改成 -1 即可，不用改代码重编译。
     angular_z_sign: 1.0
 
-    # ↓↓↓ 2026-09-19 按实车测量填入，但仍有两处待确认（见 docs/03_底盘模块.md §7）↓↓↓
-    #
-    # ⚠️ width/length 是【轮子中心到轮子中心】的距离，**不是车体外廓尺寸**。
-    #    用户报的"宽度 65cm"很可能是车体宽，若如此，轮距要比它小（约 0.50）。
-    # ✅ 轮径已确认：直径 15cm → wheel_radius = 0.075 m
-    #    （仍建议用 straight 标定复核一遍，因为轮子磨损会有几个百分点偏差）
-    #
-    # 用 tools/measure_chassis.py 两步实测即可确定，别靠猜：
+    # 2026-10-09 CAD 核查：篮球车-底座.SLDASM + R2_OTOW-全向轮装配.STEP。
+    # 轮心由两排滚子中心的轴向中面确定，不能直接用装配原点或截图选点。
+    # CAD X/Z 两方向轮心间距均为 477.059538 mm；旋转力臂为 337.332034 mm。
+    # STEP 外径为 153 mm；143.74 mm 的截图最小距离不是轮径。
+    # 设计尺寸不代表实车标定完成：先低速平移，再原地旋转复核。
     #     python3 tools/measure_chassis.py straight --speed 0.15 --seconds 6
     #     python3 tools/measure_chassis.py rotate   --angular 0.5 --seconds 6
-    width: 0.44             # TODO 确认：这是轮距还是车体宽？
-    length: 0.44            # TODO 未提供轴距，暂用占位值，必须实测
-    wheel_radius: 0.075     # 实测：轮径 15cm → 半径 0.075 m
+    width: 0.477059538      # m，轮心间距
+    length: 0.477059538     # m，轮心间距
+    wheel_radius: 0.0765   # m，外径 153 mm / 2；有效滚动半径待实车标定
     ratio: 1.0              # 必须为 1.0（见文件头说明）
 
     cmd_vel_timeout_ms: 200 # 收不到 /cmd_vel 就发零速（安全网，不要调大）

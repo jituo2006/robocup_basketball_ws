@@ -30,9 +30,10 @@ int main(int argc, char **argv) {
   const auto board_id = param_node->declare_parameter<int>("board_id", 1);
   const auto limit_vel = param_node->declare_parameter<double>("limit_vel", 1.0);
   const auto limit_acc = param_node->declare_parameter<double>("limit_acc", 1.5);
-  const auto width = param_node->declare_parameter<double>("width", 0.40);
-  const auto length = param_node->declare_parameter<double>("length", 0.40);
-  const auto wheel_radius = param_node->declare_parameter<double>("wheel_radius", 0.10);
+  // CAD 设计初值，与 chassis.yaml 一致；实车标定后可用 ROS 参数覆盖。
+  const auto width = param_node->declare_parameter<double>("width", 0.477059538);
+  const auto length = param_node->declare_parameter<double>("length", 0.477059538);
+  const auto wheel_radius = param_node->declare_parameter<double>("wheel_radius", 0.0765);
   const auto ratio = param_node->declare_parameter<double>("ratio", 1.0);
   const auto timeout_ms = param_node->declare_parameter<int>("cmd_vel_timeout_ms", 200);
   const auto period_ms = param_node->declare_parameter<int>("control_period_ms", 10);
