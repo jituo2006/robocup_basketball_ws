@@ -78,6 +78,21 @@ else
   printf "  ${R}✗${N} %-24s %.0f m 【发散！重启 FAST-LIO】\n" "/Odometry.x" "$odom_x"; bad=$((bad+1))
 fi
 
+# ── FAST-LIO 输出新鲜度 ───────────────────────────────────────────────────
+# ⚠️ 实测踩坑：FAST-LIO 启动时（等 IMU 初始化）会**积压**雷达消息，之后按输入
+# 速率处理 → 积压永远排不掉 → /Odometry 时间戳恒定老 1.4 秒。
+# 后果：rb_localization 的新鲜度守卫（source_timeout_s=0.5s）判定"源过期"，
+# 于是 **ok 恒为 false 且位姿卡在初始值** —— 任务根本没法导航，但话题速率看着
+# 完全正常（10Hz），极难发现。**重启一次 FAST-LIO 就能清掉积压。**
+delay=$(timeout 10 ros2 topic delay /Odometry 2>/dev/null | grep -oE "average delay: [0-9.]+" | head -1 | awk '{print $3}')
+if [ -z "$delay" ]; then
+  printf "  ${R}✗${N} %-24s 读不到\n" "/Odometry 延迟"; bad=$((bad+1))
+elif awk "BEGIN{exit !($delay <= 0.30)}"; then
+  printf "  ${G}✓${N} %-24s %.0f ms（新鲜）\n" "/Odometry 延迟" "$(awk "BEGIN{print $delay*1000}")"; ok=$((ok+1))
+else
+  printf "  ${R}✗${N} %-24s %.0f ms【过期！重启 FAST-LIO】\n" "/Odometry 延迟" "$(awk "BEGIN{print $delay*1000}")"; bad=$((bad+1))
+fi
+
 echo ""
 if [ "$bad" -eq 0 ]; then
   echo "  ${G}✅ 全部就绪，可以开车 / 开地图了${N}"
@@ -88,5 +103,6 @@ else
   echo "     CAN 没 UP → bash tools/can_recover.sh"
   echo "     定位没起来 → 确认整套软件（boot.sh）在跑"
   echo "     /Odometry.x 发散 → 重启 FAST-LIO（不可逆）"
+  echo "     /Odometry 延迟过大 → FAST-LIO 启动积压，重启它"
   exit 1
 fi
