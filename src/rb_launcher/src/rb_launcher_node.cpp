@@ -17,6 +17,11 @@
 #include <mutex>
 #include <string>
 
+#include <sys/stat.h>
+
+#include <string>
+#include <vector>
+
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -62,12 +67,46 @@ bool toFrameControl(uint8_t action, Message::FrameControl &out) {
   }
 }
 
+// ── 串口设备名解析 ──────────────────────────────────────────────────────────
+// 为什么需要：本机 udev 规则生成的是 /dev/usb2ttl，而配置里写的是上一届的
+// /dev/R1_usb2ttl —— 对不上时节点只会一直报"打开机构串口失败"，机构不能用。
+// 与其让人去猜设备名，不如按候选列表找**第一个真实存在**的：
+//   ① 配置里写的名字（存在就优先用，兼容现场自定义）
+//   ② fallback_ports 里的候选（相对 /dev 的名字或绝对路径都行）
+// 找到哪个会在日志里明说，方便现场核对。全都没有才报错（仍会周期性重连）。
+bool pathExists(const std::string &p) {
+  struct stat st {};
+  return ::stat(p.c_str(), &st) == 0;
+}
+
+std::string normalizeDev(const std::string &name) {
+  if (name.empty() || name[0] == '/') return name;
+  return "/dev/" + name;
+}
+
+std::string pickPort(const std::string &configured, const std::vector<std::string> &cands) {
+  const std::string first = normalizeDev(configured);
+  if (pathExists(first)) return first;
+  for (const auto &c : cands) {
+    const std::string p = normalizeDev(c);
+    if (p == first) continue;
+    if (pathExists(p)) return p;
+  }
+  return first;   // 都没有 → 返回配置值，让打开时报出原始名字
+}
+
 }  // namespace
 
 class RbLauncherNode : public rclcpp::Node {
 public:
   RbLauncherNode() : Node("rb_launcher") {
     port_ = declare_parameter<std::string>("port", "/dev/R1_usb2ttl");
+    // 配置的 port 不存在时，按这个顺序找第一个存在的（相对 /dev 或绝对路径）。
+    // 默认覆盖本机 udev 会生成的名字 + 常见内核名。
+    fallback_ports_ = declare_parameter<std::vector<std::string>>(
+        "fallback_ports",
+        std::vector<std::string>{"R1_usb2ttl", "usb2ttl", "ttyUSB0", "ttyUSB1",
+                                 "ttyUSB2", "ttyUSB3", "ttyACM0", "ttyACM1"});
     baud_ = static_cast<unsigned int>(declare_parameter<int>("baud", 115200));
     send_rate_hz_ = declare_parameter<double>("send_rate_hz", 50.0);
     default_speed_ = static_cast<uint16_t>(declare_parameter<int>("default_speed", 2800));
@@ -104,10 +143,18 @@ private:
     std::lock_guard<std::mutex> lock(mtx_);
     try {
       ioc_ = std::make_unique<boost::asio::io_context>();
-      serial_ = std::make_unique<SerialPortR1>(*ioc_, port_, baud_);
+      const std::string actual = pickPort(port_, fallback_ports_);
+      serial_ = std::make_unique<SerialPortR1>(*ioc_, actual, baud_);
       port_ok_ = true;
       publishOk();
-      RCLCPP_INFO(get_logger(), "机构串口已打开: %s @ %u", port_.c_str(), baud_);
+      if (actual == normalizeDev(port_)) {
+        RCLCPP_INFO(get_logger(), "机构串口已打开: %s @ %u", actual.c_str(), baud_);
+      } else {
+        RCLCPP_WARN(get_logger(),
+                    "配置的串口 %s 不存在，已自动改用 %s @ %u"
+                    "（要固定就补 udev 规则或改 port 参数）",
+                    port_.c_str(), actual.c_str(), baud_);
+      }
     } catch (const std::exception &e) {
       // 原实现（ballrobot/R1_server）在这里会抛未捕获异常直接 abort，
       // 现在改成降级：节点继续运行，只是报 ok=false，并周期性尝试重连。
@@ -210,6 +257,7 @@ private:
   }
 
   std::string port_;
+  std::vector<std::string> fallback_ports_;
   unsigned int baud_ = 115200;
   double send_rate_hz_ = 50.0;
   uint16_t default_speed_ = 2800;
