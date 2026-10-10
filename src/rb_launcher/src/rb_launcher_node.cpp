@@ -102,11 +102,13 @@ public:
   RbLauncherNode() : Node("rb_launcher") {
     port_ = declare_parameter<std::string>("port", "/dev/R1_usb2ttl");
     // 配置的 port 不存在时，按这个顺序找第一个存在的（相对 /dev 或绝对路径）。
-    // 默认覆盖本机 udev 会生成的名字 + 常见内核名。
+    // ⚠️ 默认**空 = 不启用回退**，这是有意的安全选择：
+    //    "usb2ttl" 这类名字是通配的（本机 udev 那条就没有端口/序列号限制），
+    //    配置写错时会打开【别的设备】，把机构指令发过去 —— 机构可能乱动。
+    //    （实测被集成测试抓到：期望"端口不存在→拒绝"，结果回退到真机构并成功。）
+    //    要启用就显式列候选，并且只列确定属于本机构的设备。
     fallback_ports_ = declare_parameter<std::vector<std::string>>(
-        "fallback_ports",
-        std::vector<std::string>{"R1_usb2ttl", "usb2ttl", "ttyUSB0", "ttyUSB1",
-                                 "ttyUSB2", "ttyUSB3", "ttyACM0", "ttyACM1"});
+        "fallback_ports", std::vector<std::string>{});
     baud_ = static_cast<unsigned int>(declare_parameter<int>("baud", 115200));
     send_rate_hz_ = declare_parameter<double>("send_rate_hz", 50.0);
     default_speed_ = static_cast<uint16_t>(declare_parameter<int>("default_speed", 2800));

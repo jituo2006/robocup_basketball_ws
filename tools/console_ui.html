@@ -84,6 +84,15 @@
   .stage.now .dt{color:#9ec1e8}
   .stage.pend .mk,.stage.pend .nm{color:#5a6272}
   .stage.bad .mk,.stage.bad .nm{color:var(--bad)}
+  /* 就绪状态面板 */
+  .rdy{display:flex;gap:8px;padding:4px 0;font-size:12.5px;border-bottom:1px dashed #232833}
+  .rdy:last-child{border:0}
+  .rdy .m{width:14px;flex:0 0 14px;text-align:center}
+  .rdy.ok .m{color:var(--ok)} .rdy.bad .m{color:var(--bad)}
+  .rdy.ok .t{color:var(--dim)} .rdy.bad .t{color:#ffb4ae}
+  #rdyverdict{font-weight:600;margin-bottom:6px}
+  .flowbox{background:#182030;border:1px solid #2a3a55;border-radius:7px;
+           padding:8px 10px;margin-bottom:8px;font-size:12.5px}
   #proghead{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);
             margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-size:12px}
@@ -104,6 +113,24 @@
 <main>
   <!-- 左列：任务按钮 -->
   <div>
+    <div class="card" style="border-color:#2a3a55">
+      <h2>系统（上电后先点这个）</h2>
+      <button class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
+      <div class="flowbox" id="flowbox" style="display:none"></div>
+      <div class="row">
+        <button onclick="act('CHECK_READY')">✓ 就绪检查</button>
+        <button onclick="act('CAN_RECOVER')">🔌 CAN 恢复</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="act('STACK_START')">▶ 只启动整套</button>
+        <button class="danger" onclick="if(confirm('停止整套软件？（会走优雅退出、先发零速）'))act('STACK_STOP')">⏹ 停止整套</button>
+      </div>
+      <div class="hint">
+        <b>⚡ 一键启动流程</b> = 跑 boot.sh → 等「底盘已使能 + mission 就绪」→ 自动做就绪检查。<br>
+        更细的手动排查用右边那两个按钮。
+      </div>
+    </div>
+
     <div class="card">
       <h2>起任务（一局）</h2>
       <button class="primary" onclick="act('PASS')">🔵 传球 PASS</button>
@@ -182,6 +209,12 @@
 
   <!-- 右列：状态 + 日志 -->
   <div>
+    <div class="card" id="rdycard">
+      <h2>就绪状态（开车前必须全绿）</h2>
+      <div id="rdyverdict" style="color:var(--dim)">还没检查 —— 点左边「✓ 就绪检查」或「⚡ 一键启动流程」</div>
+      <div id="rdylist"></div>
+    </div>
+
     <div class="card">
       <h2>本轮进度（实时）</h2>
       <div id="proghead">—</div>
@@ -294,6 +327,49 @@ async function act(name, args){
 
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
 
+function flowRun(){
+  if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
+  act('STARTUP_FLOW');
+}
+
+const FLOW_TXT = {
+  running:  ['●', '进行中', 'var(--blue)'],
+  done:     ['✅', '可以开车了', 'var(--ok)'],
+  notready: ['⚠️', '没全就绪', 'var(--warn)'],
+  failed:   ['✗', '失败', 'var(--bad)']
+};
+
+function renderChecks(s){
+  // 流程状态框
+  const fb = $('flowbox');
+  if(s.flow && s.flow !== 'idle'){
+    const [mk, txt, col] = FLOW_TXT[s.flow] || ['·', s.flow, 'var(--dim)'];
+    fb.style.display = 'block';
+    fb.innerHTML = `<span style="color:${col}">${mk} ${txt}</span>` +
+                   (s.flow_step ? `　<span style="color:var(--dim)">${s.flow_step}</span>` : '');
+  } else { fb.style.display = 'none'; }
+
+  // 就绪面板
+  const r = s.readiness;
+  const v = $('rdyverdict'), list = $('rdylist'), card = $('rdycard');
+  if(!r){
+    if(s.checks_running){ v.textContent = '检查中…'; v.style.color = 'var(--blue)'; }
+    list.innerHTML = '';
+    card.style.borderColor = 'var(--line)';
+    return;
+  }
+  const nBad = (r.failed || []).length;
+  v.innerHTML = r.ok
+    ? '<span style="color:var(--ok)">✅ 全部就绪，可以开车</span>'
+    : `<span style="color:var(--bad)">⚠️ ${nBad} 项没就绪</span>`;
+  card.style.borderColor = r.ok ? '#245c3a' : '#5c2424';
+  const when = r.checked_at ? new Date(r.checked_at*1000).toTimeString().slice(0,8) : '';
+  list.innerHTML = `<div class="hint" style="margin-bottom:5px">检查于 ${when}</div>` +
+    (r.items || []).map(i =>
+      `<div class="rdy ${i.ok?'ok':'bad'}"><span class="m">${i.ok?'✓':'✗'}</span>` +
+      `<span class="t">${i.text.replace(/</g,'&lt;')}</span></div>`).join('');
+}
+
 const TOOL_LABEL = {
   TEST_BALL:        '寻球+转身测试',
   TEST_PERIMETER:   '绕场+寻球测试',
@@ -366,6 +442,7 @@ function renderProgress(s){
 
 function render(s){
   window._st = s;
+  renderChecks(s);
   renderProgress(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);

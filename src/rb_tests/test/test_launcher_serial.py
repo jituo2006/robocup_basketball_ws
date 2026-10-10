@@ -27,6 +27,9 @@ def test_actual_node_frames_stop_toggles_and_reconnect(tmp_path):
     executable = os.path.join(get_package_prefix('rb_launcher'), 'lib/rb_launcher/rb_launcher_node')
     env = dict(os.environ, ROS_DOMAIN_ID='191')
     log = open(tmp_path / 'launcher.log', 'w')
+    # 不传 fallback_ports：节点默认就是空（不启用回退），所以"端口不存在→拒绝"
+    # 这条断言不会受机器上碰巧存在的 /dev/usb2ttl 之类节点影响。
+    # （注：ROS 2 不接受 `-p fallback_ports:=[]` 这种空数组写法，会起不来。）
     process = subprocess.Popen([executable, '--ros-args', '-p', f'port:={port}',
                                 '-p', 'reconnect_period_s:=0.1', '-p', 'send_rate_hz:=20.0'],
                                env=env, stdout=log, stderr=log)
@@ -140,3 +143,53 @@ def test_missing_configured_port_falls_back_to_candidate(tmp_path):
         client_node.destroy_node()
         rclpy.shutdown(context=context)
         os.close(master); os.close(slave)
+
+
+def test_shipped_config_starts_node(tmp_path):
+    """用**仓库里出厂的那份 launcher.yaml** 起节点，服务必须出现。
+
+    为什么必须有这条：参数文件写错（例如 `fallback_ports: []` 这种空序列）会让
+    节点在构造时抛 InvalidParameterValueException 直接 abort —— 表现为
+    "机构服务不见了"，但 unit test 全绿。实测踩到过，所以用出厂配置兜一道。
+    """
+    from ament_index_python.packages import get_package_share_directory
+    from pathlib import Path as _P
+    # 优先用 install 里那份（节点实际读的就是它）；退回源码里那份
+    cfg = _P(get_package_share_directory('rb_launcher')) / 'config' / 'launcher.yaml'
+    if not cfg.is_file():
+        from rb_tests.ws import WS
+        cfg = WS / 'src' / 'rb_launcher' / 'config' / 'launcher.yaml'
+    if not cfg.is_file():
+        import pytest
+        pytest.skip(f"找不到出厂配置 {cfg}")
+
+    context = Context()
+    rclpy.init(args=[], context=context, domain_id=193)
+    client_node = Node('launcher_cfg_test', context=context)
+    executor = SingleThreadedExecutor(context=context)
+    executor.add_node(client_node)
+    client = client_node.create_client(Launch, '/rb_launcher/launch')
+    executable = os.path.join(get_package_prefix('rb_launcher'), 'lib/rb_launcher/rb_launcher_node')
+    env = dict(os.environ, ROS_DOMAIN_ID='193')
+    log_path = tmp_path / 'launcher_cfg.log'
+    log = open(log_path, 'w')
+    # 用一个不存在的串口，避免碰真设备；节点应照常起来（只报 ok=false）
+    process = subprocess.Popen([executable, '--ros-args',
+                                '--params-file', str(cfg),
+                                '-p', f'port:={tmp_path}/nonexistent'],
+                               env=env, stdout=log, stderr=log)
+    try:
+        assert client.wait_for_service(timeout_sec=8), (
+            '出厂配置下服务没起来 —— 多半是参数文件把节点搞崩了；'
+            f'日志：{log_path.read_text(errors="replace")[-500:]}')
+        assert process.poll() is None, '节点不该退出'
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill(); process.wait(timeout=5)
+        log.close()
+        executor.shutdown()
+        client_node.destroy_node()
+        rclpy.shutdown(context=context)

@@ -140,3 +140,60 @@ def test_detection_respects_heading():
     (x, y), = _dets_to_field(mod, (0.0, 0.0, math.pi / 2),
                              [_det("ball_basketball", 0.0, 2.0)])
     assert x == pytest.approx(0.0, abs=1e-9) and y == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# parse_check_ready：把 check_ready.sh 的输出解析成结构化状态
+# （页面上「就绪状态」面板靠它，解析错会把故障显示成全绿 —— 很危险）
+# ---------------------------------------------------------------------------
+_SAMPLE_OK = """
+  🤖 就绪检查 23:07:37
+
+    ── 硬件 ──
+    \x1b[32m✓\x1b[0m CAN (can0)               UP
+    ── 数据链 ──
+    \x1b[32m✓\x1b[0m /livox/lidar             10.3 Hz
+    \x1b[32m✓\x1b[0m /Odometry 延迟         27 ms（新鲜）
+
+    \x1b[32m✅ 全部就绪，可以开车 / 开地图了\x1b[0m
+"""
+
+_SAMPLE_BAD = """
+  🤖 就绪检查 23:07:37
+
+    ── 硬件 ──
+    \x1b[31m✗\x1b[0m CAN (can0)               没 UP（bash tools/can_recover.sh）
+    \x1b[32m✓\x1b[0m /livox/lidar             10.3 Hz
+
+    \x1b[31m⚠️ 还有 1 项没就绪\x1b[0m
+      CAN 没 UP → bash tools/can_recover.sh
+"""
+
+
+def test_parse_check_ready_all_green():
+    mod = _load()
+    r = mod.parse_check_ready(_SAMPLE_OK)
+    assert r["ok"] is True
+    assert r["failed"] == []
+    assert len(r["items"]) == 3
+    assert "全部就绪" in r["verdict"]
+    # 颜色码必须被剥掉，否则页面上会显示乱码
+    assert "\x1b" not in " ".join(i["text"] for i in r["items"])
+
+
+def test_parse_check_ready_with_failure():
+    mod = _load()
+    r = mod.parse_check_ready(_SAMPLE_BAD)
+    assert r["ok"] is False, "有 ✗ 时绝不能报 ok"
+    assert len(r["failed"]) == 1
+    assert "CAN" in r["failed"][0]
+    assert "没就绪" in r["verdict"]
+
+
+def test_parse_check_ready_empty_is_not_ok():
+    """空输出（脚本没跑起来/没装）不能误判成全绿。"""
+    mod = _load()
+    for bad in ("", "随便什么内容", "  \n  \n"):
+        r = mod.parse_check_ready(bad)
+        assert r["ok"] is False, f"输入 {bad!r} 不该判成 ok"
+        assert r["items"] == []

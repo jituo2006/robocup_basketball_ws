@@ -11,14 +11,16 @@ rb_launcher:
     #    所以正常情况下不用改这里；要固定某个设备就补一条 udev 规则（见 docs/04）。
     port: "/dev/R1_usb2ttl"
     # port 不存在时的候选（相对 /dev 的名字或绝对路径都行）。
-    fallback_ports:
-      - "usb2ttl"
-      - "ttyUSB0"
-      - "ttyUSB1"
-      - "ttyUSB2"
-      - "ttyUSB3"
-      - "ttyACM0"
-      - "ttyACM1"
+    # ⚠️ 默认**不启用回退**（节点里的 C++ 默认值是空表），这是安全选择：
+    #    像 "usb2ttl" 这种名字是通配的（本机 usb2ttl_1.rules 那条就没有端口/
+    #    序列号限制），多个 CH34x 同时插着时会指向别的设备 —— 机构指令就发错地方。
+    #    正常请用 udev 规则把设备固定成上面的 port（见 docs/04），不用回退。
+    #    真要临时启用，就显式列出确定属于本机构的设备：
+    #      fallback_ports: ["usb2ttl"]
+    #
+    # ⚠️⚠️ 千万不要写成 `fallback_ports: []` —— ROS 2 的 YAML 参数**不接受空序列**，
+    #    会抛 InvalidParameterValueException("No parameter value set") 让节点直接崩。
+    #    要"空"就不写这个键。
     baud: 115200
 
     send_rate_hz: 50.0      # 命令重复发送频率（下位机靠重复帧取最新值）

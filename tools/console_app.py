@@ -572,6 +572,155 @@ class StackManager:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 系统检查：就绪检查 / CAN 恢复（把脚本结果解析成结构化状态给页面）
+# ─────────────────────────────────────────────────────────────────────────────
+_ANSI = __import__("re").compile(r"\x1b\[[0-9;]*m")
+
+
+def parse_check_ready(text: str) -> dict:
+    """把 tools/check_ready.sh 的输出解析成 {ok, items[], verdict}。
+
+    脚本输出形如（已去色）：
+        ✓ /livox/lidar             10.3 Hz
+        ✗ /Odometry.x              发散
+        ✅ 全部就绪，可以开车 / 开地图了
+        ⚠️ 还有 3 项没就绪
+    """
+    items = []
+    verdict = ""
+    for raw in _ANSI.sub("", text or "").splitlines():
+        s = raw.strip()
+        if s.startswith("✓ "):
+            items.append({"ok": True, "text": s[2:].strip()})
+        elif s.startswith("✗ "):
+            items.append({"ok": False, "text": s[2:].strip()})
+        elif s.startswith("✅") or s.startswith("⚠️"):
+            verdict = s
+    return {
+        "items": items,
+        "failed": [i["text"] for i in items if not i["ok"]],
+        "verdict": verdict,
+        "ok": bool(items) and all(i["ok"] for i in items) and "全部就绪" in verdict,
+        "checked_at": time.time(),
+    }
+
+
+class SystemChecks:
+    """跑 check_ready.sh / can_recover.sh，把结果缓存下来给页面。"""
+
+    def __init__(self, log_deque: deque):
+        self.log = log_deque
+        self.lock = threading.Lock()
+        self.state = {"running": None, "result": None, "can_result": None,
+                      "flow": None, "flow_step": ""}
+
+    def _run(self, name: str, script: str, timeout: float = 180.0) -> str:
+        self.log.append((time.time(), "TOOL", name, f"=== 运行 {script} ==="))
+        try:
+            r = subprocess.run(["bash", script], cwd=str(WS),
+                               capture_output=True, text=True, timeout=timeout)
+            out = (r.stdout or "") + (r.stderr or "")
+        except subprocess.TimeoutExpired:
+            out = f"（超时 {timeout:.0f}s）"
+        for ln in _ANSI.sub("", out).splitlines():
+            self.log.append((time.time(), "TOOL", name, ln))
+        return out
+
+    def check_ready(self):
+        with self.lock:
+            if self.state["running"]:
+                return False, "已有检查在跑"
+            self.state["running"] = "check_ready"
+        try:
+            out = self._run("就绪检查", "tools/check_ready.sh")
+            res = parse_check_ready(out)
+            with self.lock:
+                self.state["result"] = res
+                self.state["running"] = None
+            n = len(res["failed"])
+            return True, ("✅ 全部就绪" if res["ok"] else f"⚠️ {n} 项没就绪")
+        except Exception as e:  # noqa: BLE001
+            with self.lock:
+                self.state["running"] = None
+            return False, f"{type(e).__name__}: {e}"
+
+    def can_recover(self):
+        with self.lock:
+            if self.state["running"]:
+                return False, "已有检查在跑"
+            self.state["running"] = "can_recover"
+        try:
+            out = self._run("CAN 恢复", "tools/can_recover.sh", timeout=60.0)
+            with self.lock:
+                self.state["can_result"] = _ANSI.sub("", out).strip()[-400:]
+                self.state["running"] = None
+            return True, "CAN 恢复已执行（看日志）"
+        except Exception as e:  # noqa: BLE001
+            with self.lock:
+                self.state["running"] = None
+            return False, f"{type(e).__name__}: {e}"
+
+    def startup_flow(self, stack: "StackManager"):
+        """一键流程：boot.sh → 等 mission 就绪 → 自动就绪检查。"""
+        with self.lock:
+            if self.state["flow"] == "running":
+                return False, "一键流程已在跑"
+            self.state["flow"] = "running"
+            self.state["flow_step"] = "启动整套"
+
+        def worker():
+            try:
+                ok, msg = stack.start()
+                self.log.append((time.time(), "TOOL", "一键流程", f"boot.sh: {msg}"))
+                if not ok:
+                    with self.lock:
+                        self.state["flow"] = "failed"
+                        self.state["flow_step"] = msg
+                    return
+                # 等关键就绪标志（最多 120s）
+                deadline = time.time() + 120
+                seen = {"chassis": False, "mission": False}
+                while time.time() < deadline:
+                    txt = "\n".join(m for (_, _, _, m) in list(stack.log)[-200:])
+                    if "底盘已使能" in txt:
+                        seen["chassis"] = True
+                    if "mission 就绪" in txt:
+                        seen["mission"] = True
+                    if seen["chassis"] and seen["mission"]:
+                        break
+                    if not stack.running:
+                        with self.lock:
+                            self.state["flow"] = "failed"
+                            self.state["flow_step"] = "boot.sh 退出了（看日志）"
+                        return
+                    time.sleep(1.5)
+                else:
+                    with self.lock:
+                        self.state["flow"] = "failed"
+                        self.state["flow_step"] = "等就绪标志超时（看日志）"
+                    return
+
+                self.log.append((time.time(), "TOOL", "一键流程",
+                                 "底盘已使能 + mission 就绪 → 开始就绪检查"))
+                with self.lock:
+                    self.state["flow_step"] = "就绪检查"
+                out = self._run("就绪检查", "tools/check_ready.sh")
+                res = parse_check_ready(out)
+                with self.lock:
+                    self.state["result"] = res
+                    self.state["flow"] = "done" if res["ok"] else "notready"
+                    self.state["flow_step"] = ("可以开车了" if res["ok"]
+                                               else f"{len(res['failed'])} 项没就绪")
+            except Exception as e:  # noqa: BLE001
+                with self.lock:
+                    self.state["flow"] = "failed"
+                    self.state["flow_step"] = f"{type(e).__name__}: {e}"
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True, "一键流程已启动（boot.sh → 等就绪 → 就绪检查）"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 调试脚本运行器（寻球/绕场等整车测试）
 # ─────────────────────────────────────────────────────────────────────────────
 # 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
@@ -727,7 +876,8 @@ def panic():
 # ─────────────────────────────────────────────────────────────────────────────
 # Flask 应用
 # ─────────────────────────────────────────────────────────────────────────────
-def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner, field: dict):
+def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
+             checks: SystemChecks, field: dict):
     import cv2
     from flask import Flask, Response, jsonify, request, send_file
 
@@ -745,6 +895,12 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner, field: dict)
         s["stack_running"] = stack.running
         s["tool_running"] = tool.running
         s["tool_name"] = tool.name
+        with checks.lock:
+            s["readiness"] = checks.state["result"]
+            s["checks_running"] = checks.state["running"]
+            s["flow"] = checks.state["flow"]
+            s["flow_step"] = checks.state["flow_step"]
+            s["can_result"] = checks.state["can_result"]
         s["stack_enabled"] = stack.enabled
         s["field"] = field
         s["now"] = time.time()
@@ -824,6 +980,12 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner, field: dict)
                 return jsonify(dict(zip(("ok", "msg"), stack.stop())))
             if name == "TOOL_STOP":
                 return jsonify(dict(zip(("ok", "msg"), tool.stop())))
+            if name == "CHECK_READY":
+                return jsonify(dict(zip(("ok", "msg"), checks.check_ready())))
+            if name == "CAN_RECOVER":
+                return jsonify(dict(zip(("ok", "msg"), checks.can_recover())))
+            if name == "STARTUP_FLOW":
+                return jsonify(dict(zip(("ok", "msg"), checks.startup_flow(stack))))
             if name in DEBUG_TOOLS:
                 return jsonify(dict(zip(("ok", "msg"), tool.start(name))))
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
@@ -850,8 +1012,9 @@ def main(argv=None):
     logbuf: deque = deque(maxlen=400)
     stack = StackManager(not args.no_stack_control, logbuf)
     tool = ToolRunner(logbuf)
+    checks = SystemChecks(logbuf)
     bridge = Bridge({"topics": topics})
-    app = make_app(bridge, stack, tool, field)
+    app = make_app(bridge, stack, tool, checks, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")
     print(f"     本机访问   http://127.0.0.1:{args.port}")
