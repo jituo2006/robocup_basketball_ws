@@ -237,6 +237,14 @@ class Bridge:
         self.lock = threading.Lock()
         self.logs: deque = deque(maxlen=400)
         self.launch_logs: deque = deque(maxlen=400)
+        # 阶段变迁时间线：方便一眼看出"跑到哪一步、卡在哪一步"
+        self.timeline: deque = deque(maxlen=200)
+        self._last_phase_key = None
+        # 本轮各阶段累计耗时（阶段名 -> 秒）
+        self.phase_seconds: dict = {}
+        self._phase_enter: float | None = None
+        self._phase_name: str | None = None
+        self.action_count = 0          # 本轮的发射动作次数（LAUNCH 进入次数）
 
         rclpy.init()
         self.node = Node("rb_console")
@@ -289,10 +297,56 @@ class Bridge:
         self._spin_thread.start()
 
     # -- 回调 ---------------------------------------------------------------
+    # 一轮里按顺序会经历的阶段（用于页面上画"已完成/进行中/待执行"）
+    ROUND_STAGES = ("START_DELAY", "SEEK_BALL", "ACQUIRE", "NAV_TO_ZONE",
+                    "ALIGN", "LAUNCH", "RETURN_HOME", "DONE")
+
     def _on_status(self, m):
+        """任务状态 + 阶段变迁记录。
+
+        为什么要记时间线：比赛时最需要回答的是"跑到哪一步了 / 卡在哪一步"。
+        光看当前 phase 不够，得看出**走过的顺序和各段耗时**。
+        """
+        now = time.time()
+        key = (m.mission, m.phase)
         with self.lock:
             self.state.update(mission=m.mission, phase=m.phase, detail=m.detail,
                               elapsed=float(m.elapsed_s), score=int(m.score_estimate))
+            if key == self._last_phase_key:
+                # 同一阶段内 detail 是实时变的（"对准 hoop 误差 +2.1°"这种），
+                # 要回写到时间线最后一条，否则页面只显示进入该阶段时的那句话。
+                if self.timeline:
+                    self.timeline[-1]["detail"] = m.detail or ""
+                    self.timeline[-1]["elapsed"] = float(m.elapsed_s)
+                return
+            # 结算上一阶段耗时
+            if self._phase_name is not None and self._phase_enter is not None:
+                self.phase_seconds[self._phase_name] = (
+                    self.phase_seconds.get(self._phase_name, 0.0) + (now - self._phase_enter))
+            prev_phase = self._last_phase_key[1] if self._last_phase_key else None
+
+            # 新任务的起点：从 IDLE 跳到 PASS/SHOOT 时清空旧时间线，
+            # 否则页面上会残留上一轮的 IDLE 段（显示成一条没意义的"待命"）。
+            prev_mission = self._last_phase_key[0] if self._last_phase_key else None
+            if m.phase == "IDLE" or (prev_mission == "IDLE" and m.mission in ("PASS", "SHOOT")):
+                self.timeline.clear()
+                self.phase_seconds = {}
+                self.action_count = 0
+
+            self.timeline.append({
+                "t": now, "mission": m.mission, "phase": m.phase,
+                "detail": m.detail or "", "elapsed": float(m.elapsed_s), "dur": None,
+            })
+            if len(self.timeline) >= 2:
+                self.timeline[-2]["dur"] = round(now - self.timeline[-2]["t"], 2)
+
+            # 发射动作计数：进入 LAUNCH 且上一段不是 LAUNCH 才算一次
+            if m.phase == "LAUNCH" and prev_phase != "LAUNCH":
+                self.action_count += 1
+
+            self._last_phase_key = key
+            self._phase_enter = now
+            self._phase_name = m.phase
 
     def _on_rstate(self, m):
         with self.lock:
@@ -440,13 +494,21 @@ class Bridge:
         return True, f"点动 {seconds}s"
 
     def snapshot(self):
-        """返回可 JSON 化的快照。⚠️ logs 必须是 dict（api_state 还要往里追加
-        boot.sh 的日志再统一按时间排序，混元组会 TypeError）。"""
+        """返回可 JSON 化的快照。
+
+        ⚠️ 三处必须处理的不可序列化对象：
+          cam   = 原始 JPEG 字节；cloud = ndarray；dets = 消息对象
+        """
         with self.lock:
             s = dict(self.state)
             s["logs"] = [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                          for (tt, lv, src, ms) in list(self.logs)[-120:]]
-            # ⚠️ cam 是原始 JPEG 字节、cloud 是 ndarray，都**不能**进 JSON
+            s["timeline"] = list(self.timeline)
+            s["action_count"] = self.action_count
+            s["phase_seconds"] = dict(self.phase_seconds)
+            s["phase_elapsed"] = (round(time.time() - self._phase_enter, 1)
+                                  if self._phase_name and self._phase_enter else 0.0)
+            s["round_stages"] = list(self.ROUND_STAGES)
             s["has_cam"] = s.get("cam") is not None
             s["cam"] = None
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
@@ -512,6 +574,21 @@ class StackManager:
 # ─────────────────────────────────────────────────────────────────────────────
 # 硬件链路探测（不依赖 ROS 的裸查）
 # ─────────────────────────────────────────────────────────────────────────────
+# 关键节点：正常各 1 个。>1 = 孤儿进程/重复启动 → 会互相抢话题，
+# 症状是"数据抖动/阶段乱跳"（实测：两个 mission_node 会让 /mission/status 的
+# phase 在 START_DELAY 和 SEEK_BALL 之间高频振荡）。
+KEY_NODES = {
+    "livox 驱动": "livox_ros_driver2_node",
+    "FAST-LIO": "fastlio_mapping",
+    "相机": "camera_node",
+    "感知": "perception_node",
+    "定位": "localization_node",
+    "底盘": "rb_chassis_node",
+    "机构": "rb_launcher_node",
+    "任务": "mission_node",
+}
+
+
 def probe_hardware():
     def sh(cmd):
         try:
@@ -528,7 +605,21 @@ def probe_hardware():
     serials += sorted(p.name for p in Path("/dev").glob("usb2ttl"))
     serials += sorted(p.name for p in Path("/dev").glob("ttyUSB*"))
     serials += sorted(p.name for p in Path("/dev").glob("ttyACM*"))
+    # 数关键节点（用 install 路径数，避免匹配到自己）
+    counts = {}
+    try:
+        out = subprocess.run(["ps", "-eo", "cmd"], capture_output=True, text=True,
+                             timeout=4).stdout
+        for label, name in KEY_NODES.items():
+            counts[label] = sum(1 for ln in out.splitlines()
+                                if f"install/" in ln and ln.rstrip().endswith(name) or
+                                   (f"/{name} " in ln and "install/" in ln))
+    except Exception:  # noqa: BLE001
+        pass
+    dup = {k: v for k, v in counts.items() if v > 1}
     return {
+        "node_counts": counts,
+        "node_dup": dup,
         "can_up": can_up,
         "lidar_link": lidar_carrier and lidar_ip,
         "lidar_ping": ping,

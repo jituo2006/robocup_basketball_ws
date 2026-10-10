@@ -70,6 +70,21 @@
   .hint{color:var(--dim);font-size:11.5px;margin-top:6px}
   .big{font-size:19px;font-weight:600}
   details summary{cursor:pointer;color:var(--dim);font-size:12px;padding:4px 0}
+  /* 本轮进度时间线 */
+  .stage{display:flex;gap:9px;padding:5px 0;border-bottom:1px dashed #232833;font-size:12.5px}
+  .stage:last-child{border:0}
+  .stage .mk{width:15px;text-align:center;flex:0 0 15px;font-size:13px}
+  .stage .nm{flex:0 0 78px;font-weight:600}
+  .stage .du{flex:0 0 46px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+  .stage .dt{flex:1;color:var(--dim);word-break:break-all}
+  .stage.done .mk,.stage.done .nm{color:var(--ok)}
+  .stage.now .mk,.stage.now .nm{color:var(--blue)}
+  .stage.now{background:#1b2330;border-radius:5px;padding-left:5px;margin-left:-5px}
+  .stage.now .dt{color:#9ec1e8}
+  .stage.pend .mk,.stage.pend .nm{color:#5a6272}
+  .stage.bad .mk,.stage.bad .nm{color:var(--bad)}
+  #proghead{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);
+            margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-size:12px}
   td,th{padding:3px 6px;border-bottom:1px solid #262c37;text-align:left}
   th{color:var(--dim);font-weight:500}
@@ -156,6 +171,12 @@
   <!-- 右列：状态 + 日志 -->
   <div>
     <div class="card">
+      <h2>本轮进度（实时）</h2>
+      <div id="proghead">—</div>
+      <div id="progress"><div class="hint">还没起任务</div></div>
+    </div>
+
+    <div class="card">
       <h2>小车情况（/mission/state）</h2>
       <div class="big" id="phase">—</div>
       <div class="hint" id="detail"></div>
@@ -196,6 +217,7 @@
       <div class="kv"><span>相机 /dev/video0</span><span id="hw_cam">—</span></div>
       <div class="kv"><span>串口设备</span><span id="hw_serial">—</span></div>
       <div class="kv"><span>/dev/R1_usb2ttl</span><span id="hw_r1">—</span></div>
+      <div class="kv"><span>关键节点数（应各 1）</span><span id="hw_nodes">—</span></div>
       <div class="hint">机构配置要 /dev/R1_usb2ttl，但 udev 只生成 /dev/usb2ttl —— 若这里显示 ✗ 就需要补 udev 规则或改配置。</div>
     </div>
 
@@ -267,8 +289,57 @@ function gotoNamed(key){
   act('GOTO', {x:p.x, y:p.y, yaw:0, align:false});
 }
 
+const PHASE_CN = {
+  IDLE:"待命", START_DELAY:"启动延迟", SEEK_BALL:"找球", ACQUIRE:"吸取",
+  NAV_TO_ZONE:"去动作区", ALIGN:"对准", LAUNCH:"发射", RETURN_HOME:"回位",
+  DONE:"完成", FAULT:"故障！", ESTOP:"急停", GOTO:"点地图导航"
+};
+
+function renderProgress(s){
+  const tl = s.timeline || [];
+  const active = s.mission && s.mission !== 'IDLE';
+  const head = $('proghead');
+  if(!active && tl.length === 0){
+    head.textContent = '还没起任务';
+    $('progress').innerHTML = '<div class="hint">按左列「传球 / 投篮」起一局，这里会实时显示走到哪一步</div>';
+    return;
+  }
+  const acts = s.action_count || 0;
+  head.innerHTML = `<span>${s.mission || '—'}　已用 ${fmt(s.elapsed,1)}s</span>` +
+                   `<span>动作 <b style="color:var(--tx)">${acts}/2</b></span>`;
+
+  // 把时间线按"每轮循环"渲染；最后一条是当前阶段
+  const rows = [];
+  tl.forEach((e, i) => {
+    const last = (i === tl.length - 1);
+    const bad  = ['FAULT','ESTOP'].includes(e.phase);
+    const cls2 = bad ? 'bad' : (last && active ? 'now' : (e.phase==='DONE'?'done':'done'));
+    const mk   = bad ? '✗' : (last && active ? '●' : '✓');
+    let dur = e.dur !== null && e.dur !== undefined ? e.dur.toFixed(1)+'s' : '';
+    if(last && active && s.phase_elapsed) dur = s.phase_elapsed.toFixed(1)+'s';
+    const nm = PHASE_CN[e.phase] || e.phase;
+    rows.push(`<div class="stage ${cls2}"><span class="mk">${mk}</span>` +
+              `<span class="nm">${nm}</span><span class="du">${dur}</span>` +
+              `<span class="dt">${(e.detail||'').replace(/</g,'&lt;')}</span></div>`);
+  });
+  // 还没走到的阶段（按标准一轮顺序补全）
+  if(active && !['FAULT','ESTOP'].includes(s.phase)){
+    const done = new Set(tl.map(e=>e.phase));
+    // 只补"本轮还没出现过的阶段"；LAUNCH 已出现但要做第 2 次时也提示
+    const future = ['NAV_TO_ZONE','ALIGN','LAUNCH','RETURN_HOME'].filter(p=>!done.has(p));
+    if(acts === 1 && done.has('LAUNCH') && !done.has('RETURN_HOME')) future.unshift('LAUNCH(第2次)');
+    future.slice(0,4).forEach(p=>{
+      rows.push(`<div class="stage pend"><span class="mk">○</span>` +
+                `<span class="nm">${PHASE_CN[p]||p}</span><span class="du"></span>` +
+                `<span class="dt">待执行</span></div>`);
+    });
+  }
+  $('progress').innerHTML = rows.join('');
+}
+
 function render(s){
   window._st = s;
+  renderProgress(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
   p.push(`<span class="pill ${cls(s.loc_ok)}">定位 ${s.loc_ok?'OK':'不可用'}</span>`);
@@ -277,6 +348,9 @@ function render(s){
   p.push(`<span class="pill ${cls(s.hw.can_up)}">CAN ${s.hw.can_up?'UP':'DOWN'}</span>`);
   p.push(`<span class="pill ${cls(s.hw.lidar_link)}">雷达 ${s.hw.lidar_link?'链路OK':'断开'}</span>`);
   p.push(`<span class="pill ${s.stack_running?'ok':'warn'}">整套 ${s.stack_running?'运行中':'未由本页启动'}</span>`);
+  const dup = s.hw.node_dup || {};
+  const dupN = Object.keys(dup).length;
+  if(dupN) p.push(`<span class="pill bad">⚠ 重复节点 ${Object.entries(dup).map(([k,v])=>k+'×'+v).join(' ')}</span>`);
   $('pills').innerHTML = p.join('');
 
   $('phase').textContent = s.phase || '—';
@@ -313,6 +387,11 @@ function render(s){
   $('hw_cam').textContent = yn(s.hw.camera);
   $('hw_serial').textContent = (s.hw.serial_ports||[]).join(', ') || '无';
   $('hw_r1').textContent = yn(s.hw.r1_symlink);
+  const nc = s.hw.node_counts || {};
+  const bad = Object.entries(nc).filter(([,v])=>v>1);
+  $('hw_nodes').innerHTML = bad.length
+    ? `<b style="color:var(--bad)">${bad.map(([k,v])=>k+'×'+v).join(' · ')} ← 重复！</b>`
+    : Object.entries(nc).map(([k,v])=>`${k}${v?'✓':'✗'}`).join(' ');
 
   const rows = ['<tr><th>标签</th><th>置信</th><th>方位</th><th>距离</th></tr>'];
   (s.dets||[]).forEach(d=>{
