@@ -572,6 +572,92 @@ class StackManager:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 调试脚本运行器（寻球/绕场等整车测试）
+# ─────────────────────────────────────────────────────────────────────────────
+# 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
+# 所以页面上点之前必须确认：任务停了、急停手段就绪。
+DEBUG_TOOLS = {
+    "TEST_BALL": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--skip-perimeter", "--takeover", "--yes"],
+        "label": "寻球 → 走到球前 50cm → 转身背对球",
+    },
+    "TEST_PERIMETER": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--takeover", "--yes"],
+        "label": "绕场一圈 → 寻球 → 走到球前 → 转身背对球",
+    },
+    "TEST_CHASSIS_DRY": {
+        "script": "tools/test_chassis.py",
+        "args": [],
+        "label": "底盘干跑自检（不下发 CAN，安全）",
+    },
+}
+
+
+class ToolRunner:
+    """跑一个调试脚本，把它的输出流进页面日志面板。同一时刻只允许一个。"""
+
+    def __init__(self, log_deque: deque):
+        self.log = log_deque
+        self.proc: subprocess.Popen | None = None
+        self.name: str | None = None
+        self.lock = threading.Lock()
+
+    @property
+    def running(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _pump(self, proc, name):
+        for raw in iter(proc.stdout.readline, b""):
+            try:
+                self.log.append((time.time(), "TOOL", name,
+                                 raw.decode("utf-8", "replace").rstrip()))
+            except Exception:  # noqa: BLE001
+                pass
+        code = proc.poll()
+        lvl = "TOOL" if code == 0 else "ERROR"
+        self.log.append((time.time(), lvl, name, f"— {name} 结束，退出码 {code} —"))
+
+    def start(self, key: str):
+        spec = DEBUG_TOOLS.get(key)
+        if not spec:
+            return False, f"未知调试脚本 {key}"
+        with self.lock:
+            if self.running:
+                return False, f"{self.name} 还在跑，先停掉它"
+            if not (WS / spec["script"]).is_file():
+                return False, f"找不到 {spec['script']}"
+            # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境
+            cmd = ["bash", "-c",
+                   "source /opt/ros/humble/setup.bash && "
+                   f"source {WS}/install/setup.bash && "
+                   f"exec python3 {spec['script']} " + " ".join(spec["args"])]
+            self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))
+            self.proc = subprocess.Popen(
+                cmd, cwd=str(WS), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                start_new_session=True)
+            self.name = key
+            threading.Thread(target=self._pump, args=(self.proc, key), daemon=True).start()
+            return True, f"已启动（{spec['label']}），看日志面板"
+
+    def stop(self):
+        if not self.running:
+            return False, "没在跑"
+        with self.lock:
+            try:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
+            except Exception:  # noqa: BLE001
+                try:
+                    self.proc.send_signal(signal.SIGINT)
+                except Exception:  # noqa: BLE001
+                    pass
+            self.log.append((time.time(), "TOOL", self.name or "tool",
+                             "=== 已发送停止（SIGINT，脚本会先发零速）==="))
+        return True, "已发送停止"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 硬件链路探测（不依赖 ROS 的裸查）
 # ─────────────────────────────────────────────────────────────────────────────
 # 关键节点：正常各 1 个。>1 = 孤儿进程/重复启动 → 会互相抢话题，
@@ -641,7 +727,7 @@ def panic():
 # ─────────────────────────────────────────────────────────────────────────────
 # Flask 应用
 # ─────────────────────────────────────────────────────────────────────────────
-def make_app(bridge: Bridge, stack: StackManager, field: dict):
+def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner, field: dict):
     import cv2
     from flask import Flask, Response, jsonify, request, send_file
 
@@ -657,6 +743,8 @@ def make_app(bridge: Bridge, stack: StackManager, field: dict):
         hw = probe_hardware()
         s["hw"] = hw
         s["stack_running"] = stack.running
+        s["tool_running"] = tool.running
+        s["tool_name"] = tool.name
         s["stack_enabled"] = stack.enabled
         s["field"] = field
         s["now"] = time.time()
@@ -734,6 +822,10 @@ def make_app(bridge: Bridge, stack: StackManager, field: dict):
                 return jsonify(dict(zip(("ok", "msg"), stack.start())))
             if name == "STACK_STOP":
                 return jsonify(dict(zip(("ok", "msg"), stack.stop())))
+            if name == "TOOL_STOP":
+                return jsonify(dict(zip(("ok", "msg"), tool.stop())))
+            if name in DEBUG_TOOLS:
+                return jsonify(dict(zip(("ok", "msg"), tool.start(name))))
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001
             return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"})
@@ -755,9 +847,11 @@ def main(argv=None):
     field = mission_cfg.get("field", {}) or {}
     topics = mission_cfg.get("topics", {}) or {}
 
-    stack = StackManager(not args.no_stack_control, deque(maxlen=400))
+    logbuf: deque = deque(maxlen=400)
+    stack = StackManager(not args.no_stack_control, logbuf)
+    tool = ToolRunner(logbuf)
     bridge = Bridge({"topics": topics})
-    app = make_app(bridge, stack, field)
+    app = make_app(bridge, stack, tool, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")
     print(f"     本机访问   http://127.0.0.1:{args.port}")

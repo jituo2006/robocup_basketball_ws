@@ -60,6 +60,7 @@
   .lg.ERROR,.lg.FATAL{color:#ff8b84}
   .lg.WARN{color:var(--warn)}
   .lg.LAUNCH{color:#a78bfa}
+  .lg.TOOL{color:#5eead4}
   #toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;
          gap:8px;z-index:99;max-width:380px}
   .toast{background:var(--panel2);border-left:3px solid var(--blue);border-radius:6px;
@@ -135,6 +136,17 @@
       <button onclick="gotoNamed('pass_zone_target')">🎯 去传球点</button>
       <button onclick="gotoNamed('shoot_zone_target')">🎯 去投篮点</button>
       <button onclick="gotoNamed('home')">🏠 回出发点</button>
+    </div>
+
+    <div class="card">
+      <h2>调试测试（整车脚本）</h2>
+      <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
+      <button class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
+      <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
+      <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
+      <div class="hint" id="toolstate">未运行</div>
+      <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b>（SIGTERM 掉任务节点），
+        点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
     </div>
 
     <div class="card">
@@ -282,6 +294,21 @@ async function act(name, args){
 
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
 
+const TOOL_LABEL = {
+  TEST_BALL:        '寻球+转身测试',
+  TEST_PERIMETER:   '绕场+寻球测试',
+  TEST_CHASSIS_DRY: '底盘干跑自检'
+};
+function toolRun(key){
+  const warn = {
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
+    TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
+    TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
+  }[key] || '确认运行？';
+  if(!confirm(warn)) return;
+  act(key);
+}
+
 function gotoNamed(key){
   const s = window._st;
   const p = s && s.field && s.field[key];
@@ -392,6 +419,13 @@ function render(s){
   $('hw_nodes').innerHTML = bad.length
     ? `<b style="color:var(--bad)">${bad.map(([k,v])=>k+'×'+v).join(' · ')} ← 重复！</b>`
     : Object.entries(nc).map(([k,v])=>`${k}${v?'✓':'✗'}`).join(' ');
+
+  const ts = $('toolstate');
+  if(ts){
+    ts.innerHTML = s.tool_running
+      ? `<b style="color:var(--blue)">● 运行中：${TOOL_LABEL[s.tool_name]||s.tool_name}</b>`
+      : '<span style="color:var(--dim)">未运行</span>';
+  }
 
   const rows = ['<tr><th>标签</th><th>置信</th><th>方位</th><th>距离</th></tr>'];
   (s.dets||[]).forEach(d=>{
