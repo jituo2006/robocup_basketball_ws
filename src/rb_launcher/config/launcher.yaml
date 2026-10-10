@@ -5,11 +5,20 @@
 #   共 11 字节，115200 8N1
 rb_launcher:
   ros__parameters:
-    # ⚠️ 上一届用的是 /dev/R1_usb2ttl，但本机没有对应的 udev 规则，
-    #    R1_server 会因打不开而抛异常崩溃。两条路：
-    #      (a) 补 udev 规则生成 /dev/R1_usb2ttl（推荐，保持与旧代码一致）
-    #      (b) 直接把这里改成实际设备名，如 /dev/ttyUSB0
+    # ⚠️ 上一届用的是 /dev/R1_usb2ttl，但**本机 udev 规则只生成 /dev/usb2ttl**，
+    #    名字对不上。现在节点会**自动回退**：这个 port 不存在时，按下面的
+    #    fallback_ports 顺序找第一个真实存在的设备，并在日志里说明用了哪个。
+    #    所以正常情况下不用改这里；要固定某个设备就补一条 udev 规则（见 docs/04）。
     port: "/dev/R1_usb2ttl"
+    # port 不存在时的候选（相对 /dev 的名字或绝对路径都行）。
+    fallback_ports:
+      - "usb2ttl"
+      - "ttyUSB0"
+      - "ttyUSB1"
+      - "ttyUSB2"
+      - "ttyUSB3"
+      - "ttyACM0"
+      - "ttyACM1"
     baud: 115200
 
     send_rate_hz: 50.0      # 命令重复发送频率（下位机靠重复帧取最新值）

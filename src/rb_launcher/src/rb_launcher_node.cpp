@@ -161,10 +161,18 @@ private:
       serial_.reset();
       port_ok_ = false;
       publishOk();
-      RCLCPP_ERROR(get_logger(),
-                   "打开机构串口失败: %s (%s)。节点继续运行；"
-                   "请检查设备名与 udev 规则，或把参数 port 改成实际设备。",
-                   port_.c_str(), e.what());
+      // 把"试过哪些名字"打出来 —— 现场最常见的困惑是"设备明明插了却连不上"，
+        // 有这份列表就能立刻分辨是名字不对还是驱动没认到设备。
+        std::string tried = normalizeDev(port_);
+        for (const auto &c : fallback_ports_) {
+          const std::string n = normalizeDev(c);
+          if (n != tried) tried += ", " + n;
+        }
+        RCLCPP_ERROR(get_logger(),
+                     "打开机构串口失败: %s (%s)。已试过: %s。"
+                     "节点继续运行并每 %.1fs 重连；请确认设备插好/驱动已加载，"
+                     "或补一条 udev 规则把它固定成 port 里的名字。",
+                     port_.c_str(), e.what(), tried.c_str(), reconnect_period_s_);
     }
   }
 
