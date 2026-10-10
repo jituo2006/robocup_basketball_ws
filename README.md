@@ -57,7 +57,8 @@ source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 
-# 不需要任何硬件，验证整条软件链路
+# 无硬件验证至发射入口；此 launch 没有模拟机构服务，LAUNCH 后会进入 FAULT。
+# 发射/STOP 回复的真实 DDS 测试见 rb_tests/test/test_mission_launch_service.py。
 ros2 launch rb_bringup bringup_fsm_test.launch.py
 # 另一个终端
 ros2 service call /rb_mission/set_mission rb_msgs/srv/SetMission "{mission: PASS}"
@@ -85,6 +86,8 @@ ros2 topic echo /mission/status
 | `docs/08_已知限制与后续.md` | P0/P1/P2 待办、上游库 bug、开发顺序 |
 | `docs/09_底盘CAD尺寸核查.md` | CAD 轮径与轮心距离来源 |
 | `docs/10_导航精度与在线调参.md` | 车体速度、定位过期保护、停稳确认、在线参数、实体实验 |
+| `docs/11_代码复用与旧工程对照.md` | 旧工程来源、直接/修改后复用证据、外部链路与未接入资产 |
+| `docs/12_2026修订版规则审核与完善.md` | 修订版逐条审核、三个回合用球表、已补软件约束与硬件验收缺口 |
 
 ## 6. 目录
 
@@ -136,3 +139,5 @@ ros2 run rb_tests verify_offline  # 完整离线链路（约 2 分钟，含 6 �
 - `§2.3-7` 启动延迟 5~15s → `START_DELAY` 阶段
 - `§2.5` 传球/投篮环节**目标球与干扰球角色互换** → `mission.yaml` 的 `mission_labels`
 - `§2.5` 得分与位置强相关 → 区域合规判定与三分线判定
+
+自动投篮与驱动修复说明：[按距离自动投篮](docs/13_自动投篮与机构驱动.md)。

@@ -166,16 +166,24 @@ private:
     cmd_ = fc;
     speed_ = req->speed != 0 ? req->speed : default_speed_;
     angle_ = req->angle != 0 ? req->angle : default_angle_;
-    active_ = true;
+    active_ = false;
 
     if (!port_ok_) {
       res->success = false;
-      res->message = "串口未就绪，命令已记录但未发出（port=" + port_ + "）";
+      res->message = "串口未就绪，命令已拒绝（port=" + port_ + "）";
       publishStatus(actionName(req->action), false, res->message);
       return;
     }
 
+    serial_->put_packet(cmd_, speed_, angle_);
     const bool sent = serial_->send_command();
+    // Toggle commands are edges; repeating them toggles the mechanism again.
+    active_ = sent && req->action != kActionPawlToggle && req->action != kActionSlidewayToggle;
+    if (!sent) {
+      port_ok_ = false;
+      serial_.reset();
+      publishOk();
+    }
     res->success = sent;
     res->message = sent ? "已发送 " + std::string(actionName(req->action)) : "发送失败";
     publishStatus(actionName(req->action), sent, res->message);
@@ -191,10 +199,12 @@ private:
     std::lock_guard<std::mutex> lock(mtx_);
     if (!active_ || !port_ok_ || !serial_) return;
 
+    serial_->put_packet(cmd_, speed_, angle_);
     if (serial_->send_command()) return;
 
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "机构串口写入失败，标记为未就绪");
     port_ok_ = false;
+    active_ = false;  // Never replay a failed action on reconnect.
     serial_.reset();
     publishOk();
   }

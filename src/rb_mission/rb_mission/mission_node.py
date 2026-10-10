@@ -17,7 +17,7 @@
 
 设计取舍
 --------
-* 面向 2 个回合 × 2 次动作的流程，用"阶段机 + 重试计数"而不是大而全的行为树。
+* 2026 用球表列出 3 个回合；一次任务处理其中一个回合的最多 2 次动作。
 * 所有时间/速度/容差都在 mission.yaml 里，方便现场调。
 * 持球状态优先取 /mission/has_ball 输入；没有传感器时退化为"按时间假定已吸取"。
 """
@@ -44,6 +44,8 @@ from rb_msgs.srv import GotoPose, Launch, SetMission
 from .geometry import (clamp, face_bearing_command, goto_command,
                        point_in_polygon, wrap_pi, yaw_from_stamped_pose)
 from .navigation import ArrivalConfig, ArrivalGate, PoseFeedback, fresh
+from .match_rules import validate_match_config
+from .shot_planner import shot_solution
 
 # 阶段常量
 P_IDLE = "IDLE"
@@ -61,16 +63,18 @@ P_GOTO = "GOTO"
 
 LAUNCH_SHOOT = 0
 LAUNCH_FAST_SHOOT = 1
+LAUNCH_STOP = 7
 
 
 class MissionNode(Node):
-    def __init__(self) -> None:
-        super().__init__("rb_mission")
+    def __init__(self, *, context=None) -> None:
+        super().__init__("rb_mission", context=context)
 
         default_cfg = os.path.join(get_package_share_directory("rb_mission"), "config", "mission.yaml")
         self.config_file = self.declare_parameter("config_file", default_cfg).value
         self.cfg: dict[str, Any] = {}
         self.load_config()
+        validate_match_config(self.cfg)
 
         lim = self.cfg.get("limits", {}) or {}
         nav = self.cfg.get("navigation", {}) or {}
@@ -136,6 +140,9 @@ class MissionNode(Node):
         self.goto_goal: tuple[float, float, float, bool] | None = None
         self.detail = ""
         self.launch_called = False
+        self.launch_future = None
+        self.launch_stop_future = None
+        self.launch_ack_time = None
         self.last_ball_dist = float("inf")
         self.last_ball_time = None
 
@@ -295,10 +302,20 @@ class MissionNode(Node):
 
     def on_detections(self, msg: DetectionArray) -> None:
         self.detections = list(msg.detections)
+        self.detections_stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
     def on_set_mission(self, req: SetMission.Request, res: SetMission.Response) -> SetMission.Response:
         name = (req.mission or "").strip().upper()
         if name in ("PASS", "SHOOT"):
+            if self.estop or self.phase == P_ESTOP:
+                res.accepted, res.message = False, "急停中，拒绝启动任务；解除急停后先切换 IDLE"
+                return res
+            if self.phase not in (P_IDLE, P_DONE):
+                res.accepted, res.message = False, "已有任务/导航或故障状态，请先切换 IDLE"
+                return res
+            if not self._localization_ready():
+                res.accepted, res.message = False, "定位无效或过期，拒绝启动任务"
+                return res
             self.start_mission(name)
             res.accepted, res.message = True, f"已启动 {name} 任务"
         elif name in ("IDLE", "CANCEL", "STOP"):
@@ -353,6 +370,9 @@ class MissionNode(Node):
 
     # -- 状态机 ------------------------------------------------------------
     def set_phase(self, phase: str, detail: str = "") -> None:
+        if self.phase == P_LAUNCH and phase != P_LAUNCH and self.launch_called:
+            # STOP 停止上位机重复帧；不能替代下位机/硬件断动力急停。
+            self._stop_launcher()
         if phase != self.phase:
             self.get_logger().info(f"[{self.mission}] {self.phase} -> {phase}  {detail}")
         self.arrival.reset()
@@ -361,6 +381,9 @@ class MissionNode(Node):
         self.detail = detail
         if phase == P_LAUNCH:
             self.launch_called = False
+            self.launch_future = None
+            self.launch_stop_future = None
+            self.launch_ack_time = None
         self.last_ball_dist = float("inf")
         self.last_ball_time = None
 
@@ -373,6 +396,8 @@ class MissionNode(Node):
             self.publish_zero()
             self.set_phase(P_IDLE, "待命")
         else:
+            # Bool 不含球种；切换环节后不能把上一环节持球当成本环节目标球。
+            # 预装球须在当前任务建立后由感知/持球输入重新确认，不能按用球表猜测。
             self.has_ball = False
             self.ball_count = 0
             self.publish_zero()
@@ -396,9 +421,23 @@ class MissionNode(Node):
             self.publish_outputs()
             return
 
+        if self.ball_count > self.max_ball_count:
+            self.set_phase(P_FAULT, "持球计数超过配置上限（规则最多2颗），已停车")
+            self.publish_zero()
+            self.publish_outputs()
+            return
+
         if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
             self.arrival.reset()
             self.publish_zero()
+            if self.phase == P_LAUNCH:
+                self.set_phase(P_FAULT, "发射期间定位失效，已请求停止重复帧，动作未计数")
+                self.publish_outputs()
+                return
+            if self.phase == P_START_DELAY and self.elapsed() >= self.start_delay_s:
+                self.set_phase(P_FAULT, "启动延迟结束时定位失效，拒绝稍后自动启动")
+                self.publish_outputs()
+                return
             self.detail = "定位无效或过期，已停车；目标保留等待恢复"
             # 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
             if self.elapsed() > self.nav_timeout_s:
@@ -428,7 +467,11 @@ class MissionNode(Node):
         self.publish_outputs()
 
     def retry_or_fault(self) -> None:
-        if self.phase == P_GOTO:
+        if self.phase == P_LAUNCH:
+            # 未确认发射结果不能作为普通找球重试，否则可能重复发射。
+            self.publish_zero()
+            self.set_phase(P_FAULT, "发射确认超时，已请求停止重复帧；需检查机构")
+        elif self.phase == P_GOTO:
             self.goto_goal = None
             self.publish_zero()
             self.set_phase(P_IDLE, "GOTO 超时，已取消")
@@ -444,11 +487,17 @@ class MissionNode(Node):
         self.publish_zero()
 
     def _phase_start_delay(self) -> None:
-        # §2.3-7：延迟期间不得有任何动作 → 不发速度（但不发速度会让底盘超时归零，正好）
+        # §2.3-7：延迟期间不得动作，持续显式下发零速。
+        self.publish_zero()
         if self.elapsed() >= self.start_delay_s:
-            self.set_phase(P_SEEK_BALL, "延迟结束，开始找球")
+            phase = P_NAV_ZONE if self.has_ball else P_SEEK_BALL
+            self.set_phase(phase, "延迟结束，使用已确认目标球" if self.has_ball else "延迟结束，开始找球")
 
     def _phase_seek_ball(self) -> None:
+        if self.has_ball:
+            self.publish_zero()
+            self.set_phase(P_NAV_ZONE, "已收到目标球持球信号，前往动作区")
+            return
         if not self.has_pose:
             self.publish_zero()
             self.detail = "等待定位…"
@@ -512,23 +561,86 @@ class MissionNode(Node):
             self.publish_cmd(0.0, 0.0, self.max_ang * 0.4)
             self.detail = f"寻找 {aim_label}"
             return
-        wz, err = face_bearing_command(0.0, det.bearing_rad, self.kp_yaw, self.max_ang)
+        aim_bearing = det.bearing_rad
+        automatic = (self.cfg.get("launcher", {}) or {}).get("automatic", {}) or {}
+        if self.mission == "SHOOT" and automatic.get("enabled", False):
+            # Aim the launcher axis, rather than an offset camera's optical axis.
+            try:
+                if not automatic.get("map_confirmed", False):
+                    raise ValueError("篮筐地图坐标尚未确认")
+                x, y, yaw = self.last_pose
+                hoop = self.field["hoop"]
+                dx, dy = float(hoop["x"]) - x, float(hoop["y"]) - y
+                bx = math.cos(yaw) * dx + math.sin(yaw) * dy - float(automatic.get("launch_x_m", 0))
+                by = -math.sin(yaw) * dx + math.cos(yaw) * dy - float(automatic.get("launch_y_m", 0))
+                aim_bearing = -math.atan2(by, bx)  # Convert ROS left-positive to camera sign.
+                if not all(math.isfinite(v) for v in (bx, by, aim_bearing)):
+                    raise ValueError("篮筐或出球点坐标无效")
+            except (ValueError, KeyError, TypeError) as exc:
+                self.publish_zero()
+                self.set_phase(P_FAULT, f"自动投篮对准失败：{exc}")
+                return
+        wz, err = face_bearing_command(0.0, aim_bearing, self.kp_yaw, self.max_ang)
         self.publish_cmd(0.0, 0.0, wz)
         self.detail = f"对准 {aim_label} 误差 {math.degrees(err):+.1f}°"
         if abs(err) < self.yaw_tol:
             self.set_phase(P_LAUNCH, "对准完成，执行动作")
 
     def _phase_launch(self) -> None:
+        self.publish_zero()
+        if self.actions_done >= self.actions_per_mission:
+            self.set_phase(P_RETURN, "动作上限已达到，不再发射")
+            return
         if not self._zone_ok():
+            if self.launch_called:
+                self.set_phase(P_FAULT, "发射期间位置不合规，已请求停止重复帧，动作未计数")
+                return
             self.get_logger().warn("当前不在合规位置，退回动作区（否则本次动作只算低分）")
             self.set_phase(P_NAV_ZONE, "位置不合规")
             return
 
         if not self.launch_called:      # 每次进入 LAUNCH 只发一次，避免连发
             self.launch_called = True
-            self._call_launcher()
+            self.launch_future = self._call_launcher()
+            if self.launch_future is None:
+                self.set_phase(P_FAULT, f"发射未执行，动作未计数；{self.detail}")
+            return
 
-        if self.elapsed() >= self.launch_hold_s:
+        if self.launch_ack_time is None:
+            if not self.launch_future.done():
+                self.detail = "等待发射服务确认，尚未计数"
+                return
+            try:
+                response = self.launch_future.result()
+            except Exception as exc:  # noqa: BLE001
+                self.set_phase(P_FAULT, f"发射服务异常，动作未计数：{exc}")
+                return
+            if response is None or not response.success:
+                self.set_phase(P_FAULT, "发射服务拒绝/无结果，动作未计数")
+                return
+            self.launch_ack_time = self._now_seconds()
+
+        if self._now_seconds() - self.launch_ack_time < self.launch_hold_s:
+            self.detail = f"执行服务已确认的动作（第 {self.actions_done + 1}/{self.actions_per_mission} 次）"
+            return
+        if self.launch_stop_future is None:
+            self.launch_stop_future = self._stop_launcher()
+            if self.launch_stop_future is None:
+                self.set_phase(P_FAULT, "停止重复发射帧失败，动作未计数")
+            return
+        if not self.launch_stop_future.done():
+            self.detail = "等待停止重复发射帧确认，尚未计数"
+            return
+        try:
+            stopped = self.launch_stop_future.result()
+        except Exception as exc:  # noqa: BLE001
+            self.set_phase(P_FAULT, f"停止重复帧异常，动作未计数：{exc}")
+            return
+        if stopped is None or not stopped.success:
+            self.set_phase(P_FAULT, "停止重复帧被拒绝，动作未计数")
+            return
+        # 仅计数成功的服务动作周期，不能据此推断出球或命中得分。
+        if self.actions_done < self.actions_per_mission:
             self.actions_done += 1
             self.has_ball = False
             self.ball_count = 0
@@ -537,7 +649,6 @@ class MissionNode(Node):
             else:
                 self.set_phase(P_SEEK_BALL, f"第 {self.actions_done + 1} 次：继续找球")
             return
-        self.detail = f"执行动作中（第 {self.actions_done + 1}/{self.actions_per_mission} 次）"
 
     def _phase_return_home(self) -> None:
         home = self.field.get("home", {}) or {}
@@ -658,20 +769,69 @@ class MissionNode(Node):
         x, y, _ = self.last_pose
         return math.hypot(x - cx, y - cy) >= float(self.field.get("three_point_radius_m", 3.75))
 
-    def _call_launcher(self) -> None:
+    def _call_launcher(self):
         action = LAUNCH_SHOOT if self.mission == "SHOOT" else LAUNCH_SHOOT
         if self.mission == "SHOOT" and self.cfg.get("launcher", {}).get("use_fast_shoot"):
             action = LAUNCH_FAST_SHOOT
 
         if not self.launch_client.service_is_ready():
             self.get_logger().warn("发射服务未就绪，本次动作跳过（请检查 rb_launcher）")
-            return
+            return None
+        settings = self.cfg.get("launcher", {}) or {}
+        automatic = settings.get("automatic", {}) or {}
+        speed = int(settings.get("speed", 2800))
+        angle = int(settings.get("angle", 64))
+        if self.mission == "SHOOT" and automatic.get("enabled", False):
+            try:
+                if not self._localization_ready():
+                    raise ValueError("定位无效或过期")
+                det = self._best_detection(self.target_label("aim"))
+                timeout = float(automatic.get("detection_timeout_s", 0.5))
+                now = self._now_seconds()
+                stamp = getattr(self, "detections_stamp", None)
+                if det is None or stamp is None or not math.isfinite(timeout) or timeout <= 0 or not 0 <= now - stamp <= timeout:
+                    raise ValueError("篮筐视觉观测缺失或过期")
+                detection_stamp = det.stamp.sec + det.stamp.nanosec * 1e-9
+                if not 0 <= now - detection_stamp <= timeout:
+                    raise ValueError("篮筐检测源时间戳过期")
+                confidence = float(det.confidence)
+                if not math.isfinite(confidence) or confidence < float(automatic.get("min_confidence", 0.5)):
+                    raise ValueError("篮筐视觉置信度不足")
+                if not math.isfinite(det.bearing_rad):
+                    raise ValueError("篮筐尚未对准")
+                solution = shot_solution(dict(automatic, aim_tolerance_rad=self.yaw_tol), self.last_pose, self.field["hoop"],
+                                         det.bearing_rad, det.distance_m)
+                speed, angle = solution.speed, solution.angle
+                self.get_logger().info(f"自动投篮: {solution.source} distance={solution.distance_m:.3f}m speed={speed} angle={angle}")
+            except (ValueError, KeyError, TypeError, OverflowError) as exc:
+                self.detail = f"自动投篮拒绝：{exc}"
+                self.get_logger().error(self.detail)
+                return None
         req = Launch.Request()
         req.action = int(action)
-        req.speed = int((self.cfg.get("launcher", {}) or {}).get("speed", 2800))
-        req.angle = int((self.cfg.get("launcher", {}) or {}).get("angle", 64))
-        self.launch_client.call_async(req)
+        req.speed = speed
+        req.angle = angle
+        try:
+            future = self.launch_client.call_async(req)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"发射请求失败：{exc}")
+            return None
         self.get_logger().info(f"已调用发射: action={action} speed={req.speed} angle={req.angle}")
+        return future
+
+    def _stop_launcher(self):
+        """停止重复发送；STOP 不等同于硬件急停或真实出球确认。"""
+        if not self.launch_client.service_is_ready():
+            return None
+        req = Launch.Request()
+        req.action = LAUNCH_STOP
+        req.speed = 0
+        req.angle = 0
+        try:
+            return self.launch_client.call_async(req)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"停止重复帧请求失败：{exc}")
+            return None
 
     def _obstacle_labels(self) -> set[str]:
         """当前应该回避的类别集合。
@@ -781,13 +941,11 @@ class MissionNode(Node):
         self.state_pub.publish(state)
 
     def _score_estimate(self) -> int:
-        """粗略估分，用于现场判断策略是否值得（非官方的精确计分）。"""
-        if self.mission == "SHOOT":
-            per = 30 if self.is_three_point() else 10
-            return per * self.actions_done
-        if self.mission == "PASS":
-            return 10 * self.actions_done
-        return 0
+        """-1 表示未知：发射确认不证明出球/命中/回位得分。
+
+        真实观测后的计分可用 match_rules.score_round；不自动假定命中。
+        """
+        return -1
 
 
 def main(argv: list[str] | None = None) -> None:

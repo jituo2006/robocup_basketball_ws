@@ -5,8 +5,9 @@
         ↑                                                    │
         └────────── fake_detections（按位姿算检测）←──────────┘
 
-用它可以完整走完 SEEK → ACQUIRE → NAV → ALIGN → LAUNCH → RETURN → DONE，
-而不用等相机和球。视觉本身用 tools/make_test_image.py 单独验证。
+它可以推进 SEEK → ACQUIRE → NAV → ALIGN → LAUNCH，不用等相机和球。
+这里没有模拟机构服务；缺少发射回复时会进入 FAULT，不能虚假计数或声称回位。
+发射/STOP 回复单独由 test_mission_launch_service.py 验证；视觉用合成图单独验证。
 """
 from pathlib import Path
 

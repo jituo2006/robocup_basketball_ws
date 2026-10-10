@@ -1,0 +1,57 @@
+# Rules data only: not a ROS parameter file and not a motion configuration.
+# Verified against the supplied 14-page September 2026 revision.
+source:
+  title: 2026国赛-篮球机器人-自主机器人-赛事规则(修订版)
+  revised_date: 2026-09-05
+  ball_table_pdf_page: 9
+  scoring_pdf_page: 10
+  competition_pdf_page: 12
+
+court: {length_m: 14.0, width_m: 7.5, geometry_confirmed: false}
+robot_limits:
+  initial: {height_m: 0.90, length_m: 0.65, width_m: 0.65}
+  expanded: {height_m: 1.20, length_m: 1.00, width_m: 1.00}
+  pickup_forward_extension_m: 0.30
+  mass_kg: 40.0
+start_delay_s: {min: 5.0, max: 15.0}
+actions_per_round: 2
+max_carried_balls: 2
+rounds:
+  # Values are [target balls, interference balls]; '-' cells are omitted.
+  # Do not infer initial held target count from the ambiguous first-round cell.
+  1:
+    robot_cell_verbatim: '2（各1）/0'
+    preload_interpretation: needs_referee_confirmation
+    PASS: {center_line: [2, 1]}
+    SHOOT: {center_line: [2, 1]}
+  2:
+    PASS: {center_line: [2, 0], half_court: [0, 4], three_point: [3, 2]}
+    SHOOT: {center_line: [2, 0], half_court: [0, 4], three_point: [3, 2]}
+  3:
+    PASS: {half_court: [0, 4], three_point: [2, 2], inside_three_point: [3, 1]}
+    SHOOT: {half_court: [0, 4], three_point: [4, 2], inside_three_point: [3, 0]}
+roles:
+  PASS: {target: basketball, interference: volleyball}
+  SHOOT: {target: volleyball, interference: basketball}
+scoring:
+  PASS:
+    entry: 5
+    release: {inside_pass_zone: 10, outside_pass_zone: 5}
+    hit: {target_1: 10, target_2: 30, target_3: 50, miss: 0}
+    return: 5
+    time: {seconds_per_point: 5, max: 10, requires_return: true}
+  SHOOT:
+    entry: 5
+    release: {outside_shoot_line: 10, inside_shoot_line: 5}
+    hit: {basket_inside_three_point: 10, basket_outside_three_point: 30, rim_or_board: 5, miss: 0}
+    return: 15
+    time: {seconds_per_point: 2, max: 10, requires_return: true}
+  interference_contact_penalty: 2
+  league_weights: {PASS: 0.30, SHOOT: 0.70}
+  final_weights: {competition: 0.90, qualification: 0.10}
+timing:
+  event_duration_approx_s: 600
+  includes_preparation_and_exit: true
+  per_round_execution_budget_s: null  # not unambiguously specified in this PDF
+  replay_resets_clock: false
+  replay_resets_balls: true

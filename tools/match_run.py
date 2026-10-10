@@ -7,6 +7,7 @@
     python3 tools/match_run.py --mission PASS  # 传球
     python3 tools/match_run.py --yes           # 跳过确认（脚本化用）
     python3 tools/match_run.py --dry           # 只做检查，不起任务
+    python3 tools/match_run.py --practice      # 调试模式，不声明通过参赛验收
 
 它做四件事：
     ① 确认整套软件在跑（否则提示先 bash tools/boot.sh）
@@ -26,6 +27,11 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+_SOURCE_WS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_SOURCE_WS / "src" / "rb_mission"))
+from rb_mission.match_rules import competition_gaps, validate_match_config  # noqa: E402
 
 WS = "/home/user/robocup_basketball_ws"
 NODES = {  # 显示名: pgrep 模式（用 [] 防自匹配）
@@ -82,11 +88,29 @@ def main(argv: list[str] | None = None) -> int:
                     help="任务类型（默认 SHOOT）")
     ap.add_argument("--yes", action="store_true", help="跳过确认")
     ap.add_argument("--dry", action="store_true", help="只检查，不起任务")
+    ap.add_argument("--practice", action="store_true", help="调试模式；允许未完成参赛验收的工程调试")
     ap.add_argument("--timeout", type=float, default=420.0, help="监控最长时间(s)")
     args = ap.parse_args(argv)
 
     os.chdir(WS)
     mission = args.mission.upper()
+
+    import yaml
+    with open("src/rb_mission/config/mission.yaml", encoding="utf-8") as fh:
+        mission_cfg = yaml.safe_load(fh)
+    try:
+        validate_match_config(mission_cfg)
+    except (ValueError, TypeError, AttributeError) as exc:
+        print(f"任务规则配置错误：{exc}")
+        return 1
+    gaps = competition_gaps(mission_cfg)
+    if gaps:
+        for gap in gaps:
+            print(f"待完成：{gap}")
+        if not args.practice:
+            print("参赛验收未完成；当前只能用 --practice 做工程调试。")
+            return 1
+        print("--practice：本次仅做工程调试。")
 
     print("🏀 一局一键" + (f"  ——  任务 {mission}：{MISSIONS[mission]}"))
 
@@ -184,8 +208,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"      {C_OK}✓{C_OFF} 已接受：{getattr(res, 'message', '')}")
 
-    print(f"\n  自动流程：启动延迟 {C_DIM}8s{C_OFF} → 找球 → 吸取 → 去动作区 → 对准 → 发射"
-          f"  （{C_DIM}循环 2 次动作{C_OFF}） → 回位")
+    delay = mission_cfg["timeouts"]["start_delay_s"]
+    actions = mission_cfg["rules"]["actions_per_mission"]
+    print(f"\n  自动流程：启动延迟 {C_DIM}{delay:g}s{C_OFF} → 找球/已确认目标球 → 动作区 → 对准 → 发射"
+          f"  （{C_DIM}最多 {actions} 次服务动作周期，出球/命中仍需验证{C_OFF}） → 回位")
     print(f"  {C_DIM}下面实时打印阶段；Ctrl-C 只退出监听，任务仍在车上跑{C_OFF}\n")
 
     status_box: list = []

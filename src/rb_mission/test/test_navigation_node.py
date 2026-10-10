@@ -46,6 +46,7 @@ def node():
     n.publish_outputs = lambda: None
     n.last_pose = (0,0,0)
     n.has_pose, n.loc_ok, n.estop = True, True, False
+    n.ball_count, n.max_ball_count = 0, 2
     n.last_loc_ok_time = n.now
     n.feedback.stamp = n.now
     n.feedback.linear_speed = n.feedback.angular_speed = 0.0

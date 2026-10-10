@@ -3,6 +3,7 @@
 #        parameters=[{"config_file": "<此文件路径>"}]
 #    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
 # RoboCup 篮球机器人 · 任务与场地配置
+# 2026 修订版规则与三个回合用球表见 rules_2026_revised.yaml。
 #
 # ⚠️⚠️ 场地几何量（篮筐位置、传球区、边界线半径）必须按**当届场地示意图**填写！
 #      规则文本只说"详见场地示意图"，没有给出坐标。这里给的是占位值，
@@ -31,9 +32,8 @@ field:
   #      · 第 253-256 行：三分线 = 以右侧底线中点向场内 3 米点为圆心、半径
   #        3.75 米圆弧；传球边界线 = 长 5 米直线；三分线内置球区 = 平行
   #        右侧底线 5 米处
-  #    2026 相对 2025 的改动（规则第 31-36、51 行：自带用球、取消三分线外取球
-  #    限制、决赛篮筐可动）**均未提及改动场地标线**，故沿用。
-  #    👉 拿到 2026 场地示意图后逐项复核。
+  #    未提及改动不能证明场地标线不变：下列旧值仅供调试，不能视为今年已确认。
+  #    修订版 PDF 只有 14 页，未附场地示意图；拿到现场图后逐项复核。
 
   # 迷你篮筐【推导】初赛与标准篮筐投影同心；标准篮球场篮筐中心距底线 1.575m
   # （FIBA）→ x = 14 − 1.575 = 12.425。原占位值 13.5 相当于距底线 0.5m（在篮板
@@ -118,13 +118,13 @@ timeouts:
   #   到动作区最远约 10m，0.4m/s 就要 25s —— 用 25s 超时必然误触发（实测踩到过）。
   #   场地 14m 对角约 16m，0.4m/s ≈ 40s，留一倍余量到 90s。
   nav_timeout_s: 90.0
-  mission_timeout_s: 300.0  # 一次任务总超时（规则每环节约 10 分钟）
+  mission_timeout_s: 300.0  # 工程保护值，不是规则给出的单回合时限；约10分钟含准备/退场
   acquire_seconds: 2.5      # 没有持球传感器时，按时间假定吸取完成
   launch_hold_s: 1.5        # 一次动作持续多久
 
 rules:
-  actions_per_mission: 2    # §2.5 每环节累计 2 次动作
-  max_ball_count: 2         # §2.5 违规：单次持球超过两颗
+  actions_per_mission: 2    # §2.5 一次任务/回合累计最多2次；用球表列3个回合
+  max_ball_count: 2         # 软件上限；当前 Bool 无法确认真实持球数，仍需计数传感器
   require_zone_compliance: true   # 位置不合规就不动作（否则只拿低分）
 
 # 各环节的"目标球 / 干扰球 / 瞄准物"角色。
@@ -145,6 +145,25 @@ launcher:
   speed: 2800               # 沿用上一届 shoot_data.csv 的常见转速
   angle: 64
   use_fast_shoot: false
+  # 仅 SHOOT 自动计算；PASS 保留独立的固定指令，不能复用排球投篮标定。
+  automatic:
+    enabled: true
+    map_confirmed: false       # 现场测量 hoop 坐标后确认；当前仍是占位坐标
+    detection_timeout_s: 0.5   # 源时间戳与消息时间戳都必须新鲜
+    min_confidence: 0.5
+    bearing_tolerance_rad: 0.15
+    range_tolerance_m: 0.5     # 相机估计目标与地图目标的最大水平位置差
+    vision_weight: 0.3
+    require_camera_range: false # 无测距时用地图距离，但仍要求视觉方位一致
+    camera_x_m: 0.0           # 相机光心在底盘坐标系中的位置，需实测
+    camera_y_m: 0.0
+    camera_yaw_rad: 0.0
+    launch_x_m: 0.0           # 出球点在底盘坐标系中的位置，需实测
+    launch_y_m: 0.0
+    # 以本届 SHOOT 使用的排球实测：distance_m 为出球点至篮筐水平距离。
+    # speed/angle 是旧下位机协议的指令单位，angle 不假定等于物理角度。
+    # 按距离递增填写至少两行；只插值，不外推；禁止把示例数据当作实测值。
+    table: []
 
 topics:
   cmd_vel: "/cmd_vel"
