@@ -178,6 +178,42 @@
       <button onclick="gotoNamed('home')">🏠 回出发点</button>
     </div>
 
+    <div class="card" id="cardLidarBall">
+      <h2>雷达找球（粗）+ 相机精定位（细）</h2>
+      <div class="row" style="margin-bottom:6px">
+        <label style="flex:0 0 auto">
+          <input type="checkbox" id="lbEnabled" onchange="lbSet()" style="width:auto;margin-right:6px">
+          启用（关 = 完全保持原模式，只用相机）
+        </label>
+      </div>
+      <div class="row3" style="margin-bottom:6px">
+        <button id="lbCam"  onclick="lbMode('camera')" style="margin:0">📷 只用相机</button>
+        <button id="lbLid"  onclick="lbMode('lidar')"  style="margin:0">📡 只用雷达</button>
+        <button id="lbFuse" onclick="lbMode('fuse')"   style="margin:0">🔀 融合（推荐）</button>
+      </div>
+      <div class="grid2">
+        <label>雷达高度 z_min<input type="number" id="lbzmin" step="0.05" onchange="lbSet()"></label>
+        <label>z_max<input type="number" id="lbzmax" step="0.05" onchange="lbSet()"></label>
+        <label>球半径 m<input type="number" id="lbr" step="0.01" onchange="lbSet()"></label>
+        <label>半径容差 m<input type="number" id="lbtol" step="0.01" onchange="lbSet()"></label>
+        <label>聚类间距 m<input type="number" id="lbcl" step="0.01" onchange="lbSet()"></label>
+        <label>最少点数<input type="number" id="lbmin" step="1" onchange="lbSet()"></label>
+        <label>最远距离 m<input type="number" id="lbmax" step="0.5" onchange="lbSet()"></label>
+        <label>配对阈值 m<input type="number" id="lbmatch" step="0.1" onchange="lbSet()"></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button onclick="act('LIDAR_BALL_RESET')">↺ 从 config 重读默认</button>
+      </div>
+      <div class="flowbox" id="lbStats" style="display:block">—</div>
+      <div class="hint">
+        <b>为什么值得做</b>：雷达不受光照影响、FOV 360°（相机才约 60°，球在侧后方就瞎了）、
+        直接测距（相机是单目测距，靠球径先验，误差大）。<br>
+        <b>融合</b> = 相机为主（类别准、横向精度高）+ 雷达补相机看不到的球。<br>
+        <b>调参顺序</b>：先看 z_min/z_max 能不能框住地面 → 再调球半径 → 最后调配对阈值。
+        参数只作用于控制台这份，不写回 yaml；调好再手动填进 perception.yaml。
+      </div>
+    </div>
+
     <div class="card">
       <h2>调试测试（整车脚本）</h2>
       <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
@@ -444,6 +480,63 @@ function renderChassis(s){
   }
 }
 
+const LB_KEYS = {z_min:'lbzmin', z_max:'lbzmax', ball_radius_m:'lbr',
+                 radius_tolerance_m:'lbtol', cluster_tolerance_m:'lbcl',
+                 min_points:'lbmin', max_range_m:'lbmax', match_distance_m:'lbmatch'};
+
+function lbFill(cfg){
+  if(!cfg) return;
+  for(const [k, id] of Object.entries(LB_KEYS)){
+    const el = $(id);
+    if(el && document.activeElement !== el) el.value = (cfg[k] ?? '');
+  }
+}
+function lbCollect(){
+  const body = {name:'LIDAR_BALL', enabled: !!($('lbEnabled') && $('lbEnabled').checked)};
+  for(const [k, id] of Object.entries(LB_KEYS)){
+    const v = parseFloat($(id) && $(id).value);
+    if(isFinite(v)) body[k] = v;
+  }
+  return body;
+}
+function lbSet(){
+  fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify(lbCollect())}).catch(()=>{});
+}
+function lbMode(m){
+  fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({name:'LIDAR_BALL', enabled:true, mode:m})}).catch(()=>{});
+  const e = $('lbEnabled'); if(e) e.checked = true;
+}
+function renderLidarBall(s){
+  const en = $('lbEnabled');
+  if(en && document.activeElement !== en) en.checked = !!s.lb_enabled;
+  lbFill(s.lb_cfg);
+  const m = s.lb_mode || 'fuse';
+  const on = (el, yes) => { if(el) el.style.borderColor = yes ? 'var(--blue)' : 'var(--line)'; };
+  on($('lbCam'), m === 'camera'); on($('lbLid'), m === 'lidar'); on($('lbFuse'), m === 'fuse');
+  const box = $('lbStats');
+  if(box){
+    const st = s.lb_stats || {};
+    const n = (s.lb_cands || []).length;
+    if(!s.lb_enabled){
+      box.innerHTML = '<span style="color:var(--dim)">已关闭 —— 感知仍只用相机检测（原模式）</span>';
+    } else {
+      box.innerHTML = `<span style="color:var(--blue)">雷达候选 ${n} 个</span>` +
+        `　<span style="color:var(--dim)">耗时 ${s.lb_ms ?? 0} ms</span><br>` +
+        `<span style="color:var(--dim)">相机球 ${st.camera_balls ?? '-'} · 配对 ${st.matched ?? '-'}` +
+        ` · 雷达独有 ${st.lidar_only ?? '-'} · 相机独有 ${st.camera_only ?? '-'}</span>`;
+    }
+  }
+  const pl = $('pills');
+  if(pl){
+    const old = pl.querySelector('[data-k="lb"]');
+    const html = `<span class="pill ${s.lb_enabled?'ok':'dim'}" data-k="lb">` +
+                 `雷达找球 ${s.lb_enabled ? (m === 'camera' ? '开(仅相机)' : m) : '关'}</span>`;
+    if(!old) pl.insertAdjacentHTML('beforeend', html);
+    else old.outerHTML = html;
+  }
+}
 function flowRun(){
   if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
   act('STARTUP_FLOW');
@@ -559,6 +652,7 @@ function renderProgress(s){
 
 function render(s){
   window._st = s;
+  renderLidarBall(s);
   renderChassis(s);
   renderChecks(s);
   renderProgress(s);

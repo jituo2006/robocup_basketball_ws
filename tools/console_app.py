@@ -43,6 +43,13 @@ from pathlib import Path
 
 import numpy as np
 
+try:                                  # 雷达找球（纯 numpy，导入很轻）
+    from rb_perception.lidar_ball import (body_frame_cloud, find_ball_candidates,
+                                          candidate_to_repr)
+    _LIDAR_BALL_OK = True
+except Exception:                     # noqa: BLE001
+    _LIDAR_BALL_OK = False
+
 WS = Path("/home/user/robocup_basketball_ws")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +257,7 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
 
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                  view: str = "field", mirror_x: bool = False,
-                 mirror_y: bool = False, odom_tf=None) -> bytes:
+                 mirror_y: bool = False, odom_tf=None, lb_cands=None) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
@@ -295,6 +302,18 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                                      mirror_x=_mir, mirror_y=_miry,
                                      field_l=_fl, field_w=_fw)
             return int(px), int(py)
+
+    # ── 雷达找球候选（与相机检测区分开：青色虚线圈 + 「雷达」标注）──
+    for cd in (lb_cands or []):
+        f = cd.get("field")
+        if not f:
+            continue
+        qx, qy = to_px(float(f[0]), float(f[1]))
+        r_px = max(6, int(0.12 * scale))
+        cv2.circle(img, (qx, qy), r_px, (255, 220, 60), 2, cv2.LINE_AA)
+        cv2.circle(img, (qx, qy), r_px + 4, (120, 110, 40), 1, cv2.LINE_AA)
+        texts.append((f"雷达球 {cd.get('slant_m', 0):.1f}m", (qx + r_px + 3, qy - 4),
+                      (255, 220, 60), 12))
 
     # 场地边界（浅灰矩形）+ 中线
     pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
@@ -549,7 +568,11 @@ class Bridge:
             "in_pass_zone": False, "in_shoot_out": False, "estop": False,
             "launcher_ok": False, "perception_ok": False,
             "launcher_status": "", "odom_delay": None, "odom_x": None,
-            "dets": [], "dets_stamp": 0.0, "cloud": None, "cam": None, "cam_stamp": 0.0,
+            "dets": [], "dets_stamp": 0.0,
+            # 雷达找球（界面可调；默认关，保持与改动前一致）
+            "odom": None,
+            "lb_enabled": False, "lb_mode": "fuse", "lb_cands": [],
+            "lb_stats": {}, "lb_ms": 0.0, "lb_cfg": {}, "cloud": None, "cam": None, "cam_stamp": 0.0,
             "cam_fps": 0.0, "cloud_fps": 0.0,
         }
         self._cam_times: deque = deque(maxlen=30)
@@ -680,9 +703,16 @@ class Bridge:
     def _on_odom(self, m):
         now = self.node.get_clock().now().nanoseconds * 1e-9
         st = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
+        pp = m.pose.pose
+        q = pp.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         with self.lock:
             self.state["odom_delay"] = now - st
-            self.state["odom_x"] = float(m.pose.pose.position.x)
+            self.state["odom_x"] = float(pp.position.x)
+            # ⚠️ 雷达找球要把 camera_init 系的点云按【里程计】转到车体系，
+            #    所以必须存完整的 (x, y, yaw)，不能只存 x。
+            self.state["odom"] = (float(pp.position.x), float(pp.position.y), float(yaw))
 
     def _on_lok(self, m):
         with self.lock:
@@ -801,6 +831,43 @@ class Bridge:
         threading.Thread(target=run, daemon=True).start()
         return True, f"点动 {seconds}s"
 
+    def load_lidar_ball_cfg(self) -> None:
+        """从 perception.yaml 读 lidar_ball 默认参数（读不到就用模块默认值）。"""
+        try:
+            import yaml as _y
+            f = (WS / "src/rb_perception/config/perception.yaml")
+            cfg = ((_y.safe_load(f.read_text(encoding="utf-8")) or {})
+                   .get("perception") or {}).get("lidar_ball") or {}
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        from rb_perception.lidar_ball import DEFAULT_CFG
+        d = dict(DEFAULT_CFG)
+        d.update({k: v for k, v in cfg.items() if v is not None})
+        with self.lock:
+            self.state["lb_cfg"] = d
+            self.state["lb_enabled"] = bool(d.get("enabled", False))
+            self.state["lb_mode"] = str(d.get("mode", "fuse"))
+
+    def lidar_ball_candidates(self):
+        """用车体系点云找地面球候选（界面调的参数优先）。返回 (cands, 耗时ms)。"""
+        if not _LIDAR_BALL_OK:
+            return [], 0.0
+        with self.lock:
+            cfg = dict(self.state["lb_cfg"])
+            enabled = bool(self.state["lb_enabled"])
+            cloud = None if self.state["cloud"] is None else self.state["cloud"]
+            odom = self.state["odom"]
+        if not enabled or cloud is None or odom is None:
+            return [], 0.0
+        t0 = time.time()
+        try:
+            body = body_frame_cloud(cloud, odom)
+            cands = find_ball_candidates(body, cfg)
+        except Exception as e:  # noqa: BLE001
+            self.node.get_logger().warn(f"雷达找球失败: {e}")
+            return [], 0.0
+        return cands, (time.time() - t0) * 1000.0
+
     def odom_to_field_tf(self):
         """返回 (tx, ty, theta)：camera_init 原点在 field 下的位置与相对朝向。
 
@@ -819,6 +886,60 @@ class Bridge:
                     float(tr.transform.translation.y), float(th))
         except Exception:  # noqa: BLE001
             return None
+
+    def body_to_field_xy(self, bx: float, by: float):
+        """车体系 (前,左) → 场地系 (x,y)。
+
+        用当前位姿：p_field = p_robot + R(yaw)·(bx, by)，+y 是左（ROS 标准）。
+        """
+        with self.lock:
+            pose = self.state["pose"] or {}
+        try:
+            cx, cy = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
+            yaw = float(pose.get("yaw", 0.0))
+        except Exception:  # noqa: BLE001
+            return [bx, by]
+        c, s = math.cos(yaw), math.sin(yaw)
+        return [cx + c * bx - s * by, cy + s * bx + c * by]
+
+    def lidar_ball_vs_camera(self, cands=None) -> dict:
+        """雷达候选与相机球检测的配对统计（多近算同一颗：match_distance_m）。
+
+        cands 由调用方传入（场地系坐标的候选列表）—— 不要在这里读 state["lb_cands"]，
+        那个字段正是调用方要写的，会拿到上一轮的值。
+        """
+        with self.lock:
+            if cands is None:
+                cands = list(self.state["lb_cands"]) if self.state.get("lb_cands") else []
+            dets = list(self.state["dets"])
+            pose = self.state["pose"] or {}
+            match_d = float(self.state["lb_cfg"].get("match_distance_m", 0.7))
+        if not cands:
+            return {}
+        try:
+            yaw = float(pose.get("yaw", 0.0))
+            cx0, cy0 = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
+        except Exception:  # noqa: BLE001
+            yaw, cx0, cy0 = 0.0, 0.0, 0.0
+        balls = [d for d in dets if str(getattr(d, "label", "")).startswith("ball")]
+        matched = 0
+        for d in balls:
+            b = float(getattr(d, "bearing_rad", float("nan")))
+            dist = float(getattr(d, "distance_m", float("nan")))
+            if not (math.isfinite(b) and math.isfinite(dist)):
+                continue
+            slant = dist / max(math.cos(b), 1e-3)
+            bx, by = slant * math.cos(b), -slant * math.sin(b)   # 车体系
+            c, s = math.cos(yaw), math.sin(yaw)
+            fx, fy = cx0 + c * bx - s * by, cy0 + s * bx + c * by
+            for cd in cands:
+                f = cd.get("field") or [0.0, 0.0]
+                if math.hypot(fx - f[0], fy - f[1]) < match_d:
+                    matched += 1
+                    break
+        return {"camera_balls": len(balls), "lidar_cands": len(cands),
+                "matched": matched, "lidar_only": len(cands) - matched,
+                "camera_only": len(balls) - matched}
 
     def snapshot(self):
         """返回可 JSON 化的快照。
@@ -1369,6 +1490,23 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["tool_name"] = tool.name
         s["chassis"] = chassis.snapshot()
         s["odom_tf_ok"] = bridge.odom_to_field_tf() is not None
+        # 雷达找球：算一次，地图和面板共用；候选在【车体系】，
+        # 这里顺手转成场地系供地图直接画
+        # ⚠️ 这几个调用内部都会拿 bridge.lock —— 绝不能放在 `with bridge.lock` 里面，
+        #    那是同一把非重入锁，会直接死锁（现场现象：/api/state 请求永远不返回）。
+        cands, ms = bridge.lidar_ball_candidates()
+        lb_list = [
+            dict(c, **{k: v for k, v in candidate_to_repr(c).items()},
+                 field=bridge.body_to_field_xy(c["x"], c["y"]))
+            for c in cands]
+        lb_stats = bridge.lidar_ball_vs_camera(lb_list)
+        with bridge.lock:
+            s["lb_cands"] = lb_list
+            s["lb_ms"] = round(ms, 1)
+            s["lb_enabled"] = bridge.state["lb_enabled"]
+            s["lb_mode"] = bridge.state["lb_mode"]
+            s["lb_cfg"] = dict(bridge.state["lb_cfg"])
+            s["lb_stats"] = lb_stats
         with checks.lock:
             s["readiness"] = checks.state["result"]
             s["checks_running"] = checks.state["running"]
@@ -1427,9 +1565,13 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     lok = bridge.state["launcher_ok"]
                     ok = bridge.state["loc_ok"]
                 odom_tf = bridge.odom_to_field_tf()
+                _lc, _ = bridge.lidar_ball_candidates()
+                lb_cands = [dict(c, **{k: v for k, v in candidate_to_repr(c).items()},
+                                 field=bridge.body_to_field_xy(c["x"], c["y"]))
+                            for c in _lc]
                 jpg = render_lidar(xyz, pose, dets, field, lok, ok,
                                    view=view, mirror_x=mirror, mirror_y=mirror_y,
-                                   odom_tf=odom_tf)
+                                   odom_tf=odom_tf, lb_cands=lb_cands)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
@@ -1475,6 +1617,31 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"), checks.check_ready())))
             if name == "CAN_RECOVER":
                 return jsonify(dict(zip(("ok", "msg"), checks.can_recover())))
+            if name == "LIDAR_BALL":
+                body = request.get_json(silent=True) or {}
+                with bridge.lock:
+                    if "enabled" in body:
+                        bridge.state["lb_enabled"] = bool(body["enabled"])
+                    if body.get("mode") in ("camera", "lidar", "fuse"):
+                        bridge.state["lb_mode"] = body["mode"]
+                        bridge.state["lb_cfg"]["mode"] = body["mode"]
+                    # 数值参数白名单（别让界面写进任意键）
+                    for k in ("z_min", "z_max", "ball_radius_m", "radius_tolerance_m",
+                              "cluster_tolerance_m", "min_points", "max_range_m",
+                              "match_distance_m", "floor_band_m"):
+                        if k in body and body[k] is not None:
+                            try:
+                                bridge.state["lb_cfg"][k] = (
+                                    int(body[k]) if k == "min_points" else float(body[k]))
+                            except (TypeError, ValueError):
+                                pass
+                    if "remove_floor" in body:
+                        bridge.state["lb_cfg"]["remove_floor"] = bool(body["remove_floor"])
+                return jsonify({"ok": True, "msg": "已更新雷达找球参数",
+                                "cfg": bridge.state["lb_cfg"]})
+            if name == "LIDAR_BALL_RESET":
+                bridge.load_lidar_ball_cfg()
+                return jsonify({"ok": True, "msg": "已从 perception.yaml 重新读取默认值"})
             if name == "CHASSIS_ENABLE":
                 return jsonify(dict(zip(("ok", "msg"), chassis.start())))
             if name == "CHASSIS_STOP":
@@ -1522,6 +1689,7 @@ def main(argv=None):
         "odom_frame": loc_conv.get("odom_frame") or "camera_init",
         "field_frame": loc_out.get("field_frame") or "field",
     }})
+    bridge.load_lidar_ball_cfg()   # 必须在 Bridge 建好之后！
     app = make_app(bridge, stack, tool, checks, chassis, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")

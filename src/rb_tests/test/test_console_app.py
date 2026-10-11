@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import re
+
 import importlib.util
 import math
 import sys
@@ -505,3 +507,42 @@ def test_every_ui_action_has_backend_handler():
         handlers |= set(re.findall(r'"([A-Z_0-9]+)"', grp))
     missing = sorted(acts - handlers)
     assert not missing, f"UI 有按钮但后端没实现: {missing}（按下去会静默无反应）"
+
+
+# ---------------------------------------------------------------------------
+# 雷达找球接进界面：开关默认必须是关的，且不能在持锁时调拿锁的方法
+# ---------------------------------------------------------------------------
+def test_console_lidar_ball_defaults_to_off():
+    """界面默认必须关闭 —— 用户明确要求保留现在的模式。"""
+    import re
+    from pathlib import Path
+    src = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
+    assert '"lb_enabled": False' in src, "state 里 lb_enabled 初值必须是 False"
+
+
+def test_console_lidar_ball_call_not_inside_lock():
+    """⚠️ 防死锁：这些方法内部会拿 bridge.lock，绝不能在 `with bridge.lock:` 里调。
+
+    现场踩过：/api/state 请求永远不返回（同一把非重入锁嵌套）。
+    只查【同一个缩进块内、紧邻的几行】，不做跨块匹配（之前写贪心正则全是误报）。
+    """
+    from pathlib import Path
+    lines = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8").splitlines()
+    danger = ("lidar_ball_candidates", "lidar_ball_vs_camera", "body_to_field_xy")
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^(\s*)with (?:self|bridge)\.lock:", lines[i])
+        if not m:
+            i += 1
+            continue
+        base = len(m.group(1))
+        i += 1
+        # 扫这个 with 块（缩进比 base 深的连续行）
+        while i < len(lines):
+            ln = lines[i]
+            if ln.strip() and (len(ln) - len(ln.lstrip())) <= base:
+                break
+            for name in danger:
+                assert name not in ln, (
+                    f"第 {i+1} 行在 `with lock` 块内调了 {name}() —— 会死锁")
+            i += 1
