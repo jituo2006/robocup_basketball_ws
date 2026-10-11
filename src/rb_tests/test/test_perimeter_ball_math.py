@@ -320,3 +320,54 @@ def test_pointcloud_parser_is_shared_not_duplicated():
     con = (ws / "tools/console_app.py").read_text(encoding="utf-8")
     assert "from rb_perception.lidar_ball import pointcloud2_to_xyz" in con, \
         "控制台应复用共享实现，而不是自己再写一份"
+
+
+def test_servo_turns_right_for_a_ball_on_right_and_remeasures():
+    from types import SimpleNamespace
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    runner.pose = (0.0, 0.0, 0.0)
+    runner.args = SimpleNamespace()
+    runner.measure_ball_stable = lambda: (0.1, 1.0, 5)
+    turns, moves = [], []
+    runner.rotate_to = lambda yaw, timeout: turns.append(yaw) or True
+    runner.goto = lambda *a, **kw: moves.append(a) or True
+    runner.servo_to_ball(0.7, 1.5, 0.05, 1, 0.12, 12)
+    assert turns == pytest.approx([-0.1])
+    assert moves == []  # 必须重新量球，不能使用转动前的方位平移。
+
+
+def test_disabled_field_move_does_not_clamp_uncalibrated_pose():
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    runner.pose = (1.5, 8.0, 0.0)
+    runner.field_l, runner.field_w = 14.0, 7.5
+    runner.goto = lambda *a, **kw: pytest.fail("禁用进场后仍产生移动")
+    assert runner.move_into_field(0.0)
+
+
+@pytest.mark.parametrize("pose_age,odom_age", [(0.6, 0.1), (0.1, 1.4)])
+def test_stale_pose_or_lidar_requests_stop(pose_age, odom_age):
+    from types import SimpleNamespace
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    runner.pose = (0.0, 0.0, 0.0)
+    runner.pose_stamp, runner.odom_stamp = 100.0-pose_age, 100.0-odom_age
+    runner.args = SimpleNamespace(pose_timeout=0.5)
+    runner.node = SimpleNamespace(get_clock=lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=100_000_000_000)))
+    stops = []
+    runner.stop = lambda: stops.append(True)
+    with pytest.raises(RuntimeError, match="时间戳过期"):
+        runner.require_fresh_pose()
+    assert stops == [True]
+
+
+def test_old_detection_is_not_fresh_even_when_republished():
+    from types import SimpleNamespace
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    runner.node = SimpleNamespace(get_clock=lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=100_000_000_000)))
+    assert not runner.detection_fresh(98.5)
+    assert runner.detection_fresh(99.9)

@@ -181,6 +181,9 @@ class Runner:
         self.pose: tuple[float, float, float] | None = None
         self.dets: list = []
         self.last_det_time = 0.0
+        self.pose_stamp = self.odom_stamp = 0.0
+        self.det_stamp = self.rear_det_stamp = 0.0
+        self.motion_guard = False
 
         self.node.create_subscription(PoseWithCovarianceStamped, "/localization/pose",
                                       self._on_pose, 10)
@@ -214,6 +217,7 @@ class Runner:
         else:
             yaw = p.z
         self.pose = (p.x, p.y, yaw)
+        self.pose_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _load_lidar_cfg(self) -> dict:
         """从 perception.yaml 读 lidar_ball 参数（读不到就用模块默认值）。"""
@@ -246,6 +250,7 @@ class Runner:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         self.odom_cam = (p.position.x, p.position.y, yaw)
+        self.odom_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def lidar_find_ball(self, seconds: float | None = None):
         """雷达兜底找球：返回场地系候选列表 [(fx, fy, bearing_deg, dist), ...]。
@@ -301,9 +306,12 @@ class Runner:
         #    我第一版写了 `with self.lock:`，而类里根本没有 lock 属性 →
         #    回调抛 AttributeError，直接打断 ros2 执行器（现象是"找球"刚开始就崩）。
         self.dets_rear = list(m.detections)
+        self.rear_det_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def best_ball_rear(self):
         """后摄里置信度最高的目标球检测。"""
+        if not self.detection_fresh(self.rear_det_stamp):
+            return None
         best = None
         for d in list(getattr(self, "dets_rear", []) or []):
             if d.label != self.args.ball_label:
@@ -316,22 +324,41 @@ class Runner:
         """后摄多帧取中位数（同前摄的稳健做法）。"""
         want = int(n or self.args.stable_frames)
         got = []
+        last_stamp = None
         t0 = time.time()
         while len(got) < want and time.time() - t0 < timeout:
             d = self.best_ball_rear()
-            if d is not None:
+            if d is not None and self.rear_det_stamp != last_stamp:
                 got.append((float(d.bearing_rad), float(d.distance_m)))
+                last_stamp = self.rear_det_stamp
             self.spin(0.05)
         return median_ball(got)
 
     def _on_dets(self, m) -> None:
         self.dets = list(m.detections)
         self.last_det_time = time.time()
+        self.det_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
+
+    def detection_fresh(self, stamp: float) -> bool:
+        now = self.node.get_clock().now().nanoseconds * 1e-9
+        return math.isfinite(stamp) and stamp > 0 and -0.05 <= now - stamp <= 1.0
 
     def spin(self, sec: float) -> None:
         t0 = time.time()
         while time.time() - t0 < sec:
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
+        if self.motion_guard:
+            self.require_fresh_pose()
+
+    def require_fresh_pose(self) -> None:
+        now = self.node.get_clock().now().nanoseconds * 1e-9
+        if self.pose is None or not all(math.isfinite(v) for v in self.pose):
+            self.stop()
+            raise RuntimeError("位姿缺失或非有限数，已请求停车")
+        for name, stamp in (("定位", self.pose_stamp), ("雷达里程计", self.odom_stamp)):
+            if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now - stamp <= self.args.pose_timeout:
+                self.stop()
+                raise RuntimeError(f"{name}源时间戳过期，已请求停车")
 
     def stop(self) -> None:
         for _ in range(5):
@@ -399,7 +426,7 @@ class Runner:
     # -- 视觉 ---------------------------------------------------------------
     def best_ball(self):
         """当前最好的目标球检测（有有效距离的优先，再按置信度）。"""
-        if time.time() - self.last_det_time > 1.0:
+        if time.time() - self.last_det_time > 1.0 or not self.detection_fresh(self.det_stamp):
             return None
         cands = [d for d in self.dets if d.label == self.args.ball_label]
         if not cands:
@@ -430,14 +457,16 @@ class Runner:
         """
         want = int(n or self.args.stable_frames)
         got = []
+        last_stamp = None
         t0 = time.time()
         while len(got) < want and time.time() - t0 < timeout:
             d = self.best_ball()
-            if d is not None:
+            if d is not None and self.det_stamp != last_stamp:
                 b = float(d.bearing_rad)
                 dm = float(d.distance_m)
                 if b == b and dm == dm and dm > 0.05:
                     got.append((b, dm))
+                    last_stamp = self.det_stamp
             self.spin(0.05)
         return median_ball(got)
 
@@ -469,12 +498,15 @@ class Runner:
                 return True, m
 
             # 先转：把球拉到画面正中（bearing → 0）
-            # bearing 右正左负 ⇒ 往右偏就右转（wz 取 bearing 同号）
+            # bearing 右正左负，ROS yaw 逆时针为正，右转必须减小 yaw。
             turn = max(-math.radians(max_turn_deg),
-                       min(math.radians(max_turn_deg), bearing))
+                       min(math.radians(max_turn_deg), -bearing))
             if abs(math.degrees(turn)) > 0.3:
                 if self.pose is not None:
-                    self.rotate_to(wrap_pi(self.pose[2] + turn), timeout=15.0)
+                    if not self.rotate_to(wrap_pi(self.pose[2] + turn), timeout=15.0):
+                        return False, last
+                    # 转动后重新测量，不能再按旧方位角平移。
+                    continue
 
             # 再走：朝球方向把距离补上（正数=还远，前进；负数=太近，后退）
             move = max(-max_move, min(max_move, dd))
@@ -483,8 +515,9 @@ class Runner:
                 # 球在世界系的方位 = yaw - bearing（右正左负）
                 ang = wrap_pi(yaw - bearing)
                 x, y, _ = self.pose
-                self.goto(x + move * math.cos(ang), y + move * math.sin(ang),
-                          timeout=20.0)
+                if not self.goto(x + move * math.cos(ang), y + move * math.sin(ang),
+                                 timeout=20.0):
+                    return False, last
         log("未收敛", f"伺服 {steps} 步没进容差，以最后一次为准", C_WARN)
         return False, last
 
@@ -519,6 +552,8 @@ class Runner:
 
     def move_into_field(self, dist: float, timeout: float = 30.0) -> bool:
         """朝【场地中心】方向走 dist 米（三级都找不到时，往场内挪一点换个视角）。"""
+        if dist <= 0.0:
+            return True
         if self.pose is None:
             return False
         cx, cy = self.field_l / 2.0, self.field_w / 2.0
@@ -622,6 +657,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-perimeter", action="store_true", help="跳过绕场，直接找球")
     ap.add_argument("--ball-label", default="ball_basketball", help="目标球标签")
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
+    ap.add_argument("--pose-timeout", type=float, default=0.5,
+                    help="定位及雷达源时间戳最大年龄 s，过期即停车")
     ap.add_argument("--kp", type=float, default=1.5)
     ap.add_argument("--kp-yaw", type=float, default=2.0)
     ap.add_argument("--max-ang", type=float, default=0.8, help="角速度上限 rad/s")
@@ -730,6 +767,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
             return 0
+
+        run.spin(0.2)
+        run.require_fresh_pose()
+        run.motion_guard = True
 
         if not args.yes:
             print(f"\n  {C_WARN}接下来车会真的动。急停准备好（另开终端 bash tools/panic.sh）{C_OFF}")
@@ -844,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             log("部分完成", "对准 ✓  转身没到位", C_WARN)
         log("注意", "车已停。恢复任务：重启 boot.sh，或直接 set_mission")
-        return 0 if ok else 1
+        return 0 if ok_turn and ok_back else 1
 
     except KeyboardInterrupt:
         print(f"\n  {C_WARN}Ctrl-C —— 发零速停车{C_OFF}")
@@ -855,6 +896,8 @@ def main(argv: list[str] | None = None) -> int:
         run.stop()
         return 1
     finally:
+        if not args.dry:
+            run.stop()
         run.close()
 
 
