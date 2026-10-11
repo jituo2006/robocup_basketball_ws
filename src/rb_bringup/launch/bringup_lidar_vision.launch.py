@@ -91,8 +91,11 @@ def generate_launch_description():
     rest = [
         Node(package="rb_camera", executable="camera_node", name="rb_camera",
              output="screen",
-             parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml"),
-                          "device": camera_device}]),
+             # ⚠️ 故意【不】传 device 覆盖：前摄靠配置里的 device_name
+             #    ("HD USB Camera") 按名字认设备。一旦这里传了写死的
+             #    /dev/video0，就会和后摄抢同一个设备 —— 实测两个节点
+             #    都打不开（一个占着、另一个 ENODEV）。
+             parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml")}]),
         # ── 后摄像头（装在车正后方）────────────────────────────────────
         # 同一套节点代码，只是配置换成 camera_rear.yaml：
         #   * device_name 按名字认设备（编号随插拔顺序变，不能写死）

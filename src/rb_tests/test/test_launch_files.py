@@ -265,3 +265,23 @@ def test_console_sh_passes_port_to_app_explicitly():
     src = _console_sh()
     assert 'tools/console_app.py --port "$PORT"' in src, \
         'exec 时必须显式带 --port "$PORT"（否则自动换端口不生效）'
+
+
+def test_front_camera_does_not_get_hardcoded_device():
+    """⚠️ launch 不能给前摄传写死的 device。
+
+    踩过：camera_device 默认 "/dev/video0" 传给前摄 → 前摄绕过了自己的
+    device_name 解析、直接去开 /dev/video0；而后摄按名字解析出来也是
+    /dev/video0 → 两个节点抢同一个设备：一个占着、另一个 ENODEV 打不开。
+    实测现象就是"两个摄像头都打不开"。
+    """
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    src = (ws / "src" / "rb_bringup" / "launch"
+           / "bringup_lidar_vision.launch.py").read_text(encoding="utf-8")
+    i = src.find('name="rb_camera"')
+    assert i > 0
+    seg = src[i:i + 600]
+    assert '"device": camera_device' not in seg, \
+        "前摄不能带写死的 device —— 会和后摄抢同一个 /dev/videoN"
+    assert "camera.yaml" in seg, "前摄应只用 config_file（里面配 device_name）"
