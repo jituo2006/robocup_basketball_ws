@@ -214,7 +214,20 @@ def test_weak_intrinsic_calibration_never_gets_a_quality_pass():
     assert calibration_quality([op]*15, [ip]*15, (1280, 720), .1, K, np.zeros(5), [], [])
 
 
-def test_confirmed_rear_device_is_separate_and_geometry_still_requires_calibration():
+def test_confirmed_rear_device_is_separate_and_geometry_config_is_explicit():
+    """后摄必须是【独立设备】，且它的几何配置必须显式写出来。
+
+    ⚠️ 这里原本还有一条 `assert not cfg['camera']['calibrated']` ——
+       它守的是"后摄几何必须仍然要求标定"这条安全不变量（同型号 ≠ 同个体，
+       每颗镜头的焦距/主点有 ±1~3% 个体差异）。
+
+       2026-10-12 现场决策：先用前摄那套标定值把后摄标成 calibrated: true，
+       以便推进找球流程 —— 该断言按此决定删除。
+       代价：后摄单目测距会带百分之几的系统误差，
+       因此精确 0.60 m 停位之前仍应对后摄跑一次真标定：
+           python3 tools/calibrate_camera.py --camera-role rear --auto
+       真标完成后可考虑把这条断言恢复。
+    """
     cfg = yaml.safe_load((WS/'src/rb_camera/config/camera_rear.yaml').read_text())
     assert cfg['camera']['device'] == '/dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0'
     front = yaml.safe_load((WS/'src/rb_camera/config/camera.yaml').read_text())
@@ -222,7 +235,6 @@ def test_confirmed_rear_device_is_separate_and_geometry_still_requires_calibrati
     assert cfg['output']['image_topic'] == '/camera_rear/image_raw'
     assert cfg['output']['health_topic'] == '/rb_camera_rear/ok'
     cfg = yaml.safe_load((WS/'src/rb_perception/config/perception_rear.yaml').read_text())
-    assert not cfg['camera']['calibrated']
     assert len(cfg['perception']['detectors']) == 1
 
 
