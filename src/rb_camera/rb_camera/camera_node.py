@@ -218,8 +218,7 @@ class CameraNode(Node):
         )
         self.image_pub = self.create_publisher(Image, self.image_topic, img_qos)
         self.info_pub = self.create_publisher(CameraInfo, self.camera_info_topic, 5)
-        self.ok_pub = self.create_publisher(Bool, str(self.declare_parameter(
-            "health_topic", str(out.get("health_topic", "/rb_camera/ok"))).value), 1)
+        self.ok_pub = self.create_publisher(Bool, "/rb_camera/ok", 1)
         self.compressed_pub = (
             self.create_publisher(CompressedImage, self.compressed_topic, img_qos)
             if self.publish_compressed else None)
@@ -229,8 +228,6 @@ class CameraNode(Node):
         self._latest: Any = None
         self._latest_stamp: float = 0.0
         self._seq = 0
-        self._published_seq = -1
-        self._latest_ros_stamp = None
         self._running = True
         self._ok = False
         self._cap: cv2.VideoCapture | None = None
@@ -474,7 +471,6 @@ class CameraNode(Node):
 
             try:
                 ok, frame = cap.read()
-                capture_stamp = self.get_clock().now().to_msg()
             except Exception as exc:  # noqa: BLE001
                 self.get_logger().warn(f"读帧异常: {exc}")
                 ok, frame = False, None
@@ -506,7 +502,6 @@ class CameraNode(Node):
             with self._lock:
                 self._latest = frame
                 self._latest_stamp = now
-                self._latest_ros_stamp = capture_stamp
                 self._seq += 1
             self._frames_read += 1
             self._ok = True
@@ -585,9 +580,9 @@ class CameraNode(Node):
         with self._lock:
             frame = None if self._latest is None else self._latest
             seq = self._seq
-            stamp = self._latest_ros_stamp
-        if frame is None or seq == self._published_seq:
+        if frame is None:
             return
+        stamp = self.get_clock().now().to_msg()
         try:
             msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
         except Exception as exc:  # noqa: BLE001
@@ -600,7 +595,6 @@ class CameraNode(Node):
         self.info_pub.publish(self._make_info(stamp))
         if self.compressed_pub is not None:
             self._publish_compressed(frame, stamp)
-        self._published_seq = seq
         self._frames_published += 1
 
     def _publish_compressed(self, frame, stamp) -> None:

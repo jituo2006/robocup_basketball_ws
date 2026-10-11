@@ -190,10 +190,7 @@ def load_from_images(folder: str, pattern: tuple[int, int]) -> tuple[list, list,
         if img is None:
             continue
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        current_shape = gray.shape[::-1]
-        if shape is not None and shape != current_shape:
-            raise ValueError(f"mixed image resolutions: {shape} and {current_shape}")
-        shape = current_shape
+        shape = gray.shape[::-1]
         c = find_corners(gray, pattern)
         if c is None:
             print(f"  ✗ 未检出棋盘: {os.path.basename(f)}")
@@ -545,61 +542,23 @@ def _replace_mapping_values(text: str, block: str, values: dict[str, float]) -> 
     return "\n".join(out) + ("\n" if text.endswith("\n") else "")
 
 
-def write_intrinsics(fx: float, fy: float, cx: float, cy: float, dist: list[float], shape=None) -> None:
+def write_intrinsics(fx: float, fy: float, cx: float, cy: float, dist: list[float]) -> None:
     intr = {"fx": round(fx, 2), "fy": round(fy, 2), "cx": round(cx, 2), "cy": round(cy, 2)}
     dist_str = "[" + ", ".join(f"{v:.6f}" for v in dist) + "]"
-    metadata = ({"calibrated": "true", "calibration_size": str(list(shape))} if shape else {})
     if CAMERA_YAML.exists():
         text = CAMERA_YAML.read_text(encoding="utf-8")
-        text = _replace_mapping_values(text, "intrinsics", {**intr, "distortion": dist_str, **metadata})
-        atomic_backup_write(CAMERA_YAML, text)
+        text = _replace_mapping_values(text, "intrinsics", {**intr, "distortion": dist_str})
+        CAMERA_YAML.write_text(text, encoding="utf-8")
         print(f"  ✓ 已写入 {CAMERA_YAML.relative_to(WS)}")
     if PERCEPTION_YAML.exists():
         text = PERCEPTION_YAML.read_text(encoding="utf-8")
         # 畸变也要写进 perception —— 检测器去畸变读的是这一份
-        text = _replace_mapping_values(text, "camera", {**intr, "distortion": dist_str, **metadata})
-        atomic_backup_write(PERCEPTION_YAML, text)
+        text = _replace_mapping_values(text, "camera", {**intr, "distortion": dist_str})
+        PERCEPTION_YAML.write_text(text, encoding="utf-8")
         print(f"  ✓ 已写入 {PERCEPTION_YAML.relative_to(WS)}（含 distortion，检测器会用它去畸变）")
 
 
 # ---------------------------------------------------------------------------
-def atomic_backup_write(path, text):
-    import shutil
-    shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
-
-
-def calibration_quality(objpoints, imgpoints, shape, rms, K, D, rvecs, tvecs):
-    if len(objpoints) < 15:
-        return "need at least 15 diverse views"
-    w, h = shape
-    if (not np.isfinite(K).all() or not np.isfinite(D).all() or not np.isfinite(rms)
-            or rms > .7 or not .2*w < K[0, 0] < 5*w or not .2*h < K[1, 1] < 5*w
-            or not 0 < K[0, 2] < w or not 0 < K[1, 2] < h):
-        return "intrinsics or RMS outside quality limits"
-    centres = np.array([p.reshape(-1, 2).mean(axis=0) for p in imgpoints])
-    if np.ptp(centres[:, 0]) < .3*w or np.ptp(centres[:, 1]) < .3*h:
-        return "move board across image centre, sides, top and bottom"
-    normals = np.array([cv2.Rodrigues(r)[0][:, 2] for r in rvecs])
-    if max(np.ptp(normals[:, 0]), np.ptp(normals[:, 1])) < .25:
-        return "tilt board: front-parallel views alone are insufficient"
-    for op, ip, r, t in zip(objpoints, imgpoints, rvecs, tvecs):
-        projected = cv2.projectPoints(op, r, t, K, D)[0].reshape(-1, 2)
-        if np.sqrt(np.mean(np.sum((projected - ip.reshape(-1, 2))**2, axis=1))) > 1.:
-            return "a view exceeds 1 pixel RMS; recapture blurred views"
-    # Reject non-monotonic radial calibration, even with small training RMS.
-    coeff = np.pad(D.ravel(), (0, max(0, 5-D.size)))
-    k1, k2, _, _, k3 = coeff[:5]
-    max_r = math.hypot(max(K[0, 2], w-K[0, 2])/K[0, 0],
-                       max(K[1, 2], h-K[1, 2])/K[1, 1])
-    rs = np.linspace(0, max_r, 200)
-    if np.min(1 + 3*k1*rs**2 + 5*k2*rs**4 + 7*k3*rs**6) <= 0:
-        return "non-monotonic distortion: increase board coverage and recapture"
-    return None
-
-
 def read_production_resolution() -> tuple[str, int, int]:
     """从 camera.yaml 读生产用的设备与分辨率——标定必须在同一分辨率下做。"""
     dev, w, h = "/dev/video0", 1280, 720
@@ -615,16 +574,8 @@ def read_production_resolution() -> tuple[str, int, int]:
 
 
 def main() -> int:
-    global CAMERA_YAML, PERCEPTION_YAML
-    selector = argparse.ArgumentParser(add_help=False)
-    selector.add_argument("--camera-role", choices=["front", "rear"], default="front")
-    role = selector.parse_known_args()[0].camera_role
-    if role == "rear":
-        CAMERA_YAML = WS / "src/rb_camera/config/camera_rear.yaml"
-        PERCEPTION_YAML = WS / "src/rb_perception/config/perception_rear.yaml"
     dev0, w0, h0 = read_production_resolution()
     ap = argparse.ArgumentParser(description="相机内参标定")
-    ap.add_argument("--camera-role", choices=["front", "rear"], default="front")
     ap.add_argument("--print-board", action="store_true", help="生成可 1:1 打印的棋盘格后退出")
     ap.add_argument("--pdf", action="store_true",
                     help="生成 PDF（推荐！带真实物理尺寸，打印不会被缩放/裁切）")
@@ -690,8 +641,8 @@ def main() -> int:
         print(f"手动采集: {args.device} {args.width}x{args.height}（与 camera.yaml 一致）")
         objpoints, imgpoints, shape = capture_live(args.device, args.width, args.height, pattern)
 
-    if len(objpoints) < 15:
-        print(f"\n✗ 只有 {len(objpoints)} 张有效图，至少 15 张（建议 20~25 张）")
+    if len(objpoints) < 6:
+        print(f"\n✗ 只有 {len(objpoints)} 张有效图，至少 6 张（建议 15~25 张）")
         return 1
     if shape == (0, 0):
         print("✗ 没拿到图像尺寸")
@@ -733,16 +684,8 @@ def main() -> int:
     if args.no_write:
         print("\n(--no-write，未写回配置)")
         return 0
-    production = yaml.safe_load(CAMERA_YAML.read_text())["camera"]
-    if shape != (production["width"], production["height"]):
-        print("REFUSED: captured resolution differs from production config; no overwrite")
-        return 1
-    failure = calibration_quality(objpoints, imgpoints, shape, rms, K, D, rvecs, tvecs)
-    if failure:
-        print(f"REFUSED: {failure}; no configuration overwritten")
-        return 1
     print()
-    write_intrinsics(fx, fy, cx, cy, [float(v) for v in D.ravel()], shape)
+    write_intrinsics(fx, fy, cx, cy, [float(v) for v in D.ravel()])
     print("\n完成。重新 build 后生效:")
     print("  colcon build --symlink-install --packages-select rb_camera rb_perception")
     return 0

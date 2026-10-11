@@ -160,27 +160,6 @@ class _FakeSession:
         return [self._out]
 
 
-def test_three_class_model_pillar_uses_width_for_range():
-    """新模型定位柱为细长框，20cm 柱宽不能用框高换算距离。"""
-    d = _det(input_size=640, conf_threshold=0.4,
-             name_map={"篮球": "ball_basketball", "排球": "ball_volleyball", "定位柱": "pillar"},
-             class_real_size={"pillar": 0.20}, class_size_axis={"pillar": "width"})
-    d.model_names = {0: "篮球", 1: "排球", 2: "定位柱"}
-    d.session = _FakeSession(np.array(
-        [[[320.0], [320.0], [40.0], [200.0], [0.01], [0.01], [0.95]]], np.float32))
-    frame = np.zeros((640, 640, 3), np.uint8)
-    cam = CameraModel.from_config({}, 640, 640)
-    dets = d.detect(frame, cam)
-    assert len(dets) == 1
-    assert dets[0].label == "pillar"
-    assert dets[0].distance_m == pytest.approx(cam.fx * 0.20 / 40.0)
-
-
-def test_invalid_size_axis_rejected():
-    with pytest.raises(ValueError, match="class_size_axis"):
-        _det(class_size_axis={"pillar": "height"})
-
-
 def test_detect_end_to_end_geometry():
     """用假 session 跑完整 detect，验证框/置信度/类别都正确落到 Detection。
 

@@ -2,8 +2,6 @@
 #    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
 #        parameters=[{"config_file": "<此文件路径>"}]
 # RoboCup 篮球机器人 · 相机配置
-# 2026-10-12 现场安装：横梁正中、朝车头、向下 20°，相机中心离地 0.33 m。
-# 安装角不是内参；完整外参及统一测距基准见 docs/ball_precision_setup.md。
 #
 # 本机实测（HD USB Camera, 05a3:9230, UVC 免驱）：
 #   MJPG 1280x720 → 实测 27 fps；MJPG 640x480 → 45 fps
@@ -13,7 +11,7 @@
 #    如果用 YUYV，高分辨率下帧率会掉到 6~9fps。
 
 camera:
-  device: "/dev/v4l/by-id/usb-HD_Camera_Manufacturer_USB_2.0_Camera-video-index0" # 前相机固定 USB 路径
+  device: "/dev/video0"     # UVC 相机的采集节点（/dev/video1 通常是 metadata，别用）
   width: 1280               # 识别远处球用 1280x720；CPU 吃紧或要更低延迟可改 640x480
   height: 720
   fps: 30.0                 # 相机请求帧率（实际由相机能力决定）
@@ -109,8 +107,6 @@ output:
 # ⚠️ rb_perception 测距读的是它自己 perception.yaml 里的 camera 段，
 #    所以标定脚本会把内参**同时**写进本文件和 perception.yaml。
 intrinsics:
-  calibrated: true
-  calibration_size: [1280, 720]
   fx: 794.16
   fy: 793.9
   cx: 577.4

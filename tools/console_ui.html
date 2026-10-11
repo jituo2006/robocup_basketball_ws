@@ -696,7 +696,7 @@ const TOOL_LABEL = {
 };
 function toolRun(key){
   const warn = {
-    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 0.60m → 转身背对球。\n\n确认车周围清空、急停就绪？',
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
     TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';

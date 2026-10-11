@@ -608,23 +608,7 @@ class Bridge:
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
-        # ⚠️ /cmd_vel 的发布者【绝不能常驻】✗
-        #
-        # precision_ball_approach.py:134 / :141 要求
-        #     node.count_publishers("/cmd_vel") == 1
-        # 即【恰好只有它自己一个】，否则直接
-        #     raise RuntimeError("another /cmd_vel publisher exists;
-        #                         stop its mission before testing")
-        #
-        # 控制台原来在启动时就 create_publisher(...) → 一直占着 /cmd_vel ✗
-        # → 从 UI 点「🔍 寻球」【必定失败】✗（脚本一启动就检测到"竞争发布者"并退出）
-        # → 而同一个脚本在终端里跑却正常 ✓（那时控制台没占话题）
-        # 现象就是用户说的"终端能跑、UI 点没反应" ✗。
-        #
-        # 改成【用时创建、用完销毁】：只在点动那零点几秒里存在 ✓。
-        self._cmd_vel_topic = t.get("cmd_vel", "/cmd_vel")
-        self.pub_cmd = None
-        self._pub_cmd_lock = threading.Lock()
+        self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
 
         # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
@@ -844,52 +828,16 @@ class Bridge:
         req.action, req.speed, req.angle = int(action), int(speed), int(angle)
         return self._call(self.cli_launch, req)
 
-    def _ensure_cmd_pub(self):
-        """创建 /cmd_vel 发布者（仅在点动期间临时持有 ✓）。
-
-        见 __init__ 处的长注释：常驻会挡住 precision_ball_approach 的
-        独占检查，导致 UI 点「寻球」永远失败 ✗。
-        """
-        with self._pub_cmd_lock:
-            if self.pub_cmd is None:
-                self.pub_cmd = self.node.create_publisher(
-                    Twist, self._cmd_vel_topic, 10)
-            return self.pub_cmd
-
-    def _drop_cmd_pub(self):
-        """销毁 /cmd_vel 发布者，把话题让给找球脚本 ✓。
-
-        destroy 之后 DDS 的 publisher 计数不是立即更新，留一小段等待时间，
-        否则脚本刚启动那一秒仍可能数到 2 个而误判 ✗。
-        """
-        with self._pub_cmd_lock:
-            p, self.pub_cmd = self.pub_cmd, None
-        if p is not None:
-            try:
-                self.node.destroy_publisher(p)
-            except Exception:  # noqa: BLE001
-                pass
-            time.sleep(0.4)
-
     def jog(self, vx: float, vy: float, wz: float, seconds: float = 0.4):
-        """点动：先发速度，再自动归零（不依赖前端松手）。
-
-        ⚠️ 发布者【用时创建、用完销毁】—— 不能常驻，原因见 __init__ 的长注释。
-        """
+        """点动：先发速度，再自动归零（不依赖前端松手）。"""
         def run():
-            self._ensure_cmd_pub()
-            try:
-                t0 = time.time()
-                while time.time() - t0 < seconds:
-                    t = self._Twist()
-                    t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
-                    self.pub_cmd.publish(t)
-                    time.sleep(0.05)
-                self.pub_cmd.publish(self._Twist())
-            finally:
-                # 归零也要真的发出去，再释放话题 ✓
-                time.sleep(0.1)
-                self._drop_cmd_pub()
+            t0 = time.time()
+            while time.time() - t0 < seconds:
+                t = self._Twist()
+                t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
+                self.pub_cmd.publish(t)
+                time.sleep(0.05)
+            self.pub_cmd.publish(self._Twist())
         threading.Thread(target=run, daemon=True).start()
         return True, f"点动 {seconds}s"
 
@@ -1174,88 +1122,70 @@ class SystemChecks:
                 self.state["running"] = None
             return False, f"{type(e).__name__}: {e}"
 
-    # 一键启动要等的关键进程（用进程名判断：比 ros2 node list 快得多；
-    # pgrep -x 精确匹配进程名，不会匹配到我们自己 ✓）
-    # 注意：这里可以写全名，_proc_running() 会按 comm 的 15 字符上限截断 ✓
-    # ⚠️ 这里填【进程名】，不是 ROS 节点名 —— 两者不一样：
-    #    后摄和后感知用的是【和前摄同一个可执行文件】camera_node / perception_node，
-    #    只是 ROS 节点名不同（rb_camera_rear / rb_perception_rear）。
-    #    曾经写成 camera_rear_node / perception_rear_node → pgrep 永远找不到
-    #    → "一键启动"一直误报"缺少节点"，而后摄其实跑得好好的 ✗。
-    FLOW_NODES = ("rb_chassis_node", "mission_node", "localization_node",
-                  "camera_node", "perception_node")
-
     def startup_flow(self, stack: "StackManager"):
-        """一键启动（极简版）：起 boot.sh → 等关键进程出现 → 完事。
-
-        ⚠️ 原实现叠了三层，每层都脆：
-          ① 翻日志文本找 "底盘已使能" / "mission 就绪" 两个字符串
-             —— 日志一改措辞就永远等不到 ✗
-          ② 超时 120 秒 —— 出问题时白等两分钟 ✗
-          ③ 再调 tools/check_ready.sh 并解析它的输出 —— 多一个脚本+格式 ✗
-        现在：一个判据（关键进程在不在）、一个超时（45s）、不调任何脚本。
-        要看更细的检查点旁边的「✅ 就绪检查」——那是独立功能，不塞进一键启动。
-        """
+        """一键流程：boot.sh → 等 mission 就绪 → 自动就绪检查。"""
         with self.lock:
             if self.state["flow"] == "running":
-                return False, "一键启动已在跑"
+                return False, "一键流程已在跑"
             self.state["flow"] = "running"
             self.state["flow_step"] = "启动整套"
 
         def worker():
-            missing = []
-            ok = False
-            msg = ""
             try:
                 ok, msg = stack.start()
-                self.log.append((time.time(), "TOOL", "一键启动", f"boot.sh: {msg}"))
-                if ok:
-                    deadline = time.time() + 45
-                    missing = list(self.FLOW_NODES)
-                    while time.time() < deadline:
-                        missing = [n for n in self.FLOW_NODES if not _proc_running(n)]
-                        if not missing or not stack.running:
-                            break
-                        time.sleep(1.0)
-                step = ("可以开车了" if (ok and not missing)
-                        else ("boot.sh: " + msg if not ok
-                              else "缺少节点: " + ", ".join(missing)))
+                self.log.append((time.time(), "TOOL", "一键流程", f"boot.sh: {msg}"))
+                if not ok:
+                    with self.lock:
+                        self.state["flow"] = "failed"
+                        self.state["flow_step"] = msg
+                    return
+                # 等关键就绪标志（最多 120s）
+                deadline = time.time() + 120
+                seen = {"chassis": False, "mission": False}
+                while time.time() < deadline:
+                    txt = "\n".join(m for (_, _, _, m) in list(stack.log)[-200:])
+                    if "底盘已使能" in txt:
+                        seen["chassis"] = True
+                    if "mission 就绪" in txt:
+                        seen["mission"] = True
+                    if seen["chassis"] and seen["mission"]:
+                        break
+                    if not stack.running:
+                        with self.lock:
+                            self.state["flow"] = "failed"
+                            self.state["flow_step"] = "boot.sh 退出了（看日志）"
+                        return
+                    time.sleep(1.5)
+                else:
+                    with self.lock:
+                        self.state["flow"] = "failed"
+                        self.state["flow_step"] = "等就绪标志超时（看日志）"
+                    return
+
+                self.log.append((time.time(), "TOOL", "一键流程",
+                                 "底盘已使能 + mission 就绪 → 开始就绪检查"))
+                with self.lock:
+                    self.state["flow_step"] = "就绪检查"
+                out = self._run("就绪检查", "tools/check_ready.sh")
+                res = parse_check_ready(out)
+                with self.lock:
+                    self.state["result"] = res
+                    self.state["flow"] = "done" if res["ok"] else "notready"
+                    self.state["flow_step"] = ("可以开车了" if res["ok"]
+                                               else f"{len(res['failed'])} 项没就绪")
             except Exception as e:  # noqa: BLE001
-                step = f"{type(e).__name__}: {e}"
-                ok = False
-            with self.lock:
-                self.state["flow"] = "done" if (ok and not missing) else "notready"
-                self.state["flow_step"] = step
+                with self.lock:
+                    self.state["flow"] = "failed"
+                    self.state["flow_step"] = f"{type(e).__name__}: {e}"
 
         threading.Thread(target=worker, daemon=True).start()
-        return True, "一键启动已开始（boot.sh → 等关键进程）"
+        return True, "一键流程已启动（boot.sh → 等就绪 → 就绪检查）"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 底盘使能：CAN 检查 → 恢复 → 起底盘节点 → 等"已使能 4 个电机"
 # ─────────────────────────────────────────────────────────────────────────────
 PCAN_VIDPID = "0c72:000c"
-
-
-def _proc_running(name: str) -> bool:
-    """进程在不在。
-
-    ⚠️ 两个坑都踩过，所以这里必须写得明确：
-      ① 不能用 `pgrep -f`（匹配整条命令行）—— 它会匹配到【我们自己】，
-         因为调用方的命令行里就写着这个名字。这个坑反复出现过 ✗。
-      ② Linux 的进程名（/proc/<pid>/comm）【最多 15 个字符】，更长的会被截断：
-           rb_launcher_node       → rb_launcher_nod
-           localization_node      → localization_no
-           livox_ros_driver2_node → livox_ros_drive
-         拿全名去 `pgrep -x` 永远匹配不上，于是"一键启动"会一直报
-         "缺少节点: localization_node" ✗（实测就是这个现象）。
-         这里按 comm 的实际上限截断后再精确匹配。
-    """
-    try:
-        return subprocess.run(["pgrep", "-x", name[:15]],
-                              capture_output=True, timeout=3).returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
 
 
 def probe_can():
@@ -1485,7 +1415,7 @@ DEBUG_TOOLS = {
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
         "args": ["--skip-perimeter", "--takeover", "--yes"],
-        "label": "寻球 → 走到球前 0.60m → 转身背对球",
+        "label": "寻球 → 走到球前 50cm → 转身背对球",
     },
     "TEST_PERIMETER": {
         "script": "tools/test_perimeter_ball.py",
@@ -1538,28 +1468,10 @@ class ToolRunner:
                 return False, f"{self.name} 还在跑，先停掉它"
             if not (WS / spec["script"]).is_file():
                 return False, f"找不到 {spec['script']}"
-            # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境。
-            #
-            # ⚠️ 必须【显式 export ROS_DOMAIN_ID】，不能只靠继承。
-            #    实测四组对照（--skip-perimeter --dry，其余条件相同）：
-            #      无 DOMAIN_ID + 无 lidar ws → 读不到 /localization/pose ✗
-            #      有 DOMAIN_ID + 无 lidar ws → 全部通过 ✓
-            #      无 DOMAIN_ID + 有 lidar ws → 读不到 /localization/pose ✗
-            #      有 DOMAIN_ID + 有 lidar ws → 全部通过 ✓
-            #    唯一决定因素就是 ROS_DOMAIN_ID。若控制台不是经 console.sh/rbws
-            #    起（那两处才会 export 2），子进程就跑在 domain 0 上，现象是
-            #    "节点都在、但一个话题都收不到"，极难排查 ✗。这里自己设死。
-            #
-            # 顺带 source 雷达工作空间：脚本若要用 livox 的 CustomMsg
-            # （ros2 topic hz 之类）不加会认不出类型。当前用不到，但和
-            # check_ready.sh 保持一致，省得以后踩。
-            lidar_ws = Path.home() / "lidar_360"
+            # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境
             cmd = ["bash", "-c",
                    "source /opt/ros/humble/setup.bash && "
-                   f"source {lidar_ws}/ws_livox/install/setup.bash 2>/dev/null; "
-                   f"source {lidar_ws}/fast_prop_ws/install/setup.bash 2>/dev/null; "
                    f"source {WS}/install/setup.bash && "
-                   "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-2} && "
                    f"exec python3 {spec['script']} " +
                    " ".join(list(spec["args"]) + list(extra_args or []))]
             self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))

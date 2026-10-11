@@ -504,11 +504,6 @@ class MissionNode(Node):
             return
         label = self.target_label("ball")
         det = self._best_detection(label)
-        if det is not None and (not math.isfinite(det.distance_m) or
-                                not 0 <= self.get_clock().now().nanoseconds * 1e-9 - self.detections_stamp <= .3):
-            self.publish_zero()
-            self.detail = "等待新鲜、有效的球测距；禁止无距离盲走"
-            return
         if det is None:
             # 关键的真实场景问题：车头贴近球时，球会钻到车底**移出相机视野**。
             # 如果"刚刚还看得很近"，那多半不是丢了，而是已经贴上去了。
