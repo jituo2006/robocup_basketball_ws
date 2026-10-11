@@ -1124,8 +1124,10 @@ class SystemChecks:
 
     # 一键启动要等的关键进程（用进程名判断：比 ros2 node list 快得多；
     # pgrep -x 精确匹配进程名，不会匹配到我们自己 ✓）
-    FLOW_NODES = ("rb_chassis_node", "mission_node", "camera_node",
-                  "perception_node", "localization_node")
+    # 注意：这里可以写全名，_proc_running() 会按 comm 的 15 字符上限截断 ✓
+    FLOW_NODES = ("rb_chassis_node", "mission_node", "localization_node",
+                  "camera_node", "camera_rear_node", "perception_node",
+                  "perception_rear_node")
 
     def startup_flow(self, stack: "StackManager"):
         """一键启动（极简版）：起 boot.sh → 等关键进程出现 → 完事。
@@ -1182,11 +1184,19 @@ PCAN_VIDPID = "0c72:000c"
 def _proc_running(name: str) -> bool:
     """进程在不在。
 
-    用 `pgrep -x`（精确匹配进程名）而不是 `pgrep -f`（匹配整条命令行）——
-    `-f` 会匹配到我们自己（命令行里就带着这个名字），这个坑踩过很多次 ✗。
+    ⚠️ 两个坑都踩过，所以这里必须写得明确：
+      ① 不能用 `pgrep -f`（匹配整条命令行）—— 它会匹配到【我们自己】，
+         因为调用方的命令行里就写着这个名字。这个坑反复出现过 ✗。
+      ② Linux 的进程名（/proc/<pid>/comm）【最多 15 个字符】，更长的会被截断：
+           rb_launcher_node       → rb_launcher_nod
+           localization_node      → localization_no
+           livox_ros_driver2_node → livox_ros_drive
+         拿全名去 `pgrep -x` 永远匹配不上，于是"一键启动"会一直报
+         "缺少节点: localization_node" ✗（实测就是这个现象）。
+         这里按 comm 的实际上限截断后再精确匹配。
     """
     try:
-        return subprocess.run(["pgrep", "-x", name],
+        return subprocess.run(["pgrep", "-x", name[:15]],
                               capture_output=True, timeout=3).returncode == 0
     except Exception:  # noqa: BLE001
         return False

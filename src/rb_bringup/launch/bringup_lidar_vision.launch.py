@@ -112,6 +112,28 @@ def generate_launch_description():
         Node(package="rb_mission", executable="mission_node", name="rb_mission",
              output="screen",
              parameters=[{"config_file": _share("rb_mission", "config", "mission.yaml")}]),
+        # ④ 后摄 + 后感知
+        #
+        # ⚠️ 之前三个 bringup 文件【都没有后摄】—— 后摄只有独立的
+        #    rb_perception/rear_ball.launch.py（那个故意不启动底盘/任务，
+        #    是给标定和静止验收单独用的）。结果：整车启动时后摄永远不来，
+        #    现象就是 /camera_rear/... 与 /perception_rear/... 一直"没有数据"，
+        #    而找球的"雷达粗定位 → 转180° → 后摄精定位"这段直接失效 ✗。
+        #
+        # ⚠️ 【不要】给后摄传 device 覆盖：它的设备写在 camera_rear.yaml 里
+        #    （/dev/v4l/by-id/usb-LRCP_...-video-index0）。以前给前摄传了写死的
+        #    /dev/video0，结果前摄把后摄的设备抢走，两个画面变成同一个 ✗。
+        Node(package="rb_camera", executable="camera_node", name="rb_camera_rear",
+             output="screen",
+             parameters=[{"config_file": _share("rb_camera", "config", "camera_rear.yaml")}]),
+        Node(package="rb_perception", executable="perception_node", name="rb_perception_rear",
+             output="screen",
+             parameters=[{"config_file": _share("rb_perception", "config", "perception_rear.yaml"),
+                          "image_topic": "/camera_rear/image_raw",
+                          "compressed_topic": "/camera_rear/image_raw/compressed",
+                          "output_topic": "/perception_rear/detections",
+                          "debug_image_topic": "/perception_rear/debug_image",
+                          "precision_topic": "/perception_rear/ball_range"}]),
     ]
 
     return LaunchDescription([
