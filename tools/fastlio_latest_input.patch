@@ -22,4 +22,5 @@
 +            map_en: false                 # true: publish Map cloud
              scan_publish_en:  true       # false: close all the point cloud output
              dense_publish_en: true      # false: low down the points number in a global-frame point clouds scan.
-             scan_bodyframe_pub_en: false  # true: output the point cloud scans in IMU-body-frame
+-            scan_bodyframe_pub_en: false  # true: output the point cloud scans in IMU-body-frame
++            scan_bodyframe_pub_en: true   # true: output current scans for calibrated ball ranging

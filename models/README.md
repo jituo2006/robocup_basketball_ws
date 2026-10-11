@@ -15,7 +15,10 @@
 每张处理图像都推理，不复用上帧框。推理线程保持 2/1，OpenCV 线程设为 2，
 避免传统圆环检测默认开启 16 线程抢占 FAST-LIO 计算资源。
 重复的定位柱颜色检测关闭。柱宽沿用旧配置的 0.20m，按框宽估距；
-球径沿用篮球 0.24m、排球 0.21m。以上单目距离仍需实测标定。
+球径沿用篮球 0.24m、排球 0.21m。球的控制距离现在由标定后的相机/雷达
+球面拟合提供；未标定或无可靠雷达观测时只画框，球距离为 NaN。
+前后相机标定与 0.60m 车尾吸球口到球表面控制见
+[`docs/ball_precision_setup.md`](../docs/ball_precision_setup.md)。
 
 视觉基础日志保留配置/模型加载、每 5 秒帧率/耗时/最新目标摘要、限频异常和无图像告警。
 本次运行日志为 `/tmp/rb-perception-20261012.log`；FAST-LIO 初始化日志为
@@ -26,6 +29,8 @@ FAST-LIO 独立初始化时，Linux 的
 中 `publish.map_en` 设为 `false`。该版本的 `publish_map()` 每秒向
 `pcl_wait_pub` 追加整帧并重发全部历史点，运行越久复制/序列化越慢，影响里程计及时性。
 关闭的是 `/Laser_map` 累积全图输出；`/Odometry` 和 `/cloud_registered` 继续发布。
+测球所需 `/cloud_registered_body` 通过补丁开启当前 IMU 体系扫描输出；
+该新增输出仍待 Linux 通电后应用配置、部署和确认，不能视为已经运行。
 原配置备份于 `/tmp/rb-fastlio-config-before-20261012.yaml`。
 
 同一 FAST-LIO 版本的 Livox 输入队列从固定 20 帧改为可配置的小型可靠队列，

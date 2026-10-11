@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import math
+import json
 
 import os
 import time
@@ -35,13 +36,14 @@ from cv_bridge import CvBridge, CvBridgeError
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Image
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 
 from rb_msgs.msg import Detection, DetectionArray
 
 from .lidar_ball import (body_frame_cloud, find_ball_candidates,
                             fuse as fuse_lidar_balls)
 from .detectors import BaseDetector, CameraModel, OnnxDetector, build_detectors
+from .precision_ball import fuse_precision
 
 # 不同类别用不同颜色画框，方便肉眼调参
 _DEBUG_COLORS = {
@@ -115,8 +117,13 @@ class PerceptionNode(Node):
         # ── 雷达找球（默认关：连订阅都不建，行为与改动前完全一致）──
         self.lidar_cfg = dict((self.cfg.get("perception") or {}).get("lidar_ball") or {})
         self._cloud = None
+        self._cloud_stamp = 0.0
+        self._cloud_frame = ""
+        self._last_image_stamp = 0.0
         self._odom = None
         self._lidar_stats = {}
+        self.range_pub = self.create_publisher(String, self.declare_parameter(
+            "precision_topic", "/perception/ball_range").value, 1)
         if self.lidar_cfg.get("enabled", False):
             from nav_msgs.msg import Odometry
             from sensor_msgs.msg import PointCloud2
@@ -183,6 +190,8 @@ class PerceptionNode(Node):
             pts = point_cloud2.read_points_numpy(
                 msg, field_names=("x", "y", "z"), skip_nans=True)
             self._cloud = pts
+            self._cloud_stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            self._cloud_frame = msg.header.frame_id
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f"读点云失败: {exc}", throttle_duration_sec=10.0)
 
@@ -218,6 +227,10 @@ class PerceptionNode(Node):
         self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
 
     def process_frame(self, frame, stamp, frame_id: str, _t0: float) -> None:
+        image_stamp = stamp.sec + stamp.nanosec * 1e-9
+        if image_stamp <= self._last_image_stamp:
+            return  # Replayed/cached frames cannot refresh a ranging observation.
+        self._last_image_stamp = image_stamp
         h, w = frame.shape[:2]
         cam = CameraModel.from_config(self.cfg.get("camera", {}) or {}, w, h)
 
@@ -245,8 +258,15 @@ class PerceptionNode(Node):
             except Exception:  # noqa: BLE001
                 pass
         if self.lidar_cfg.get("enabled", False):
-            found, self._lidar_stats = fuse_lidar_balls(
-                found, self.lidar_candidates(), self.lidar_cfg)
+            if self.lidar_cfg.get("mode") == "precision":
+                found, self._lidar_stats = fuse_precision(
+                    found, self._cloud, self._cloud_stamp, self._cloud_frame,
+                    image_stamp, self.get_clock().now().nanoseconds * 1e-9,
+                    cam, self.cfg.get("camera", {}), self.lidar_cfg)
+                self.range_pub.publish(String(data=json.dumps(self._lidar_stats, allow_nan=False)))
+            else:
+                found, self._lidar_stats = fuse_lidar_balls(
+                    found, self.lidar_candidates(), self.lidar_cfg)
 
         out = DetectionArray()
         out.header = Header()
@@ -291,7 +311,8 @@ class PerceptionNode(Node):
         self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
         self.get_logger().info(
             f"视觉 {self.last_fps:.1f} fps，每帧 {self.last_proc_ms:.1f} ms"
-            f"（累计 {self.frame_count} 帧），目标 {self.last_summary}")
+            f"（累计 {self.frame_count} 帧），目标 {self.last_summary}"
+            f"，测距 {self._lidar_stats.get('reason', 'disabled')}")
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()

@@ -194,7 +194,8 @@ def test_shipped_config_path_is_correct():
     assert "lidar_ball" in c["perception"], \
         "lidar_ball 必须在 perception: 下（节点按 cfg['perception']['lidar_ball'] 读）"
     lb = c["perception"]["lidar_ball"]
-    # 默认必须是关闭的：用户明确要求保留现在的模式
-    assert lb["enabled"] is False, "出厂默认必须 enabled: false"
-    assert lb["mode"] in ("camera", "lidar", "fuse")
-    assert lb["mode"] == "camera" or lb["enabled"] is False
+    # 当前需求明确启用雷达测距；未经标定必须拒绝权威测距。
+    assert lb["enabled"] is True
+    assert lb["mode"] == "precision"
+    assert lb["extrinsics_confirmed"] is False
+    assert lb["cloud_topic"] == "/cloud_registered_body"

@@ -17,6 +17,8 @@
 #   排球：5 号（周长 650-670mm → 直径约 21cm）
 
 camera:
+  calibrated: false  # 现有数值未经过本次质量验收；工具成功后置 true
+  calibration_size: [1280, 720]
   # 相机内参。全部留 0 时，节点按 assumed_hfov_deg 反推 fx 并把主点设在图像中心。
   # 正式使用前务必用棋盘格标定后填入真实值：
   #     python3 tools/calibrate_camera.py      # 会同时写回本文件和 camera.yaml
@@ -157,22 +159,25 @@ perception:
   # 好处：雷达不受光照影响、能"看到"画面外的球（相机 FOV 才约 60°）、
   #       而且给的是直接测距（相机的单目测距靠球径先验，误差更大）。
   #
-  # ⚠️ 默认 enabled: false —— 连点云都不订阅，行为和以前完全一样。
-  #    现场想试就改成 true，mode 先试 "fuse"（相机为主、雷达补漏，最稳）。
-  # ─────────────────────────────────────────────────────────────────────────────
+  # 精确测距使用 FAST-LIO 当前扫描的 IMU 体系点云，不使用累积地图。
+  # 标定未完成时保留画框，球距离为 NaN，不允许据此接近或宣布到位。
   lidar_ball:
-    enabled: false            # ← 总开关。false = 完全保持现有模式
-    mode: "fuse"              # camera | lidar | fuse
-    cloud_topic: "/cloud_registered"
-    odom_topic: "/Odometry"
-
-    # 地面球的高度窗口（【车体系】z：+x 前、+y 左、+z 上；雷达装高约 1.2m）
-    z_min: -1.35
-    z_max: -0.75              # 篮球半径 12cm，球心离地约 12cm
-
-    ball_radius_m: 0.12       # 篮球直径约 24cm；排球 21cm 时这里可放宽
-    radius_tolerance_m: 0.07
-    cluster_tolerance_m: 0.09
-    min_points: 6
+    enabled: true
+    mode: precision
+    cloud_topic: /cloud_registered_body
+    cloud_frame: body
+    odom_topic: /Odometry
+    extrinsics_confirmed: false
+    base_from_cloud: null      # IMU -> base_link，4x4，包含安装位置与方向
+    base_from_camera: null     # OpenCV 光学坐标 -> base_link，4x4
+    max_age_s: 0.30
+    max_sync_s: 0.10
+    min_confidence: 0.60
+    min_points: 12
     max_range_m: 6.0
-    match_distance_m: 0.7     # 相机检测与雷达候选多近算同一颗球
+    cluster_tolerance_m: 0.065
+    radii_m: {ball_basketball: 0.12, ball_volleyball: 0.105}
+    sensor_noise_m: 0.01
+    max_residual_m: 0.012
+    max_condition: 8.0
+    max_uncertainty_m: 0.02
