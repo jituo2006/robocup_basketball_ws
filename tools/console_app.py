@@ -993,6 +993,147 @@ class SystemChecks:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 底盘使能：CAN 检查 → 恢复 → 起底盘节点 → 等"已使能 4 个电机"
+# ─────────────────────────────────────────────────────────────────────────────
+PCAN_VIDPID = "0c72:000c"
+
+
+def probe_can():
+    """CAN 链路的裸查结果（不依赖 ROS）。"""
+    def sh(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=4).stdout
+        except Exception:  # noqa: BLE001
+            return ""
+
+    usb = sh(["lsusb"])
+    pcan = PCAN_VIDPID in usb
+    link = sh(["ip", "-br", "link", "show", "can0"]).strip()
+    up = "UP" in link
+    drops = 0
+    try:
+        log = Path("/var/log/kern.log")
+        if log.is_file():
+            drops = log.read_text(errors="replace").count("USB disconnect")
+    except Exception:  # noqa: BLE001
+        pass
+    return {"pcan_present": pcan, "can0_up": up, "can0_line": link,
+            "usb_disconnects": drops, "vidpid": PCAN_VIDPID}
+
+
+class ChassisManager:
+    """单独起/停 rb_chassis，并盯日志确认"电机已使能"。"""
+
+    def __init__(self, log_deque: deque, checks: "SystemChecks"):
+        self.log = log_deque
+        self.checks = checks
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+        self.can_line = ""          # 底盘日志里那句 "CAN 已启动"
+        self.enabled_line = ""      # "底盘已使能 4 个电机"
+        self.state = {"flow": "idle", "step": ""}
+
+    @property
+    def running(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _pump(self, proc):
+        for raw in iter(proc.stdout.readline, b""):
+            try:
+                line = raw.decode("utf-8", "replace").rstrip()
+            except Exception:  # noqa: BLE001
+                continue
+            with self.lock:
+                if "CAN 已启动" in line:
+                    self.can_line = line.split("]", 1)[-1].strip()
+                if "底盘已使能" in line:
+                    self.enabled_line = line.split("]", 1)[-1].strip()
+            self.log.append((time.time(), "CHASSIS", "rb_chassis", line))
+        self.log.append((time.time(), "CHASSIS", "rb_chassis",
+                         f"— 底盘节点退出 code={proc.poll()} —"))
+
+    def start(self, wait_s: float = 25.0):
+        """起底盘并等"已使能"。返回 (ok, msg)。"""
+        with self.lock:
+            if self.running:
+                return bool(self.enabled_line), (
+                    self.enabled_line or "底盘节点已在跑，但还没看到使能日志")
+            self.can_line = ""
+            self.enabled_line = ""
+            self.state.update(flow="running", step="检查 CAN")
+
+        # ① CAN 链路
+        can = probe_can()
+        if not can["pcan_present"]:
+            n = can["usb_disconnects"]
+            msg = (f"lsusb 里没有 PEAK/XCAN 适配器（{PCAN_VIDPID}）—— "
+                   f"适配器没插好或掉线了（本次开机 USB 掉线 {n} 次）")
+            self.log.append((time.time(), "ERROR", "CAN", msg))
+            with self.lock:
+                self.state.update(flow="failed", step="CAN 适配器不在")
+            return False, msg
+        if not can["can0_up"]:
+            self.log.append((time.time(), "CHASSIS", "CAN",
+                             "can0 没 UP → 跑 tools/can_recover.sh"))
+            with self.lock:
+                self.state["step"] = "恢复 can0"
+            self.checks._run("CAN 恢复", "tools/can_recover.sh", timeout=60.0)
+            can = probe_can()
+            if not can["can0_up"]:
+                with self.lock:
+                    self.state.update(flow="failed", step="can0 起不来")
+                return False, "can0 拉不起来（看日志里的 can_recover 输出）"
+
+        # ② 起底盘
+        with self.lock:
+            self.state["step"] = "启动底盘节点"
+        self.log.append((time.time(), "CHASSIS", "rb_chassis",
+                         "=== 启动 rb_chassis（真下发 CAN）==="))
+        cmd = ["bash", "-c",
+               "source /opt/ros/humble/setup.bash && "
+               f"source {WS}/install/setup.bash && "
+               "exec ros2 launch rb_chassis chassis.launch.py"]
+        self.proc = subprocess.Popen(cmd, cwd=str(WS), stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, start_new_session=True)
+        threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
+
+        # ③ 等使能日志
+        deadline = time.time() + wait_s
+        while time.time() < deadline:
+            with self.lock:
+                if self.enabled_line:
+                    self.state.update(flow="done", step=self.enabled_line)
+                    return True, self.enabled_line
+                if not self.running:
+                    self.state.update(flow="failed", step="底盘节点退出了")
+                    return False, "底盘节点启动后就退出了（看日志）"
+            time.sleep(0.4)
+        with self.lock:
+            self.state.update(flow="failed", step="等使能日志超时")
+        return False, (f"{wait_s:.0f}s 内没看到「底盘已使能」—— "
+                       "多半是 CAN 通了但电机板没响应（板子锁了？断电 10 秒重上电）")
+
+    def stop(self):
+        if not self.running:
+            return False, "底盘节点没在跑"
+        with self.lock:
+            try:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
+            except Exception:  # noqa: BLE001
+                pass
+            self.state.update(flow="idle", step="已停止")
+        self.log.append((time.time(), "CHASSIS", "rb_chassis",
+                         "=== 已发送停止（SIGINT，会先发零速）==="))
+        return True, "已发送 SIGINT"
+
+    def snapshot(self):
+        with self.lock:
+            return {"running": self.running, "flow": self.state["flow"],
+                    "step": self.state["step"], "enabled_line": self.enabled_line,
+                    "can_line": self.can_line, **probe_can()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 调试脚本运行器（寻球/绕场等整车测试）
 # ─────────────────────────────────────────────────────────────────────────────
 # 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
@@ -1149,7 +1290,7 @@ def panic():
 # Flask 应用
 # ─────────────────────────────────────────────────────────────────────────────
 def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
-             checks: SystemChecks, field: dict):
+             checks: SystemChecks, chassis: ChassisManager, field: dict):
     import cv2
     from flask import Flask, Response, jsonify, request, send_file
 
@@ -1167,6 +1308,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["stack_running"] = stack.running
         s["tool_running"] = tool.running
         s["tool_name"] = tool.name
+        s["chassis"] = chassis.snapshot()
         with checks.lock:
             s["readiness"] = checks.state["result"]
             s["checks_running"] = checks.state["running"]
@@ -1265,6 +1407,10 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"), checks.check_ready())))
             if name == "CAN_RECOVER":
                 return jsonify(dict(zip(("ok", "msg"), checks.can_recover())))
+            if name == "CHASSIS_ENABLE":
+                return jsonify(dict(zip(("ok", "msg"), chassis.start())))
+            if name == "CHASSIS_STOP":
+                return jsonify(dict(zip(("ok", "msg"), chassis.stop())))
             if name == "STARTUP_FLOW":
                 return jsonify(dict(zip(("ok", "msg"), checks.startup_flow(stack))))
             if name in DEBUG_TOOLS:
@@ -1294,8 +1440,9 @@ def main(argv=None):
     stack = StackManager(not args.no_stack_control, logbuf)
     tool = ToolRunner(logbuf)
     checks = SystemChecks(logbuf)
+    chassis = ChassisManager(logbuf, checks)
     bridge = Bridge({"topics": topics})
-    app = make_app(bridge, stack, tool, checks, field)
+    app = make_app(bridge, stack, tool, checks, chassis, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")
     print(f"     本机访问   http://127.0.0.1:{args.port}")

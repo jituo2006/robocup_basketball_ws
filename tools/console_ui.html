@@ -125,6 +125,19 @@
         <button onclick="act('STACK_START')">▶ 只启动整套</button>
         <button class="danger" onclick="if(confirm('停止整套软件？（会走优雅退出、先发零速）'))act('STACK_STOP')">⏹ 停止整套</button>
       </div>
+
+      <div style="border-top:1px solid var(--line);margin:10px 0 8px"></div>
+      <button class="orange" onclick="chassisEnable()">🔌 CAN + 电机使能</button>
+      <div class="flowbox" id="chbox" style="display:none"></div>
+      <div class="row">
+        <button onclick="act('CHASSIS_STOP')">⏹ 停底盘节点</button>
+        <button onclick="act('CAN_RECOVER')">🔌 只恢复 CAN</button>
+      </div>
+      <div class="hint">
+        <b>🔌 CAN + 电机使能</b> = 查 PCAN 适配器 → 不行就恢复 can0 →
+        单起 rb_chassis（真下发 CAN）→ 等「底盘已使能 4 个电机」。<br>
+        只调底盘时用这个，不用起雷达/相机那一整套。
+      </div>
       <div class="hint">
         <b>⚡ 一键启动流程</b> = 跑 boot.sh → 等「底盘已使能 + mission 就绪」→ 自动做就绪检查。<br>
         更细的手动排查用右边那两个按钮。
@@ -282,6 +295,8 @@
       <div class="kv"><span>串口设备</span><span id="hw_serial">—</span></div>
       <div class="kv"><span>/dev/R1_usb2ttl</span><span id="hw_r1">—</span></div>
       <div class="kv"><span>关键节点数（应各 1）</span><span id="hw_nodes">—</span></div>
+      <div class="kv"><span>PCAN 适配器 (0c72:000c)</span><span id="hw_pcan">—</span></div>
+      <div class="kv"><span>底盘节点 / 电机使能</span><span id="hw_chassis">—</span></div>
       <div class="hint">机构配置要 /dev/R1_usb2ttl，但 udev 只生成 /dev/usb2ttl —— 若这里显示 ✗ 就需要补 udev 规则或改配置。</div>
     </div>
 
@@ -369,6 +384,48 @@ function setView(v, mx, my){
 }
 function toggleMx(){ setView(LIDAR_VIEW, LIDAR_MIRROR === '1' ? '0' : '1', LIDAR_MIRY); }
 function toggleMy(){ setView(LIDAR_VIEW, LIDAR_MIRROR, LIDAR_MIRY === '1' ? '0' : '1'); }
+
+function chassisEnable(){
+  if(!confirm('CAN + 电机使能：\n  1) 查 PCAN 适配器 + can0\n  2) 必要时自动恢复 can0\n  3) 单起 rb_chassis（真下发 CAN）\n  4) 等「底盘已使能 4 个电机」\n\n⚠️ 底盘一使能，电机就上电了 —— 确认轮子周围没人/没东西。继续？')) return;
+  act('CHASSIS_ENABLE');
+}
+
+function renderChassis(s){
+  const c = s.chassis || {};
+  const box = $('chbox');
+  if(box){
+    if(c.flow && c.flow !== 'idle'){
+      const [mk, txt, col] = ({
+        running: ['●', '进行中', 'var(--blue)'],
+        done:    ['✅', '电机已使能', 'var(--ok)'],
+        failed:  ['✗', '失败', 'var(--bad)']
+      })[c.flow] || ['·', c.flow, 'var(--dim)'];
+      box.style.display = 'block';
+      box.innerHTML = `<span style="color:${col}">${mk} ${txt}</span>` +
+        (c.step ? `　<span style="color:var(--dim)">${c.step}</span>` : '') +
+        `<br><span style="color:var(--dim)">PCAN ${c.pcan_present?'✓':'✗'} · ` +
+        `can0 ${c.can0_up?'UP':'未UP'} · USB掉线 ${c.usb_disconnects??'?'} 次</span>`;
+    } else {
+      box.style.display = 'block';
+      box.innerHTML = `<span style="color:var(--dim)">PCAN ${c.pcan_present?'✓':'✗'} · ` +
+        `can0 ${c.can0_up?'UP':'未UP'} · USB掉线 ${c.usb_disconnects??'?'} 次</span>`;
+    }
+  }
+  // 顶部状态条加两个 pill
+  const p = $('pills');
+  if(p){
+    const has = [...p.children].some(el => el.dataset.k === 'chassis');
+    const html = `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>` +
+                 `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
+    if(!has) p.insertAdjacentHTML('beforeend', html);
+    else {
+      p.querySelector('[data-k="chassis"]').outerHTML =
+        `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>`;
+      p.querySelector('[data-k="motor"]').outerHTML =
+        `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
+    }
+  }
+}
 
 function flowRun(){
   if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
@@ -485,6 +542,7 @@ function renderProgress(s){
 
 function render(s){
   window._st = s;
+  renderChassis(s);
   renderChecks(s);
   renderProgress(s);
   const p = [];
@@ -534,6 +592,15 @@ function render(s){
   $('hw_cam').textContent = yn(s.hw.camera);
   $('hw_serial').textContent = (s.hw.serial_ports||[]).join(', ') || '无';
   $('hw_r1').textContent = yn(s.hw.r1_symlink);
+  const c = s.chassis || {};
+  const hp = $('hw_pcan'), hc = $('hw_chassis');
+  if(hp) hp.textContent = (c.pcan_present ? '✓ 在' : '✗ 不在') +
+                          `　USB 掉线 ${c.usb_disconnects ?? '?'} 次`;
+  if(hc) hc.innerHTML = (c.running ? '<span style="color:var(--ok)">节点在跑</span>'
+                                   : '<span style="color:var(--dim)">节点未起</span>') +
+                        ' / ' + (c.enabled_line ? '<span style="color:var(--ok)">电机已使能</span>'
+                                               : '<span style="color:var(--bad)">电机未使能</span>');
+
   const nc = s.hw.node_counts || {};
   const bad = Object.entries(nc).filter(([,v])=>v>1);
   $('hw_nodes').innerHTML = bad.length
