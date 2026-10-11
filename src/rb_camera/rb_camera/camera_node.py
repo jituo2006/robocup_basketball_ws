@@ -155,6 +155,12 @@ class CameraNode(Node):
         self._ae_frames = 0
         self._ae_log_t = 0.0
         self._ae_ctrl = None
+        # 刚调完曝光后要跳过的帧数：曝光改动要几帧后才体现在拿到的图像里，
+        # 立刻读亮度等于读【旧曝光】的结果 —— 闭环会追幻影、来回震荡。
+        self.ae_settle_frames = max(1, int(ae.get("settle_frames", 5)))
+        self._ae_skip = 0
+        self._ae_buf: list[float] = []
+        self.ae_avg_frames = max(1, int(ae.get("avg_frames", 3)))
         self.reconnect_interval_s = float(cam.get("reconnect_interval_s", 2.0))
         self.max_read_failures = int(cam.get("max_read_failures", 15))
         self.publish_rate_hz = float(cam.get("publish_rate_hz", 0.0))  # 0 = 不限速
@@ -507,13 +513,21 @@ class CameraNode(Node):
         YOLO 一个球都检不出。固定曝光在不同光照下不可能都对。
         """
         self._ae_frames += 1
+        if self._ae_skip > 0:
+            self._ae_skip -= 1          # 刚调完曝光，等画面稳定再读
+            return
         if self._ae_frames % self.ae_every_n != 0:
             return
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         except Exception:  # noqa: BLE001
             return
-        mean = float(gray.mean())
+        # 多帧平均：单帧亮度会被画面里的高光/暗物带偏
+        self._ae_buf.append(float(gray.mean()))
+        if len(self._ae_buf) < self.ae_avg_frames:
+            return
+        mean = sum(self._ae_buf) / len(self._ae_buf)
+        self._ae_buf.clear()
         if abs(self.ae_target - mean) < self.ae_deadband:
             return
         # ⚠️ 必须用【乘性】控制，不能用线性步进。
@@ -532,6 +546,8 @@ class CameraNode(Node):
         if self._ae_ctrl is None:
             self._ae_ctrl = self._find_ctrl("exposure", self._v4l2_ctrls()) or "exposure_time_absolute"
         self._set_ctrl(self._ae_ctrl, new)
+        self._ae_skip = self.ae_settle_frames
+        self._ae_buf.clear()
         now = time.time()
         if now - self._ae_log_t > 2.0:      # 限频，别刷屏
             self._ae_log_t = now

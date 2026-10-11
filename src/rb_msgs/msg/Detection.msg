@@ -36,3 +36,9 @@ float32 bbox_px_h
 float32 bearing_rad
 float32 distance_m          # 距离估计，未知填 NaN
 float32 diameter_m          # 目标物理直径（用于单目测距，未知填 NaN）
+
+# 这条检测是谁给的：
+#   "camera" —— 视觉检测器（默认，改动前的行为）
+#   "lidar"  —— 雷达地面球候选（此时 px/py/bbox 全是 NaN，没有图像坐标！）
+# 融合时用它区分来源，也方便现场判断"这颗球是看到还是扫到的"。
+string source

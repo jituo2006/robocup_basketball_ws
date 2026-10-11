@@ -163,3 +163,30 @@ perception:
 # 由 rb_mission 根据当前环节决定哪个 label 是目标、哪个是干扰。
 #   传球环节：目标=ball_basketball，干扰=ball_volleyball
 #   投篮环节：目标=ball_volleyball，干扰=ball_basketball
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 雷达找球（粗）+ 相机精定位（细）
+#
+# 思路：雷达扫地面球的点簇给"大概位置"，再让相机看过去精确定位。
+# 好处：雷达不受光照影响、能"看到"画面外的球（相机 FOV 才约 60°）、
+#       而且给的是直接测距（相机的单目测距靠球径先验，误差更大）。
+#
+# ⚠️ 默认 enabled: false —— 连点云都不订阅，行为和以前完全一样。
+#    现场想试就改成 true，mode 先试 "fuse"（相机为主、雷达补漏，最稳）。
+# ─────────────────────────────────────────────────────────────────────────────
+lidar_ball:
+  enabled: false            # ← 总开关。false = 完全保持现有模式
+  mode: "fuse"              # camera | lidar | fuse
+  cloud_topic: "/cloud_registered"
+  odom_topic: "/Odometry"
+
+  # 地面球的高度窗口（【车体系】z：+x 前、+y 左、+z 上；雷达装高约 1.2m）
+  z_min: -1.35
+  z_max: -0.75              # 篮球半径 12cm，球心离地约 12cm
+
+  ball_radius_m: 0.12       # 篮球直径约 24cm；排球 21cm 时这里可放宽
+  radius_tolerance_m: 0.07
+  cluster_tolerance_m: 0.09
+  min_points: 6
+  max_range_m: 6.0
+  match_distance_m: 0.7     # 相机检测与雷达候选多近算同一颗球

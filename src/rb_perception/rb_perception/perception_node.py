@@ -20,6 +20,8 @@
 
 from __future__ import annotations
 
+import math
+
 import os
 import time
 from typing import Any
@@ -37,6 +39,8 @@ from std_msgs.msg import Header
 
 from rb_msgs.msg import Detection, DetectionArray
 
+from .lidar_ball import (body_frame_cloud, find_ball_candidates,
+                            fuse as fuse_lidar_balls)
 from .detectors import BaseDetector, CameraModel, build_detectors
 
 # 不同类别用不同颜色画框，方便肉眼调参
@@ -103,6 +107,24 @@ class PerceptionNode(Node):
             self.sub = self.create_subscription(Image, self.image_topic, self.on_image, qos)
             self.source_desc = f"{self.image_topic} (原始图像)"
         self.pub = self.create_publisher(DetectionArray, self.output_topic, 10)
+
+        # ── 雷达找球（默认关：连订阅都不建，行为与改动前完全一致）──
+        self.lidar_cfg = dict((self.cfg.get("perception") or {}).get("lidar_ball") or {})
+        self._cloud = None
+        self._odom = None
+        self._lidar_stats = {}
+        if self.lidar_cfg.get("enabled", False):
+            from nav_msgs.msg import Odometry
+            from sensor_msgs.msg import PointCloud2
+            self.create_subscription(
+                PointCloud2, self.lidar_cfg.get("cloud_topic", "/cloud_registered"),
+                self.on_cloud, qos)
+            self.create_subscription(
+                Odometry, self.lidar_cfg.get("odom_topic", "/Odometry"),
+                self.on_odom, 10)
+            self.get_logger().info(
+                f"雷达找球已启用: mode={self.lidar_cfg.get('mode', 'fuse')} "
+                f"cloud={self.lidar_cfg.get('cloud_topic', '/cloud_registered')}")
         self.debug_pub = self.create_publisher(Image, self.debug_image_topic, 2)
         self.stats_timer = self.create_timer(5.0, self.log_stats)
 
@@ -143,6 +165,34 @@ class PerceptionNode(Node):
             self.get_logger().warn(f"图像转换异常: {exc}")
             return
         self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
+
+    # -- 雷达找球 ----------------------------------------------------------
+    def on_cloud(self, msg) -> None:
+        """只存最新一帧，转换放到算候选时做（省 CPU）。"""
+        try:
+            from sensor_msgs_py import point_cloud2
+            pts = point_cloud2.read_points_numpy(
+                msg, field_names=("x", "y", "z"), skip_nans=True)
+            self._cloud = pts
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"读点云失败: {exc}", throttle_duration_sec=10.0)
+
+    def on_odom(self, msg) -> None:
+        p = msg.pose.pose
+        q = p.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        self._odom = (p.position.x, p.position.y, yaw)
+
+    def lidar_candidates(self) -> list:
+        if self._cloud is None or self._odom is None:
+            return []
+        try:
+            body = body_frame_cloud(self._cloud, self._odom)
+            return find_ball_candidates(body, self.lidar_cfg)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"雷达找球失败: {exc}", throttle_duration_sec=10.0)
+            return []
 
     def on_compressed(self, msg: CompressedImage) -> None:
         """JPEG 压缩图回调：解码后走同一条处理链。"""
@@ -188,6 +238,15 @@ class PerceptionNode(Node):
         out.img_width = int(w)
         out.img_height = int(h)
         out.detections = [self.to_msg(d, stamp) for d in found]
+        # 相机检测标来源（RadarDetection 自己带 source="lidar"）
+        for d in out:
+            try:
+                d.source = "camera"
+            except Exception:  # noqa: BLE001
+                pass
+        if self.lidar_cfg.get("enabled", False):
+            out, self._lidar_stats = fuse_lidar_balls(
+                out, self.lidar_candidates(), self.lidar_cfg)
         self.pub.publish(out)
 
         # 限频打印，避免日志洪泛
