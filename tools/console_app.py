@@ -1125,9 +1125,13 @@ class SystemChecks:
     # 一键启动要等的关键进程（用进程名判断：比 ros2 node list 快得多；
     # pgrep -x 精确匹配进程名，不会匹配到我们自己 ✓）
     # 注意：这里可以写全名，_proc_running() 会按 comm 的 15 字符上限截断 ✓
+    # ⚠️ 这里填【进程名】，不是 ROS 节点名 —— 两者不一样：
+    #    后摄和后感知用的是【和前摄同一个可执行文件】camera_node / perception_node，
+    #    只是 ROS 节点名不同（rb_camera_rear / rb_perception_rear）。
+    #    曾经写成 camera_rear_node / perception_rear_node → pgrep 永远找不到
+    #    → "一键启动"一直误报"缺少节点"，而后摄其实跑得好好的 ✗。
     FLOW_NODES = ("rb_chassis_node", "mission_node", "localization_node",
-                  "camera_node", "camera_rear_node", "perception_node",
-                  "perception_rear_node")
+                  "camera_node", "perception_node")
 
     def startup_flow(self, stack: "StackManager"):
         """一键启动（极简版）：起 boot.sh → 等关键进程出现 → 完事。
