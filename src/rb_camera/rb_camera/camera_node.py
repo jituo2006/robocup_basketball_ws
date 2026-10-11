@@ -69,6 +69,11 @@ _V4L2_ALIASES: dict[str, list[str]] = {
     "saturation": ["saturation"],
     "sharpness": ["sharpness"],
     "power_line_frequency": ["power_line_frequency"],
+    # ⚠️ V4L2_CID_EXPOSURE_AUTO_PRIORITY：开着时驱动会【自己延长曝光】提亮，
+    #    直接和我们的曝光闭环对抗 —— 实测"曝光降下去亮度反而升高"、
+    #    "采集只有 11fps 而发布 30fps"都是它造成的。必须显式关掉。
+    "exposure_dynamic_framerate": ["exposure_dynamic_framerate",
+                                   "exposure_auto_priority"],
 }
 # auto_exposure 菜单里 1 是 Manual；不同驱动可能写成 bool/toggle，都按"关掉自动"处理
 _AUTO_EXPOSURE_MANUAL = 1
@@ -126,6 +131,30 @@ class CameraNode(Node):
         self.fourcc = str(self.declare_parameter("fourcc", str(cam.get("fourcc", "MJPG"))).value)
         self.buffersize = int(cam.get("buffersize", 1))
         self.flip = int(cam.get("flip", 0))
+        # ── 软件自动曝光 ──
+        # 固定曝光白天/晚上差好几倍（实测白天 600 会 96.9% 过曝死白），
+        # 而相机自带自动曝光的 exposure_time_absolute 带 flags=inactive 读不回，
+        # 所以按目标亮度自己闭环调。
+        _c = self.cfg.get("controls") or {}
+        ae = _c.get("auto_exposure") or {}
+        # ⚠️ 是否发【原始未压缩图】。默认关：
+        #    1280x720 原始图 2.7MB/帧，30Hz 就是 ~80MB/s，而 Python 有 GIL ——
+        #    这个发布线程会和采集线程抢锁，实测把采集从 50fps 拖到 5.8fps，
+        #    同时"发布 30fps 采集 11fps"（在重复发同一帧）。
+        #    感知用的是压缩话题（rb_perception 订阅 .../compressed），原始图没人用。
+        #    需要 RViz 看原图时再把它打开。
+        self.publish_raw = bool((self.cfg.get("output") or {}).get("publish_raw", False))
+        self.ae_enabled = bool(ae.get("enabled", False))
+        self.ae_target = float(ae.get("target_brightness", 115.0))
+        self.ae_deadband = float(ae.get("deadband", 8.0))
+        self.ae_gain = float(ae.get("gain", 0.7))   # 乘性指数：new = cur*(target/mean)^gain
+        self.ae_every_n = max(1, int(ae.get("tune_every_n", 15)))
+        self.ae_min = int(ae.get("min", 30))
+        self.ae_max = int(ae.get("max", 3000))
+        self._ae_current = int(_c.get("exposure", 150) or 150)
+        self._ae_frames = 0
+        self._ae_log_t = 0.0
+        self._ae_ctrl = None
         self.reconnect_interval_s = float(cam.get("reconnect_interval_s", 2.0))
         self.max_read_failures = int(cam.get("max_read_failures", 15))
         self.publish_rate_hz = float(cam.get("publish_rate_hz", 0.0))  # 0 = 不限速
@@ -287,6 +316,14 @@ class CameraNode(Node):
 
         done: list[str] = []
         failed: list[str] = []
+        # ① 先关掉"曝光自动优先/动态帧率" —— 否则驱动会自己改曝光跟我们对抗，
+        #    而且在暗光下把帧率拖到 11fps（实测）。必须在设曝光【之前】做。
+        dyn = self._find_ctrl("exposure_dynamic_framerate", avail)
+        if dyn is not None:
+            if self._set_ctrl(dyn, 0):
+                done.append(f"{dyn}=0（关掉驱动自动延长曝光）")
+            else:
+                failed.append(f"{dyn}=0")
 
         # 抗闪频：国内 50Hz
         plf = self._find_ctrl("power_line_frequency", avail)
@@ -452,6 +489,9 @@ class CameraNode(Node):
             elif self.flip == -1:
                 frame = cv2.flip(frame, -1)
 
+            if self.ae_enabled:
+                self._auto_exposure(frame)
+
             now = time.time()
             with self._lock:
                 self._latest = frame
@@ -459,6 +499,44 @@ class CameraNode(Node):
                 self._seq += 1
             self._frames_read += 1
             self._ok = True
+
+    def _auto_exposure(self, frame) -> None:
+        """按目标亮度闭环调曝光 —— 每 ae_every_n 帧走一小步，带死区防震荡。
+
+        现场教训：exposure=600 是晚上调的，第二天白天 96.9% 像素过曝、整片死白，
+        YOLO 一个球都检不出。固定曝光在不同光照下不可能都对。
+        """
+        self._ae_frames += 1
+        if self._ae_frames % self.ae_every_n != 0:
+            return
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        except Exception:  # noqa: BLE001
+            return
+        mean = float(gray.mean())
+        if abs(self.ae_target - mean) < self.ae_deadband:
+            return
+        # ⚠️ 必须用【乘性】控制，不能用线性步进。
+        #    实测这台相机曝光→亮度是陡峭非线性的（曝光 30→亮度 239，
+        #    曝光 107→亮度 78），线性步进会在目标两侧来回跳、收敛不了。
+        #    乘性形式 new = cur * (target/mean)^gain 对曝光这种"比例型"参数才稳。
+        ratio = self.ae_target / max(mean, 1.0)
+        new = int(round(self._ae_current * (ratio ** self.ae_gain)))
+        # 单次步进限幅：别一下跳太远（防抖）
+        span = max(1, int(self._ae_current * 0.5))
+        new = max(self._ae_current - span, min(self._ae_current + span, new))
+        new = max(self.ae_min, min(self.ae_max, new))
+        if new == self._ae_current:
+            return
+        self._ae_current = new
+        if self._ae_ctrl is None:
+            self._ae_ctrl = self._find_ctrl("exposure", self._v4l2_ctrls()) or "exposure_time_absolute"
+        self._set_ctrl(self._ae_ctrl, new)
+        now = time.time()
+        if now - self._ae_log_t > 2.0:      # 限频，别刷屏
+            self._ae_log_t = now
+            self.get_logger().info(
+                f"自动曝光: 当前亮度 {mean:.0f}（目标 {self.ae_target:.0f}）→ 曝光设为 {new}")
 
     def _sleep(self, sec: float) -> None:
         """可被 stop() 打断的睡眠。"""
@@ -496,7 +574,8 @@ class CameraNode(Node):
             return
         msg.header.stamp = stamp
         msg.header.frame_id = self.frame_id
-        self.image_pub.publish(msg)
+        if self.publish_raw:
+            self.image_pub.publish(msg)
         self.info_pub.publish(self._make_info(stamp))
         if self.compressed_pub is not None:
             self._publish_compressed(frame, stamp)

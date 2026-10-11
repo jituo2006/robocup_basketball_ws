@@ -22,6 +22,12 @@ private:
   // 害得排查时误以为"配置是 1 但实际用了 0"，白白去改了能用的配置。
   uint32_t board_id_ = 0;
   double angular_z_sign_ = 1.0;   // 旋转方向符号（物理装轮方式决定，默认 +1）
+
+  // 停车（cmd_vel 超时 / 急停）时的减速度上限 m/s²。
+  // ⚠️ 必须有这一项：停车若走平时的 limit_acc 会太慢（不安全），
+  //    若直接把速度阶跃到零则会让电机速度环过冲甚至反转 ——
+  //    现场表现就是"急停时猛往后窜一下"。取"够快但不阶跃"的中间值。
+  double stop_accel_ = 3.0;
   std::array<int16_t, 4> wheel_speed{};
   bool timeout_zero_sent_ = false;
 
@@ -38,6 +44,8 @@ public:
 
   /// 旋转方向符号。若实车自转方向与指令相反，把它设成 -1（不用改代码重编译）。
   void setAngularZSign(double sign) { angular_z_sign_ = (sign < 0 ? -1.0 : 1.0); }
+  void setStopAccel(double a) { if (a > 0.0) stop_accel_ = a; }
+  double stopAccel() const { return stop_accel_; }
   double angularZSign() const { return angular_z_sign_; }
 
 

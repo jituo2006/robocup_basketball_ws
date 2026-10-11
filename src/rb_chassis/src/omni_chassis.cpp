@@ -69,22 +69,29 @@ void OmniChassis::execute() {
   //   电机板的看门狗靠"持续收到帧"喂。只发一次零速、之后停发，板子照样会锁
   //   "通信超时"故障（软件 MotorOn 清不掉、只能断电）—— 这正是"关终端/杀节点
   //   之后板子锁死、下次上车不动"的成因。每周期都发零速，板子就不会锁。
+  bool stopping = false;
   if (!hasFreshVelocityCommand()) {
     if (!timeout_zero_sent_) {
-      RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，持续下发零轮速",
+      RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，按停车减速度斜坡降到零",
                   static_cast<long>(commandTimeout().count()));
       timeout_zero_sent_ = true;
     }
-    // 清空目标 + 同步 slew 状态：避免恢复指令时从旧的非零速度猛加速
+    // ⚠️ 这里【不能】直接 last_sent_vel_ = 0 再发零 ——
+    //    那等于把轮速从当前值阶跃到 0，电机速度环会积分饱和、过冲越过零、
+    //    短暂反转，现场就是"急停时猛往后窜一下"。
+    //    正确做法：目标设为零，但照常走 applyLimits() 的斜坡。
     target_vel = geometry_msgs::msg::Twist{};
-    last_sent_vel_ = target_vel;
-    sendZeroVelocity();
-    return;
+    stopping = true;
+  } else {
+    timeout_zero_sent_ = false;
   }
-  timeout_zero_sent_ = false;
 
   // ---------- ② 限幅 + 加速度限制 ----------
+  // 停车用专用减速度（比平时的 limit_acc 快，但仍是斜坡不是阶跃）
+  const double saved_acc = limit_acc;
+  if (stopping) limit_acc = stop_accel_;
   const geometry_msgs::msg::Twist cmd = applyLimits();
+  limit_acc = saved_acc;
 
   // ---------- ③ 全向运动学 ----------
   //

@@ -44,6 +44,8 @@ int main(int argc, char **argv) {
   const auto board_id = param_node->declare_parameter<int>("board_id", 1);
   const auto limit_vel = param_node->declare_parameter<double>("limit_vel", 1.0);
   const auto limit_acc = param_node->declare_parameter<double>("limit_acc", 1.5);
+  // 停车（cmd_vel 超时/急停）专用减速度：要快，但不能是阶跃（会过冲反转）
+  const auto stop_accel = param_node->declare_parameter<double>("stop_accel", 3.0);
   // CAD 设计初值，与 chassis.yaml 一致；实车标定后可用 ROS 参数覆盖。
   const auto width = param_node->declare_parameter<double>("width", 0.477059538);
   const auto length = param_node->declare_parameter<double>("length", 0.477059538);
@@ -95,6 +97,7 @@ int main(int argc, char **argv) {
   node->setCommandTimeout(std::chrono::milliseconds(timeout_ms));
   node->setAngularZSign(angular_z_sign);
   node->setParameter(limit_vel, limit_acc, width, length, wheel_radius, ratio);
+  node->setStopAccel(stop_accel);
 
   auto wheel_pub = node->create_publisher<std_msgs::msg::Int16MultiArray>("/chassis/wheel_speed", 10);
 

@@ -35,6 +35,12 @@ camera:
   #   JPEG 把 640x480 压到 ~40KB，30fps 才 1.2MB/s，轻松跑满帧率。
   #   配套：rb_perception 要用 -p use_compressed:=true 订阅 /camera/image_raw/compressed
   publish_compressed: true
+  # ⚠️ 是否发布【原始未压缩图】。默认 false ——
+  #    1280x720 原始图 2.7MB/帧，30Hz ≈ 80MB/s；Python 有 GIL，这个发布线程
+  #    会和采集线程抢锁，实测把采集从 50fps 拖到 5.8fps（同时"发布30 采集11"
+  #    在重复发同一帧）。感知只用压缩话题，原始图没人用。
+  #    要用 RViz 看原图 / 跑颜色标定时再打开。
+  publish_raw: false
   jpeg_quality: 80
 
 # 相机固定项：锁定自动曝光/白平衡。
@@ -54,7 +60,24 @@ controls:
   #    YOLO **完全检不出球**（检出 0 个）；调到 150 以上立刻出 2 个检测
   #    （ball_basketball 0.93 / ball_volleyball 0.88）。
   #    → 曝光是「能不能看到球」的开关，现场务必用 tune_camera.py 复核。
-  exposure: 600             # 手动曝光值（1..5000，单位约 100µs）
+  # ⚠️ 固定曝光在早/中/晚、开灯/不开灯之间差好几倍，必然一会儿过曝一会儿过暗。
+  #    实测 2026-10-11 白天：exposure=600 → 96.9% 像素过曝整片死白（YOLO 检不出球）；
+  #    当天合适值是 100~200。600 是 10-09 晚上调的。
+  #    → 打开下面的 auto_exposure，不要再手调这个值。
+  exposure: 150             # 自动曝光的【起始值】；auto_exposure.enabled=false 时才是固定值
+  # 软件自动曝光闭环：按目标亮度自己调曝光。
+  # 不用相机自带自动曝光的原因：本机实测自动模式下 exposure_time_absolute
+  # 带 flags=inactive，**读不到相机自己算的值**，颜色/距离标定会跟着漂。
+  auto_exposure:
+    enabled: true
+    target_brightness: 115    # 目标灰度均值(0..255)。80~140 都合理，115 偏中间
+    deadband: 8               # 亮度差在此范围内就不动（防来回震荡）
+    gain: 0.7                 # 乘性指数：new = cur*(target/mean)^gain。
+                              # 实测相机曝光→亮度是陡峭非线性的，线性步进会震荡收敛不了。
+                              # 0.7 偏保守；若收敛太慢可加到 1.0（会更容易震荡）。
+    tune_every_n: 15          # 每多少帧调一次（30fps 下 ≈ 0.5s）
+    min: 30                   # 曝光下限，别调到全黑
+    max: 3000                 # 曝光上限，别调到拖慢帧率
   lock_white_balance: true
   white_balance_temperature: 4600   # 2800..6500 K，4600 是这台相机的默认值
   power_line_frequency: 1   # 1 = 50Hz（国内，抗灯光闪频）；0=禁用 2=60Hz
