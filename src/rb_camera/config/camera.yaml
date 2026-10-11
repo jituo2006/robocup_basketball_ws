@@ -2,6 +2,8 @@
 #    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
 #        parameters=[{"config_file": "<此文件路径>"}]
 # RoboCup 篮球机器人 · 相机配置
+# 2026-10-12 现场安装：横梁正中、朝车头、向下 20°，相机中心离地 0.33 m。
+# 安装角不是内参；完整外参及统一测距基准见 docs/ball_precision_setup.md。
 #
 # 本机实测（HD USB Camera, 05a3:9230, UVC 免驱）：
 #   MJPG 1280x720 → 实测 27 fps；MJPG 640x480 → 45 fps

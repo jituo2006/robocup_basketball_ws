@@ -1,4 +1,6 @@
 # 2026-10-12 现场确认：LRCP V1080P 为车尾相机，使用固定 USB 路径。
+# 2026-10-12 现场安装：横梁正中、朝车尾、水平（俯角 0°），中心离地 0.21 m。
+# 旧版已有水平安装标注；完整外参见 docs/ball_precision_setup.md。
 camera:
   device: /dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0
   width: 1280
