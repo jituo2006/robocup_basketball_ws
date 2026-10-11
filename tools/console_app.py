@@ -930,10 +930,38 @@ class Bridge:
             self.logs.append((time.time(), lvl, m.name, m.msg))
 
     def _spin(self):
-        try:
-            self.rclpy.spin(self.node)
-        except Exception:  # noqa: BLE001
-            pass
+        """ROS 执行器线程。
+
+        ⚠️ 这里原来写的是 `try: rclpy.spin(self.node) except Exception: pass` ——
+        回调里一旦抛异常，执行器线程【静默死掉】，之后所有话题都收不到，
+        而日志里一条报错都没有。现场现象就是"雷达没连上"：
+        订阅在 ROS 图里明明都在（创建于 spin 之前），却一条数据都收不到，
+        连相机也一起没了。排查时极难定位，因为它伪装成"外部设备没连"。
+        现在：打印异常 + 自动重启执行器（带退避，避免疯狂刷屏）。
+        """
+        while not getattr(self, "_stop_spin", False):
+            try:
+                self.rclpy.spin(self.node)
+                return                      # 正常返回 = 已 shutdown
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                tb = traceback.format_exc()
+                try:
+                    with self.lock:
+                        self.state["ros_error"] = f"{type(e).__name__}: {e}"
+                        self.state["ros_error_count"] = \
+                            int(self.state.get("ros_error_count", 0)) + 1
+                    # 直接写进界面日志（这个类没有 log_line，用的是 self.logs）
+                    self.logs.append((time.time(), "ERROR", "ros",
+                                      f"ROS 执行器异常（第 "
+                                      f"{self.state.get('ros_error_count')} 次），"
+                                      f"正在重启：{e}"))
+                    for ln in tb.strip().splitlines()[-12:]:
+                        self.logs.append((time.time(), "ERROR", "ros", "  " + ln))
+                except Exception:  # noqa: BLE001
+                    pass
+                print("ROS executor crashed, restarting:\n" + tb, flush=True)
+                time.sleep(1.0)             # 退避，别刷屏也别死循环
 
     # -- 动作 ---------------------------------------------------------------
     def _call(self, cli, req, timeout=3.0):
