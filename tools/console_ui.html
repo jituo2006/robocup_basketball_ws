@@ -372,8 +372,14 @@ function setView(v, mx, my){
   localStorage.setItem('lidarMirror', LIDAR_MIRROR);
   localStorage.setItem('lidarMirY', LIDAR_MIRY);
   const img = $('lidar');
-  // 换 src 会重连 MJPEG（这是刷新视角最省事的做法）
-  if(img) img.src = `/api/lidar.mjpg?view=${LIDAR_VIEW}&mirror=${LIDAR_MIRROR}&mirror_y=${LIDAR_MIRY}`;
+  // ⚠️ 直接改 src 浏览器不会马上丢掉旧 MJPEG 流（会把缓冲放完，还可能命中缓存），
+  //    现场表现就是"点了切换好几秒才变"。先置空断开旧流，下一帧再设新 URL。
+  if(img){
+    const url = `/api/lidar.mjpg?view=${LIDAR_VIEW}&mirror=${LIDAR_MIRROR}` +
+                `&mirror_y=${LIDAR_MIRY}&t=${Date.now()}`;
+    img.src = '';
+    setTimeout(() => { img.src = url; }, 20);
+  }
   const on = (el, yes) => { if(el) el.style.borderColor = yes ? 'var(--blue)' : 'var(--line)'; };
   on($('vStd'),   LIDAR_VIEW === 'field' && LIDAR_MIRROR === '0' && LIDAR_MIRY === '0');
   on($('vOff'),   LIDAR_VIEW === 'field' && LIDAR_MIRROR === '0' && LIDAR_MIRY === '1');
@@ -411,6 +417,17 @@ function renderChassis(s){
         `can0 ${c.can0_up?'UP':'未UP'} · USB掉线 ${c.usb_disconnects??'?'} 次</span>`;
     }
   }
+  // 顶部状态条：点云是否已变换到场地系（决定"雷达跟不跟箭头"）
+  const pl = $('pills');
+  if(pl){
+    const tfOk = !!s.odom_tf_ok;
+    const old = pl.querySelector('[data-k="tf"]');
+    const html = `<span class="pill ${tfOk?'ok':'bad'}" data-k="tf" title="点云需经 field←camera_init 变换才能和箭头对齐">` +
+                 `点云系 ${tfOk?'已对齐':'缺TF·会错位'}</span>`;
+    if(!old) pl.insertAdjacentHTML('beforeend', html);
+    else old.outerHTML = html;
+  }
+
   // 顶部状态条加两个 pill
   const p = $('pills');
   if(p){

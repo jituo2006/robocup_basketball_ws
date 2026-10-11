@@ -1368,6 +1368,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["tool_running"] = tool.running
         s["tool_name"] = tool.name
         s["chassis"] = chassis.snapshot()
+        s["odom_tf_ok"] = bridge.odom_to_field_tf() is not None
         with checks.lock:
             s["readiness"] = checks.state["result"]
             s["checks_running"] = checks.state["running"]
@@ -1433,7 +1434,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
                            + jpg + b"\r\n")
-                time.sleep(0.2)
+                # 0.1s = 10fps：原来 0.2s 时切换视角要等好几帧才跟手
+                time.sleep(0.1)
         return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
     @app.route("/api/action", methods=["POST"])
