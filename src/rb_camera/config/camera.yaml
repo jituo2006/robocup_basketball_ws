@@ -11,7 +11,9 @@
 #    如果用 YUYV，高分辨率下帧率会掉到 6~9fps。
 
 camera:
-  device: "/dev/video0"     # UVC 相机的采集节点（/dev/video1 通常是 metadata，别用）
+  # Stable front-camera capture node; do not fall back to a numbered rear camera.
+  # The ROS device parameter can override this when replacing hardware.
+  device: "/dev/v4l/by-id/usb-HD_Camera_Manufacturer_USB_2.0_Camera-video-index0"
   width: 1280               # 识别远处球用 1280x720；CPU 吃紧或要更低延迟可改 640x480
   height: 720
   fps: 30.0                 # 相机请求帧率（实际由相机能力决定）

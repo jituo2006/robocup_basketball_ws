@@ -41,7 +41,7 @@ from rb_msgs.msg import Detection, DetectionArray
 
 from .lidar_ball import (body_frame_cloud, find_ball_candidates,
                             fuse as fuse_lidar_balls)
-from .detectors import BaseDetector, CameraModel, build_detectors
+from .detectors import BaseDetector, CameraModel, OnnxDetector, build_detectors
 
 # 不同类别用不同颜色画框，方便肉眼调参
 _DEBUG_COLORS = {
@@ -221,6 +221,10 @@ class PerceptionNode(Node):
                 self.get_logger().warn(f"检测器 {det.label} 异常: {exc}")
                 continue
             for r in results:
+                # Reused YOLO boxes retain the timestamp of the inference image.
+                # The array may contain other detectors from the current frame.
+                if not isinstance(det, OnnxDetector) or det.inferred_this_frame:
+                    r.observation_stamp = stamp
                 if per_label.get(r.label, 0) >= self.max_per_label:
                     break
                 per_label[r.label] = per_label.get(r.label, 0) + 1
@@ -285,7 +289,7 @@ class PerceptionNode(Node):
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()
-        m.stamp = stamp
+        m.stamp = getattr(d, "observation_stamp", None) or stamp
         m.label = d.label
         m.confidence = float(d.confidence)
         m.x_min, m.y_min, m.x_max, m.y_max = (float(v) for v in d.bbox)

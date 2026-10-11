@@ -174,6 +174,17 @@ class Ekf2D:
 
         self.P = F @ self.P @ F.T + Q
 
+    def predict_pose_delta(self, previous, current, dt: float) -> None:
+        """Predict from base poses without also integrating odometry twist.
+
+        Independent filter corrections remain in the predicted state.
+        """
+        if dt <= 0.0:
+            return
+        vx, vy = world_vel_to_body((current[0] - previous[0]) / dt,
+                                  (current[1] - previous[1]) / dt, previous[2])
+        self.predict(vx, vy, wrap_pi(current[2] - previous[2]) / dt, dt)
+
     # -- 更新：绝对位姿 ----------------------------------------------------
     def update_pose(self, mx: float, my: float, myaw: float) -> None:
         if not self.initialized:

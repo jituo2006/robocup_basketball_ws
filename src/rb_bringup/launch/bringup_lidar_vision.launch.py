@@ -120,7 +120,8 @@ def generate_launch_description():
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("use_compressed", default_value="true",
                               description="原始大图消息投递只有 ~7fps，默认走 JPEG 压缩图"),
-        DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
+        DeclareLaunchArgument("camera_device", default_value="",
+                              description="Empty uses camera.yaml stable front-camera path"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("ros_domain_id", default_value="2"),
 

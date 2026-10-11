@@ -124,7 +124,10 @@ class CameraNode(Node):
         intr = self.cfg.get("intrinsics", {}) or {}
 
         # 常用项允许 ROS 参数覆盖（方便现场临时换设备/分辨率，不改文件）
-        self.device = str(self.declare_parameter("device", str(cam.get("device", "/dev/video0"))).value)
+        # Empty launch override uses the configured stable /dev/v4l/by-id path.
+        # If absent, retry that camera rather than opening a different device.
+        device_override = str(self.declare_parameter("device", "").value).strip()
+        self.device = device_override or str(cam.get("device", "/dev/video0"))
         self.width = int(self.declare_parameter("width", int(cam.get("width", 1280))).value)
         self.height = int(self.declare_parameter("height", int(cam.get("height", 720))).value)
         self.fps = float(self.declare_parameter("fps", float(cam.get("fps", 30.0))).value)
@@ -226,8 +229,9 @@ class CameraNode(Node):
         # 采集线程共享状态
         self._lock = threading.Lock()
         self._latest: Any = None
-        self._latest_stamp: float = 0.0
+        self._latest_stamp = None
         self._seq = 0
+        self._last_pub_seq = 0
         self._running = True
         self._ok = False
         self._cap: cv2.VideoCapture | None = None
@@ -487,6 +491,9 @@ class CameraNode(Node):
                     self._sleep(0.01)
                 continue
 
+            # Host receipt time, before processing. VideoCapture does not expose
+            # the UVC hardware exposure timestamp.
+            stamp = self.get_clock().now().to_msg()
             self._read_failures = 0
             if self.flip == 1:
                 frame = cv2.flip(frame, 1)
@@ -498,10 +505,9 @@ class CameraNode(Node):
             if self.ae_enabled:
                 self._auto_exposure(frame)
 
-            now = time.time()
             with self._lock:
                 self._latest = frame
-                self._latest_stamp = now
+                self._latest_stamp = stamp
                 self._seq += 1
             self._frames_read += 1
             self._ok = True
@@ -580,21 +586,22 @@ class CameraNode(Node):
         with self._lock:
             frame = None if self._latest is None else self._latest
             seq = self._seq
-        if frame is None:
+            stamp = self._latest_stamp
+        if frame is None or stamp is None or seq == self._last_pub_seq:
             return
-        stamp = self.get_clock().now().to_msg()
-        try:
-            msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(f"图像转换失败: {exc}")
-            return
-        msg.header.stamp = stamp
-        msg.header.frame_id = self.frame_id
         if self.publish_raw:
+            try:
+                msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f"图像转换失败: {exc}")
+                return
+            msg.header.stamp = stamp
+            msg.header.frame_id = self.frame_id
             self.image_pub.publish(msg)
         self.info_pub.publish(self._make_info(stamp))
         if self.compressed_pub is not None:
             self._publish_compressed(frame, stamp)
+        self._last_pub_seq = seq
         self._frames_published += 1
 
     def _publish_compressed(self, frame, stamp) -> None:

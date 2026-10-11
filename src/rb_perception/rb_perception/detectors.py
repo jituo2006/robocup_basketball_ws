@@ -500,6 +500,7 @@ class OnnxDetector(BaseDetector):
         self.every_n = max(1, int(cfg.get("every_n_frames", 1) or 1))
         self._frame_i = 0
         self._cached: list[Detection] = []
+        self.inferred_this_frame = False
         # 只保留"映射过的"类别（默认开）。COCO 预训练有 80 类，不筛的话
         # person/chair/cat 会全混进 /perception/detections，而且被套上
         # real_diameter_m（按篮球尺寸）算出荒谬距离 —— 实测 person 报 0.28m。
@@ -746,6 +747,7 @@ class OnnxDetector(BaseDetector):
                 cid[keep].astype(int))
 
     def detect(self, frame_bgr: np.ndarray, cam: CameraModel) -> list[Detection]:
+        self.inferred_this_frame = False
         if self.session is None:
             return []
         # 跳帧：非推理帧直接复用上次结果（球在相邻帧间位移很小，够用）
@@ -757,6 +759,7 @@ class OnnxDetector(BaseDetector):
         tensor, s, pad_x, pad_y = self._letterbox(frame_bgr)
         try:
             out = self.session.run(None, {self.input_name: tensor})[0]
+            self.inferred_this_frame = True
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"ONNX 推理失败: {exc}") from exc
 

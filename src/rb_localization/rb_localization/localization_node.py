@@ -151,6 +151,7 @@ class LocalizationNode(Node):
         self.publish_timer = self.create_timer(1.0 / max(self.publish_rate_hz, 1.0),
                                                lambda: self.publish_state(None))
         self.last_odom_time: Time | None = None
+        self.last_odom_field_pose = None
         self.odom_count = 0
         self.abs_count = 0
         self.pillar_updates = 0
@@ -278,8 +279,6 @@ class LocalizationNode(Node):
         if self.last_odom_time is not None:
             dt = (now - self.last_odom_time).nanoseconds * 1e-9
         self.last_odom_time = now
-        if dt <= 0.0 or dt > 0.5:
-            dt = 0.0
 
         # yaw 的取法（⚠️ 这里曾有个真 BUG）：
         #   FAST-LIO 的 `position.z` 是【高度】（实测 -0.007 m），**不是 yaw**。
@@ -292,22 +291,21 @@ class LocalizationNode(Node):
         pos = msg.pose.pose.position
         yaw = self._message_yaw(msg)
 
-        # 车体在里程计系下的朝向（= 雷达 yaw + 安装偏航）
-        byaw = wrap_pi(yaw + self.s2b_yaw)
-
-        tw = msg.twist.twist
-        if dt > 0.0:
-            # ⚠️ FAST-LIO 的 twist 是【world(camera_init)系】速度，而 Ekf2D.predict()
-            #    要的是**车体系**（它内部会再按 yaw 旋转）。直接喂 = 多转一次 yaw，
-            #    预测方向全错。转换细节见 ekf2d.world_vel_to_body（有单测锁住）。
+        if self.use_odom_pose_as_abs:
+            current = self.odom_to_field(pos.x, pos.y, yaw)
+            # FAST-LIO /Odometry only fills pose; twist stays zero. Transform
+            # to base-centre poses first so sensor rotation adds no false motion.
+            if self.last_odom_field_pose is not None and dt > 0.0:
+                self.ekf.predict_pose_delta(self.last_odom_field_pose, current, dt)
+            self.last_odom_field_pose = current
+            self.ekf.update_pose(*current)
+            self.abs_count += 1
+        elif 0.0 < dt <= 0.5:
+            # Velocity-only mode retains the existing world-frame convention.
+            tw = msg.twist.twist
+            byaw = wrap_pi(yaw + self.s2b_yaw)
             vx_b, vy_b = world_vel_to_body(tw.linear.x, tw.linear.y, byaw)
             self.ekf.predict(vx_b, vy_b, tw.angular.z, dt)
-
-        # 若这路里程计本身带绝对位姿（雷达 FAST-LIO / 全场定位板），做一次观测更新
-        if self.use_odom_pose_as_abs:
-            fx, fy, fyaw = self.odom_to_field(pos.x, pos.y, yaw)
-            self.ekf.update_pose(fx, fy, fyaw)
-            self.abs_count += 1
 
         self.odom_count += 1
 
