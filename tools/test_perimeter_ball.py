@@ -371,6 +371,17 @@ class Runner:
             self.rclpy.spin_once(self.node, timeout_sec=0.05)
         return self.pose is not None
 
+    def wait_motion_ready(self, timeout: float = 8.0) -> None:
+        deadline = time.monotonic() + timeout
+        while True:
+            self.spin(0.05)
+            try:
+                self.require_fresh_pose()
+                return
+            except RuntimeError:
+                if time.monotonic() >= deadline:
+                    raise
+
     # -- 基本动作 -----------------------------------------------------------
     def goto(self, tx: float, ty: float, timeout: float) -> bool:
         """平移到 (tx, ty)。用任务侧同一套 goto_command。"""
@@ -768,8 +779,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
             return 0
 
-        run.spin(0.2)
-        run.require_fresh_pose()
+        run.wait_motion_ready()
         run.motion_guard = True
 
         if not args.yes:

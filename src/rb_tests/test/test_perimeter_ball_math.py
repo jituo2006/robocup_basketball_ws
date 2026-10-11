@@ -371,3 +371,27 @@ def test_old_detection_is_not_fresh_even_when_republished():
         now=lambda: SimpleNamespace(nanoseconds=100_000_000_000)))
     assert not runner.detection_fresh(98.5)
     assert runner.detection_fresh(99.9)
+
+
+def test_startup_waits_for_first_lidar_without_relaxing_freshness():
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    frames = []
+    runner.spin = lambda sec: frames.append(True)
+    def ready():
+        if len(frames) < 3:
+            raise RuntimeError("尚未收到雷达")
+    runner.require_fresh_pose = ready
+    runner.wait_motion_ready()
+    assert len(frames) == 3
+
+
+def test_startup_never_accepts_permanently_stale_data():
+    mod = _load()
+    runner = mod.Runner.__new__(mod.Runner)
+    runner.spin = lambda sec: None
+    def stale():
+        raise RuntimeError("雷达里程计源时间戳过期")
+    runner.require_fresh_pose = stale
+    with pytest.raises(RuntimeError, match="时间戳过期"):
+        runner.wait_motion_ready(timeout=0)
