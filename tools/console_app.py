@@ -122,7 +122,8 @@ def draw_texts(img_bgr, items):
 
 
 def field_to_screen(wx, wy, fx0, fy0, scale, margin=28.0, w=LIDAR_W, h=LIDAR_H,
-                    mirror_x: bool = False):
+                    mirror_x: bool = False, mirror_y: bool = False,
+                    field_l: float | None = None, field_w: float | None = None):
     """场地固定视角：x 向右、y 向上；mirror_x=True 时 x 向左（水平镜像）。
 
     fx0/fy0 是场地左下角在场地系里的坐标（一般 0,0）。
@@ -132,10 +133,27 @@ def field_to_screen(wx, wy, fx0, fy0, scale, margin=28.0, w=LIDAR_W, h=LIDAR_H,
     标准俯视图（x 向右、篮筐在右）正好相反。镜像只是**显示**选择，
     坐标本身不变 —— 页面两种都提供，按现场实物对不对得上来选。
     """
-    px = margin + (np.asarray(wx) - fx0) * scale
+    # ⚠️ mirror_x/mirror_y 只是**显示**选择，坐标本身不变。
+    #    官方场地图：出发区 A 在左上、篮筐在右中 → 我们的 home=(1,1) 在左下，
+    #    要显示成官方那个样子就得开 mirror_y（上下翻）。
+    px = (np.asarray(wx) - fx0) * scale
+    py = (np.asarray(wy) - fy0) * scale
+    if field_l and field_w:
+        # 场地在画布中【真正居中】——只按单轴 margin 锚会造成另一个轴偏心
+        # （实测：900x560 画布、14x7.5 场地，纵向偏下 38px）
+        off_x = (w - float(field_l) * scale) / 2.0
+        off_y = (h - float(field_w) * scale) / 2.0
+        px = px + off_x
+        # y 向上：世界 y 越大 → 屏幕 y 越小
+        py = (h - off_y) - (np.asarray(wy) - fy0) * scale
+    else:
+        px = px + margin
+        py = h - margin - py
     if mirror_x:
         px = w - px
-    return px, h - margin - (np.asarray(wy) - fy0) * scale
+    if mirror_y:
+        py = h - py
+    return px, py
 
 
 def depth_to_slant(depth_m: float, bearing_rad: float, max_bearing_deg: float = 78.0):
@@ -215,7 +233,8 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
 
 
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
-                 view: str = "field", mirror_x: bool = False) -> bytes:
+                 view: str = "field", mirror_x: bool = False,
+                 mirror_y: bool = False) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
@@ -243,9 +262,12 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         scale = min((LIDAR_W - 2 * margin) / max(L, 1e-3),
                     (LIDAR_H - 2 * margin) / max(W, 1e-3)) * 0.94
         _mir = (mirror_x and view == "field")
+        _miry = (mirror_y and view == "field")
 
         def to_px(wx, wy):
-            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin, mirror_x=_mir)
+            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin,
+                                     mirror_x=_mir, mirror_y=_miry,
+                                     field_l=L, field_w=W)
             return int(px), int(py)
 
     # 场地边界（浅灰矩形）+ 中线
@@ -271,7 +293,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         for i in range(steps + 1):
             a = math.radians(a0 + (a1 - a0) * i / steps)
             wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
-            if -0.05 <= wx_ <= L + 0.05 and -0.05 <= wy_ <= W + 0.05:
+            # 严格裁到场内：官方图上三分线也是被边线裁掉的，不该画到场外
+            if 0.0 <= wx_ <= L and 0.0 <= wy_ <= W:
                 pts.append((wx_, wy_))
         if len(pts) >= 2:
             _poly(pts, color, thick, close=False)
@@ -286,6 +309,14 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
         tp_px = to_px(float(tp["x"]), float(tp["y"]))
         texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
+
+    # 中线置球区（官方图左侧那个大圆：R2500，圆心距左边线 2500mm → (2.5, 3.75)）
+    fz = field.get("front_zone_circle") or {}
+    if isinstance(fz, dict) and "x" in fz and float(fz.get("radius_m", 0) or 0) > 0:
+        _arc(float(fz["x"]), float(fz["y"]), float(fz["radius_m"]), (110, 90, 140), 1)
+        q = to_px(float(fz["x"]), float(fz["y"]))
+        texts.append((str(fz.get("name", "中线置球区")), (q[0] - 30, q[1] + 4),
+                      (140, 115, 175), 12))
 
     # 投篮线（以篮筐为心）
     hoop = field.get("hoop") or {}
@@ -354,7 +385,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                          (np.abs(left) < LIDAR_RANGE_M * 1.2))
         else:
             px_f, py_f = field_to_screen(p[:, 0], p[:, 1], 0.0, 0.0, scale, 30.0,
-                                         mirror_x=_mir)
+                                         mirror_x=_mir, mirror_y=_miry,
+                                         field_l=L, field_w=W)
             keep_near = np.ones(len(p), dtype=bool)     # 场地模式不按半径裁
         px = px_f.astype(np.int32)
         py = py_f.astype(np.int32)
@@ -416,8 +448,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # 左上角文字状态
     lines = [
         (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°"
-         + ("   [场地固定→右]" if view == "field" and not (mirror_x and view == "field")
-            else ("   [场地固定→左]" if view == "field" else "   [车头朝上]")),
+         + ("" if view == "robot"
+            else f"   [x→{'左' if mirror_x else '右'} y→{'下' if mirror_y else '上'}]"),
          (215, 215, 215), 15),
         (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
@@ -1164,6 +1196,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             view = "field"
         # ?mirror=1 → x 向左（篮筐在左，与现场实物核对习惯一致）
         mirror = (request.args.get("mirror") or "0") in ("1", "true", "yes")
+        mirror_y = (request.args.get("mirror_y") or "0") in ("1", "true", "yes")
 
         def gen():
             while True:
@@ -1174,7 +1207,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     lok = bridge.state["launcher_ok"]
                     ok = bridge.state["loc_ok"]
                 jpg = render_lidar(xyz, pose, dets, field, lok, ok,
-                                   view=view, mirror_x=mirror)
+                                   view=view, mirror_x=mirror, mirror_y=mirror_y)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"

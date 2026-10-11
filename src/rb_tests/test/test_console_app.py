@@ -412,3 +412,31 @@ def test_unmirrored_view_heading_still_points_right():
     rx, _ = mod.field_to_screen(1.0, 1.0, 0, 0, scale, margin, mirror_x=False)
     tx, _ = mod.field_to_screen(1.55, 1.0, 0, 0, scale, margin, mirror_x=False)
     assert tx > rx, "不镜像时车头应朝屏幕右"
+
+
+def test_official_layout_matches_diagram():
+    """与官方场地图一致：出发区 A 在左上、篮筐在右中。
+
+    官方图标了 14×7.5m、篮筐距右边线 1575mm、投篮边界线 R2000、三分线 R3750、
+    出发区在左侧上下两角（A 上 / B 下）。我们的 home=(1,1) 在左下，
+    所以要"x→右 + y 翻"才能对上官方那张图。
+    """
+    mod = _load()
+    scale, margin, L, Wd = 56.4, 30.0, 14.0, 7.5
+    # 官方图视角：x→右、y 翻；传场地长宽才走"画布居中"模式
+    kw = dict(mirror_x=False, mirror_y=True, field_l=L, field_w=Wd)
+    hx, hy = mod.field_to_screen(1.0, 1.0, 0, 0, scale, margin, **kw)
+    ox, oy = mod.field_to_screen(12.425, 3.75, 0, 0, scale, margin, **kw)
+    assert hx < W / 2 and hy < H / 2, f"出发区应在左上，实际 ({hx:.0f},{hy:.0f})"
+    assert ox > W / 2, f"篮筐应在右半边，实际 px={ox:.0f}"
+    assert abs(oy - H / 2) < 2, f"篮筐应在纵向中间（y=3.75），实际 py={oy:.0f}"
+
+
+def test_mirror_y_flips_y_only():
+    mod = _load()
+    _, y1 = mod.field_to_screen(1.0, 2.0, 0, 0, 50.0, 30.0, mirror_y=False)
+    _, y2 = mod.field_to_screen(1.0, 2.0, 0, 0, 50.0, 30.0, mirror_y=True)
+    x1, _ = mod.field_to_screen(1.0, 2.0, 0, 0, 50.0, 30.0, mirror_y=False)
+    x2, _ = mod.field_to_screen(1.0, 2.0, 0, 0, 50.0, 30.0, mirror_y=True)
+    assert x1 == x2, "mirror_y 不该影响 x"
+    assert abs((y1 + y2) - H) < 1e-6, f"y 应关于画布中线对称，{y1}+{y2}≠{H}"
