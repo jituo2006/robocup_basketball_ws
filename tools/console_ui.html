@@ -153,6 +153,33 @@
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
     </div>
 
+    <div class="card" id="cardSerialText">
+      <h2>机构文本指令（这台机构的真实协议）</h2>
+      <div class="row">
+        <button class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
+        <button class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 抓取 MOVE 1 90 5</button>
+        <button onclick="act('LAUNCH_PLACE')">👐 放下 MOVE 1 0 5</button>
+      </div>
+      <label style="margin-top:6px">自由输入（不含换行，节点会补）
+        <input type="text" id="stCmd" placeholder="例如 MOVE 1 90 5">
+      </label>
+      <div class="row">
+        <button onclick="act('LAUNCH_TEXT',{command:($('stCmd')||{}).value})">▶ 发送</button>
+      </div>
+      <div class="hint">
+        <b>协议</b>：<code>STOP</code> 停 · <code>ZERO</code> 初始化 ·
+        <code>MOVE 1 90 5</code> 抓取 · <code>MOVE 1 0 5</code> 放下。<br>
+        <b>开机顺序</b>：先 STOP，再 ZERO 初始化，然后 MOVE（点上面那个「STOP + ZERO 初始化」）。<br>
+        ⚠️ 走的是服务 <code>/rb_launcher/text</code>，和上面那排二进制帧按钮
+        （Launch.srv）是<b>两套协议</b> —— 这台机构只认文本。<br>
+        行尾默认 <code>\n</code>；固件若要 <code>\r\n</code>，
+        改 launcher.yaml 的 <code>line_ending</code>。
+      </div>
+    </div>
+
     <div class="card">
       <h2>机构（拿球 / 发球）</h2>
       <div class="row">

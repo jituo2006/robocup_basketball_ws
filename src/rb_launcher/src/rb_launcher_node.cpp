@@ -27,6 +27,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "rb_msgs/srv/launch.hpp"
+#include "rb_msgs/srv/serial_text.hpp"
 #include "serial_port/serial_port_R1.hpp"
 
 namespace {
@@ -115,12 +116,19 @@ public:
     default_angle_ = static_cast<uint16_t>(declare_parameter<int>("default_angle", 64));
     auto_reconnect_ = declare_parameter<bool>("auto_reconnect", true);
     reconnect_period_s_ = declare_parameter<double>("reconnect_period_s", 2.0);
+    // 文本指令的行尾。有些固件要 \r\n，现场可改。
+    line_ending_ = declare_parameter<std::string>("line_ending", "\n");
 
     ok_pub_ = create_publisher<std_msgs::msg::Bool>("/rb_launcher/ok", 1);
     status_pub_ = create_publisher<std_msgs::msg::String>("/rb_launcher/status", 10);
 
     srv_ = create_service<rb_msgs::srv::Launch>(
         "~/launch", std::bind(&RbLauncherNode::onLaunch, this, std::placeholders::_1, std::placeholders::_2));
+
+    // 文本指令服务（这台机构走 STOP / ZERO / MOVE 1 90 5 这套）
+    text_srv_ = create_service<rb_msgs::srv::SerialText>(
+        "~/text", std::bind(&RbLauncherNode::onText, this, std::placeholders::_1,
+                            std::placeholders::_2));
 
     openPort();
 
@@ -261,6 +269,37 @@ private:
     publishStatus(actionName(req->action), sent, res->message);
   }
 
+  void onText(const std::shared_ptr<rb_msgs::srv::SerialText::Request> req,
+              std::shared_ptr<rb_msgs::srv::SerialText::Response> res) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    std::string cmd = req->command;
+    // 去掉首尾空白（界面可能带进来）
+    const auto b = cmd.find_first_not_of(" \t\r\n");
+    const auto e = cmd.find_last_not_of(" \t\r\n");
+    cmd = (b == std::string::npos) ? "" : cmd.substr(b, e - b + 1);
+    if (cmd.empty()) {
+      res->success = false;
+      res->message = "空指令";
+      publishStatus("TEXT", false, "空指令");
+      return;
+    }
+    if (!serial_ || !port_ok_) {
+      res->success = false;
+      res->message = "串口未打开";
+      publishStatus("TEXT", false, cmd + "：串口未打开");
+      return;
+    }
+    try {
+      serial_->send_string(cmd + line_ending_);
+      res->success = true;
+      res->message = "已发送 " + cmd;
+    } catch (const std::exception &ex) {
+      res->success = false;
+      res->message = std::string("发送失败: ") + ex.what();
+    }
+    publishStatus("TEXT", res->success, res->message);
+  }
+
   void publishStatus(const std::string &action, bool success, const std::string &msg) {
     std_msgs::msg::String out;
     out.data = "action=" + action + " success=" + (success ? "true" : "false") + " " + msg;
@@ -304,6 +343,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ok_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Service<rb_msgs::srv::Launch>::SharedPtr srv_;
+  rclcpp::Service<rb_msgs::srv::SerialText>::SharedPtr text_srv_;
+  std::string line_ending_ = "\n";
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr status_timer_;
   std::string last_status_;

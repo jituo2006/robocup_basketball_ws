@@ -26,11 +26,15 @@ def test_script_exists_and_help_works_without_ros():
 
 
 def test_dry_run_needs_no_ros_and_prints_steps():
-    """干跑不碰 ROS、不发指令，只打印步骤表 —— 现场先看再决定要不要真跑。"""
+    """干跑不碰 ROS、不发指令，只打印步骤表 —— 现场先看再决定要不要真跑。
+
+    ⚠️ 预设已改成【文本协议】（这台机构真实的协议是 STOP/ZERO/MOVE），
+    不再用二进制动作码。
+    """
     r = _run("--preset", "grab_place", "--dry-run")
     assert r.returncode == 0, r.stderr
     assert "dry-run" in r.stdout
-    assert "DRIBBLE" in r.stdout and "PAWL_TOGGLE" in r.stdout
+    assert "STOP" in r.stdout and "ZERO" in r.stdout and "MOVE 1 90 5" in r.stdout
 
 
 def test_all_presets_are_well_formed():
@@ -45,7 +49,12 @@ def test_all_presets_are_well_formed():
     for name, steps in m.PRESETS.items():
         assert steps, f"预设 {name} 是空的"
         for s in steps:
-            assert int(s["action"]) in m.ACTION_NAMES, f"{name} 里有非法动作码 {s}"
+            txt = str(s.get("text", "")).strip()
+            if txt:                       # 文本指令（现在的默认）
+                head = txt.split()[0]
+                assert head in ("STOP", "ZERO", "MOVE"), f"{name} 里未知文本指令 {txt}"
+            else:                         # 仍支持用二进制动作码（--steps）
+                assert int(s["action"]) in m.ACTION_NAMES, f"{name} 里非法动作码 {s}"
             assert float(s.get("hold_s", 0)) >= 0, f"{name} 里有负的保持时间"
 
 
@@ -56,6 +65,7 @@ def test_every_preset_dry_runs(preset):
 
 
 def test_custom_steps_dry_run():
+    """二进制动作码仍然支持（--steps 用 action 字段）。"""
     steps = json.dumps([{"action": 2, "hold_s": 1.0}, {"action": 4, "hold_s": 0.5}])
     r = _run("--steps", steps, "--repeats", "2", "--dry-run")
     assert r.returncode == 0, r.stderr
@@ -67,6 +77,19 @@ def test_invalid_action_code_is_rejected():
     r = _run("--steps", '[{"action": 99}]', "--dry-run")
     assert r.returncode != 0
     assert "非法" in (r.stdout + r.stderr)
+
+
+def test_unknown_text_command_is_rejected():
+    """不认识的文本指令也要在发之前拦下（别把垃圾写进串口）。"""
+    r = _run("--steps", '[{"text": "LAUNCH_NUKE", "hold_s": 1}]', "--dry-run")
+    assert r.returncode != 0
+    assert "不认识" in (r.stdout + r.stderr)
+
+
+def test_move_needs_three_args():
+    r = _run("--steps", '[{"text": "MOVE 1 90", "hold_s": 1}]', "--dry-run")
+    assert r.returncode != 0
+    assert "MOVE" in (r.stdout + r.stderr)
 
 
 def test_bad_json_is_rejected():

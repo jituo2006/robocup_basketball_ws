@@ -13,6 +13,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotState.msg"
   "msg/MissionStatus.msg"
   "srv/Launch.srv"
+  "srv/SerialText.srv"
   "srv/SetMission.srv"
   "srv/GotoPose.srv"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces

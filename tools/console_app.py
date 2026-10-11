@@ -602,6 +602,9 @@ class Bridge:
         sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._sensor_qos)
         sub1(Log, "/rosout", self._on_log, 50)
 
+        from rb_msgs.srv import SerialText
+        self.cli_text = self.node.create_client(
+            SerialText, t.get("launch_text", "/rb_launcher/text"))
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
@@ -811,6 +814,13 @@ class Bridge:
         req = GotoPose.Request()
         req.x, req.y, req.yaw, req.align_yaw = float(x), float(y), float(yaw), bool(align_yaw)
         return self._call(self.cli_goto, req)
+
+    def launcher_text(self, command: str):
+        """发一行文本指令（STOP / ZERO / MOVE 1 90 5）。这台机构的真实协议。"""
+        from rb_msgs.srv import SerialText
+        req = SerialText.Request()
+        req.command = str(command)
+        return self._call(self.cli_text, req)
 
     def launcher(self, action: int, speed: int = 0, angle: int = 0):
         from rb_msgs.srv import Launch
@@ -1601,10 +1611,40 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify({"ok": bool(ok), "msg": msg})
             if name == "PANIC":
                 return jsonify(dict(zip(("ok", "msg"), panic())))
+            if name == "LAUNCH_TEXT":
+                # 同样兼容两种请求体（见下面 LAUNCH 的注释）
+                src = args if args else (request.get_json(silent=True) or {})
+                return jsonify(dict(zip(("ok", "msg"),
+                                        bridge.launcher_text(
+                                            str(src.get("command") or "").strip()))))
+            if name == "LAUNCH_INIT":
+                # 现场要的开机顺序：先 STOP，再 ZERO 初始化
+                seq = [("STOP", 0.25), ("ZERO", 0.6)]
+                out = []
+                allok = True
+                for cmd, wait in seq:
+                    ok, msg = bridge.launcher_text(cmd)
+                    out.append(f"{cmd}: {'✓' if ok else '✗'} {msg}")
+                    allok = allok and ok
+                    if not ok:
+                        break
+                    time.sleep(wait)
+                return jsonify({"ok": allok, "msg": " / ".join(out)})
+            if name == "LAUNCH_GRAB":
+                ok, msg = bridge.launcher_text("MOVE 1 90 5")
+                return jsonify({"ok": ok, "msg": f"抓取 MOVE 1 90 5 → {msg}"})
+            if name == "LAUNCH_PLACE":
+                ok, msg = bridge.launcher_text("MOVE 1 0 5")
+                return jsonify({"ok": ok, "msg": f"放下 MOVE 1 0 5 → {msg}"})
             if name == "LAUNCH":
+                # ⚠️ 兼容两种请求体：前端发 {"name":..., "args":{...}}，
+                #    手工 curl 常直接发 {"name":..., "action":7}。
+                #    之前只认 args，用手工请求测时 action 会静默取默认值 0（=SHOOT），
+                #    看起来像"按什么键都发射"。
+                src = args if args else (request.get_json(silent=True) or {})
                 return jsonify(dict(zip(("ok", "msg"), bridge.launcher(
-                    int(args.get("action", 0)), int(args.get("speed", 0)),
-                    int(args.get("angle", 0))))))
+                    int(src.get("action", 0)), int(src.get("speed", 0)),
+                    int(src.get("angle", 0))))))
             if name == "GOTO":
                 return jsonify(dict(zip(("ok", "msg"), bridge.goto(
                     float(args.get("x", 0)), float(args.get("y", 0)),

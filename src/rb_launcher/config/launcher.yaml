@@ -30,3 +30,10 @@ rb_launcher:
     # 打开失败时是否自动重连
     auto_reconnect: true
     reconnect_period_s: 2.0
+
+    # ── 文本指令（这台机构的真实协议）──────────────────────────────
+    # ⚠️ STOP / ZERO / MOVE 1 90 5 这套【文本协议】，和本文件上面那套
+    #    11 字节二进制帧是两回事 —— 这台机构只认文本。
+    #    发送入口：服务 /rb_launcher/text（rb_msgs/srv/SerialText）。
+    #    固件若要 \r\n，把这里改成 "\r\n"。
+    line_ending: "\n"

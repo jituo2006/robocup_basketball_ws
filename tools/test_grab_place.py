@@ -33,20 +33,22 @@ import time
 rclpy = None
 Node = None
 Launch = None
+SerialText = None
 
 
 def _ensure_ros() -> None:
-    global rclpy, Node, Launch
+    global rclpy, Node, Launch, SerialText
     if rclpy is not None:
         return
     try:
         import rclpy as _r
         from rclpy.node import Node as _N
         from rb_msgs.srv import Launch as _L
+        from rb_msgs.srv import SerialText as _ST
     except ImportError as e:  # noqa: BLE001
         print(f"无法导入 ROS 依赖: {e}\n请先 source 工作空间（rbws）", file=sys.stderr)
         raise SystemExit(2)
-    rclpy, Node, Launch = _r, _N, _L
+    rclpy, Node, Launch, SerialText = _r, _N, _L, _ST
 
 ACTION_NAMES = {
     0: "SHOOT 发射", 1: "FAST_SHOOT 快发", 2: "DRIBBLE 运球",
@@ -57,35 +59,29 @@ ACTION_NAMES = {
 
 # 预设：现场按实际机构语义再调
 PRESETS = {
-    # 抓球 → 保持 → 放下。默认用「运球开 / 停」当抓放，因为下位机把 DRIBBLE
-    # 当持续动作（节点会按 send_rate 重复发），比 toggle 好控制。
+    # ⚠️ 这台机构走【文本协议】：STOP / ZERO / MOVE 1 90 5（抓）/ MOVE 1 0 5（放）
+    #    仓库原来那套 11 字节二进制帧对它无效（"指令没反应"的真正原因）。
+    #    现场给的开机顺序：先 STOP，再 ZERO 初始化，然后 MOVE。
     "grab_place": [
-        {"action": 2, "hold_s": 1.5, "note": "抓球（运球动作）"},
-        {"action": 7, "hold_s": 0.5, "note": "停一下"},
-        {"action": 4, "hold_s": 0.8, "note": "夹爪翻转（抓/放取决于固件当前态）"},
-        {"action": 7, "hold_s": 0.5, "note": "停"},
+        {"text": "STOP", "hold_s": 0.3, "note": "先停"},
+        {"text": "ZERO", "hold_s": 0.8, "note": "初始化/回零"},
+        {"text": "MOVE 1 90 5", "hold_s": 1.2, "note": "抓取"},
     ],
-    # 只抓不放，验证抓取牢不牢
     "grab_hold": [
-        {"action": 2, "hold_s": 2.0, "note": "抓球"},
-        {"action": 4, "hold_s": 3.0, "note": "夹爪翻转并保持 3s（看夹没夹住）"},
+        {"text": "STOP", "hold_s": 0.3, "note": ""},
+        {"text": "ZERO", "hold_s": 0.8, "note": ""},
+        {"text": "MOVE 1 90 5", "hold_s": 3.0, "note": "抓取并保持 3s（看夹住没）"},
     ],
-    # 只放，验证释放
     "place_only": [
-        {"action": 4, "hold_s": 0.8, "note": "夹爪翻转（释放）"},
-        {"action": 7, "hold_s": 0.5, "note": "停"},
+        {"text": "MOVE 1 0 5", "hold_s": 1.0, "note": "放下"},
     ],
-    # 慢速单步：每步之间停久一点，方便人盯着看
     "slow_walk": [
-        {"action": 2, "hold_s": 2.0, "note": "运球开"},
-        {"action": 7, "hold_s": 1.5, "note": "停"},
-        {"action": 4, "hold_s": 2.0, "note": "夹爪翻转"},
-        {"action": 7, "hold_s": 1.5, "note": "停"},
-        {"action": 5, "hold_s": 2.0, "note": "滑轨翻转"},
-        {"action": 7, "hold_s": 1.5, "note": "停"},
+        {"text": "STOP", "hold_s": 1.0, "note": "停"},
+        {"text": "ZERO", "hold_s": 1.5, "note": "初始化"},
+        {"text": "MOVE 1 90 5", "hold_s": 2.0, "note": "抓取"},
+        {"text": "MOVE 1 0 5", "hold_s": 2.0, "note": "放下"},
     ],
 }
-
 
 def call_launch(node, cli, action: int, speed: int, angle: int,
                 timeout: float = 3.0) -> tuple[bool, str]:
@@ -93,6 +89,25 @@ def call_launch(node, cli, action: int, speed: int, angle: int,
         return False, "服务 /rb_launcher/launch 不可用（机构节点没起？）"
     req = Launch.Request()
     req.action, req.speed, req.angle = int(action), int(speed), int(angle)
+    fut = cli.call_async(req)
+    t0 = time.time()
+    while not fut.done() and time.time() - t0 < timeout:
+        rclpy.spin_once(node, timeout_sec=0.05)
+    if not fut.done():
+        return False, "服务调用超时"
+    try:
+        r = fut.result()
+        return bool(r.success), str(r.message)
+    except Exception as e:  # noqa: BLE001
+        return False, f"服务异常: {e}"
+
+
+def call_text(node, cli, command: str, timeout: float = 3.0) -> tuple[bool, str]:
+    """发一行文本指令（这台机构的真实协议）。"""
+    if not cli.wait_for_service(timeout_sec=timeout):
+        return False, "服务 /rb_launcher/text 不可用（机构节点没起？）"
+    req = SerialText.Request()
+    req.command = command
     fut = cli.call_async(req)
     t0 = time.time()
     while not fut.done() and time.time() - t0 < timeout:
@@ -129,7 +144,17 @@ def main(argv=None) -> int:
         print("步骤表为空", file=sys.stderr)
         return 2
     for s in steps:
-        if int(s.get("action", -1)) not in ACTION_NAMES:
+        txt = str(s.get("text", "")).strip()
+        if txt:
+            # 文本指令：只允许 STOP / ZERO / MOVE <n> <n> <n>
+            parts = txt.split()
+            if parts[0] not in ("STOP", "ZERO", "MOVE"):
+                print(f"不认识的文本指令: {txt!r}（只支持 STOP / ZERO / MOVE）", file=sys.stderr)
+                return 2
+            if parts[0] == "MOVE" and len(parts) != 4:
+                print(f"MOVE 要是 'MOVE <id> <角度> <n>' 三个参数: {txt!r}", file=sys.stderr)
+                return 2
+        elif int(s.get("action", -1)) not in ACTION_NAMES:
             print(f"步骤里动作码非法: {s}", file=sys.stderr)
             return 2
 
@@ -137,9 +162,11 @@ def main(argv=None) -> int:
     print(f"  抓球并放下 · 机构序列调试   预设/自定义 = {args.preset}")
     print("═" * 58)
     for i, s in enumerate(steps, 1):
-        a = int(s["action"])
-        print(f"  {i}. {ACTION_NAMES[a]:26} 保持 {s.get('hold_s', 0.5)}s"
-              f"   {s.get('note', '')}")
+        if str(s.get("text", "")).strip():
+            what = f"文本 {s['text']}"
+        else:
+            what = ACTION_NAMES[int(s["action"])]
+        print(f"  {i}. {what:26} 保持 {s.get('hold_s', 0.5)}s   {s.get('note', '')}")
     print(f"  重复 {args.repeats} 遍，间隔 {args.interval}s，"
           f"speed={args.speed or '默认'} angle={args.angle or '默认'}")
     print("═" * 58)
@@ -156,8 +183,10 @@ def main(argv=None) -> int:
 
     _ensure_ros()
     rclpy.init()
+    from rb_msgs.srv import SerialText as _ST
     node = Node("grab_place_debug")
     cli = node.create_client(Launch, "/rb_launcher/launch")
+    cli_text = node.create_client(_ST, "/rb_launcher/text")
     flips = {4: 0, 5: 0}          # 记录 toggle 次数（下位机是开关语义）
     ok_all = True
     try:
@@ -165,13 +194,20 @@ def main(argv=None) -> int:
             if args.repeats > 1:
                 print(f"\n── 第 {rep}/{args.repeats} 遍 ──")
             for i, s in enumerate(steps, 1):
-                a = int(s["action"])
+                txt = str(s.get("text", "")).strip()
                 hold = float(s.get("hold_s", 0.5))
-                ok, msg = call_launch(node, cli, a, args.speed, args.angle)
+                if txt:
+                    ok, msg = call_text(node, cli_text, txt)
+                    label = f"文本 {txt}"
+                    a = None
+                else:
+                    a = int(s["action"])
+                    ok, msg = call_launch(node, cli, a, args.speed, args.angle)
+                    label = ACTION_NAMES[a]
                 if a in flips:
                     flips[a] += 1
                 mark = "✓" if ok else "✗"
-                print(f"  [{i}/{len(steps)}] {mark} {ACTION_NAMES[a]}"
+                print(f"  [{i}/{len(steps)}] {mark} {label}"
                       f"   → {msg}" + (f"   （已翻转 {flips[a]} 次）" if a in flips else ""))
                 if not ok:
                     ok_all = False
@@ -187,8 +223,8 @@ def main(argv=None) -> int:
         call_launch(node, cli, 7, 0, 0)
         return 130
     finally:
-        # 无论如何都收尾：停动作，避免机械停在高位
-        ok, msg = call_launch(node, cli, 7, 0, 0, timeout=2.0)
+        # 无论如何都收尾：发 STOP，避免机械停在高位
+        ok, msg = call_text(node, cli_text, "STOP", timeout=2.0)
         print(f"\n  收尾 STOP: {'✓' if ok else '✗'} {msg}")
         print(f"  toggle 累计: 夹爪 {flips[4]} 次、滑轨 {flips[5]} 次"
               f"（下位机是开关语义，偶数=回到初始态）")
