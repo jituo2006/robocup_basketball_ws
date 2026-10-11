@@ -234,3 +234,89 @@ def test_align_tolerance_is_tight_enough_to_face_the_ball():
     m = re.search(r"default=([\d.]+)", seg)
     assert m, "读不到 align-tol-deg 默认值"
     assert float(m.group(1)) <= 3.0, f"对准容差 {m.group(1)}° 太松，谈不上正对球"
+
+
+def test_ball_runner_callbacks_have_no_undefined_lock():
+    """⚠️ Runner 的回调不能引用 self.lock —— 这个类里没有锁。
+
+    踩过：加后摄回调时写了 `with self.lock:`，Runner 没有 lock 属性 →
+    回调抛 AttributeError → 直接打断 ros2 执行器 → "找球"刚开始就崩，
+    现象是 AttributeError: 'Runner' object has no attribute 'lock'。
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[3]
+           / "tools" / "test_perimeter_ball.py").read_text(encoding="utf-8")
+    # ⚠️ 只看【代码行】、跳过注释 —— 注释里正要写 "self.lock" 来说明这个坑。
+    #    这个错我已经犯了三次（--params-file / grep -q / 这次），
+    #    凡是"断言某字符串不出现"的测试，一律先滤掉注释。
+    code = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    assert "self.lock" not in code, "Runner 里不该出现 self.lock（没有这个属性）"
+
+
+# ---------------------------------------------------------------------------
+# 三级找球：① 前摄转圈 → ② 雷达粗定位 → ③ 进场 + 顺时针旋转
+# ---------------------------------------------------------------------------
+def _ball_script_src() -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[3]
+            / "tools" / "test_perimeter_ball.py").read_text(encoding="utf-8")
+
+
+def test_find_ball_has_three_stages():
+    """找球必须是三级回退，而不是只会让摄像头盲转。
+
+    现场要求：前摄没找到 → 用雷达找附近有无球 → 都没有就向场内移动 1m
+    再顺时针旋转找球。
+    """
+    src = _ball_script_src()
+    for tag in ("找球①", "找球②", "找球③"):
+        assert tag in src, f"缺 {tag} 这一段"
+    assert "lidar_find_ball" in src, "缺雷达兜底找球"
+    assert "move_into_field" in src, "缺'向场内移动'"
+    assert "_scan_for_ball" in src, "缺可复用的转圈找球"
+
+
+def test_lidar_fallback_then_camera_confirms():
+    """雷达是粗定位，转过去之后必须用摄像头复核。
+
+    雷达在地面上找的是一个小点簇，容易有杂点；直接拿它当结果会把车
+    引到没球的地方。
+    """
+    src = _ball_script_src()
+    i = src.find("找球②")
+    assert i > 0
+    seg = src[i:i + 1600]
+    assert "rotate_to" in seg, "雷达候选后应转向"
+    assert "_scan_for_ball" in seg, "转过去后应用摄像头确认"
+
+
+def test_clockwise_search_uses_negative_wz():
+    """顺时针旋转 = 角速度为负（ROS 里 +z 是逆时针）。"""
+    src = _ball_script_src()
+    i = src.find('add_argument("--cw-wz"')
+    assert i > 0, "缺 --cw-wz 参数"
+    seg = src[i:i + 200]
+    assert "default=-" in seg, "顺时针角速度应为负"
+
+
+def test_move_into_field_goes_toward_center_and_stays_in_field():
+    """向场内移动要朝场地中心、并且夹在场内（别把自己走出界）。"""
+    src = _ball_script_src()
+    i = src.find("def move_into_field")
+    assert i > 0
+    j = src.find("def find_ball", i)
+    body = src[i:j]
+    assert "field_l / 2.0" in body and "field_w / 2.0" in body, "应朝场地中心"
+    assert "min(max(tx" in body and "min(max(ty" in body, "应夹在场内"
+
+
+def test_pointcloud_parser_is_shared_not_duplicated():
+    """点云解析只应有一份实现（liar: 复制两份迟早漂移）。"""
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    lb = (ws / "src/rb_perception/rb_perception/lidar_ball.py").read_text(encoding="utf-8")
+    assert "def pointcloud2_to_xyz" in lb, "共享实现应在 lidar_ball.py"
+    con = (ws / "tools/console_app.py").read_text(encoding="utf-8")
+    assert "from rb_perception.lidar_ball import pointcloud2_to_xyz" in con, \
+        "控制台应复用共享实现，而不是自己再写一份"

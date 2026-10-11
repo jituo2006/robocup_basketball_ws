@@ -45,6 +45,32 @@ DEFAULT_CFG = {
 }
 
 
+def pointcloud2_to_xyz(msg):
+    """sensor_msgs/PointCloud2 → (N,3) float32（只取 x/y/z，按 fields 的 offset 解析）。
+
+    放在这里（而不是各调用方各写一份）：控制台和 tools/ 下的脚本都要用，
+    解析逻辑一模一样，复制两份迟早会漂移。
+    """
+    import numpy as np
+    names = {f.name: f.offset for f in msg.fields}
+    if not {"x", "y", "z"} <= set(names):
+        return None
+    n = msg.width * msg.height
+    if n == 0:
+        return None
+    buf = np.frombuffer(msg.data, dtype=np.uint8)
+    step = msg.point_step
+    if step <= 0 or buf.size < n * step:
+        return None
+    buf = buf[: n * step].reshape(n, step)
+    out = np.empty((n, 3), dtype=np.float32)
+    for i, k in enumerate(("x", "y", "z")):
+        off = names[k]
+        out[:, i] = buf[:, off:off + 4].copy().view(np.float32).ravel()
+    m = np.isfinite(out).all(axis=1)
+    return out[m]
+
+
 def body_frame_cloud(xyz: np.ndarray, robot_xy_yaw) -> np.ndarray:
     """把 camera_init 系的点云变换到车体系（+x 前、+y 左）。
 

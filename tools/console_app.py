@@ -132,24 +132,16 @@ LIDAR_RANGE_M = 16.0                  # 视野半径（米）—— 场地 14×7
 
 
 def pc2_xyz(msg):
-    """PointCloud2 -> (N,3) float32。只取 x/y/z，按 fields 里的 offset 解析。"""
-    names = {f.name: f.offset for f in msg.fields}
-    if not {"x", "y", "z"} <= set(names):
+    """PointCloud2 -> (N,3) float32。
+
+    ⚠️ 实现在 rb_perception.lidar_ball（唯一定义处）—— 找球脚本也用同一份，
+    复制两份迟早漂移。这里只为兼容旧调用点保留这个名字。
+    """
+    try:
+        from rb_perception.lidar_ball import pointcloud2_to_xyz
+        return pointcloud2_to_xyz(msg)
+    except Exception:  # noqa: BLE001
         return None
-    n = msg.width * msg.height
-    if n == 0:
-        return None
-    buf = np.frombuffer(msg.data, dtype=np.uint8)
-    step = msg.point_step
-    if step <= 0 or buf.size < n * step:
-        return None
-    buf = buf[: n * step].reshape(n, step)
-    out = np.empty((n, 3), dtype=np.float32)
-    for i, k in enumerate(("x", "y", "z")):
-        off = names[k]
-        out[:, i] = buf[:, off : off + 4].copy().view(np.float32).ravel()
-    m = np.isfinite(out).all(axis=1)
-    return out[m]
 
 
 # ⚠️ cv2.putText 只支持 ASCII（Hershey 字体），中文会全变成 "?????"。

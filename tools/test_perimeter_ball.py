@@ -169,6 +169,8 @@ class Runner:
         import rclpy
         from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
         from rb_msgs.msg import DetectionArray
+        from nav_msgs.msg import Odometry
+        from sensor_msgs.msg import PointCloud2
 
         self.args = args
         self.rclpy = rclpy
@@ -184,6 +186,14 @@ class Runner:
                                       self._on_pose, 10)
         self.node.create_subscription(DetectionArray, "/perception/detections",
                                       self._on_dets, 10)
+        # 雷达兜底找球：需要点云 + camera_init 位姿（把点云转到车体系）
+        self.cloud = None          # Nx3 numpy（camera_init 系）
+        self.odom_cam = None       # (x, y, yaw) in camera_init
+        self.node.create_subscription(PointCloud2, self.args.lidar_cloud,
+                                      self._on_cloud, 5)
+        self.node.create_subscription(Odometry, self.args.lidar_odom,
+                                      self._on_odom_cam, 10)
+
         # 后摄像头（车正后方）：转 180° 之后靠它做精准定位
         self.dets_rear = []
         self.node.create_subscription(
@@ -205,9 +215,92 @@ class Runner:
             yaw = p.z
         self.pose = (p.x, p.y, yaw)
 
+    def _load_lidar_cfg(self) -> dict:
+        """从 perception.yaml 读 lidar_ball 参数（读不到就用模块默认值）。"""
+        cfg = {"enabled": True}
+        try:
+            import yaml
+            from pathlib import Path as _P
+            ws = _P(__file__).resolve().parents[1]
+            f = ws / "install/rb_perception/share/rb_perception/config/perception.yaml"
+            if not f.is_file():
+                f = ws / "src/rb_perception/config/perception.yaml"
+            d = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            cfg.update(((d.get("perception") or {}).get("lidar_ball") or {}))
+        except Exception:  # noqa: BLE001
+            pass
+        cfg["enabled"] = True     # 兜底用，强制打开
+        return cfg
+
+    def _on_cloud(self, m) -> None:
+        try:
+            from rb_perception.lidar_ball import pointcloud2_to_xyz
+            pts = pointcloud2_to_xyz(m)
+            self.cloud = pts
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_odom_cam(self, m) -> None:
+        p = m.pose.pose
+        q = p.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        self.odom_cam = (p.position.x, p.position.y, yaw)
+
+    def lidar_find_ball(self, seconds: float | None = None):
+        """雷达兜底找球：返回场地系候选列表 [(fx, fy, bearing_deg, dist), ...]。
+
+        为什么值得先跑这步：雷达约 360° 覆盖、6m 范围，**不用转圈**就知道球
+        的大致方位；前摄只有约 ±40° 视野，必须转着找。所以合理顺序是
+        "雷达给大致位置 → 摄像头凑近确认"，而不是让摄像头盲转。
+
+        返回的 bearing_deg 是【车体系】方位（右正左负，和相机一致）。
+        """
+        if self.args.no_lidar_fallback:
+            return []
+        secs = float(seconds if seconds is not None else self.args.lidar_seconds)
+        log("雷达找球", f"等点云/位姿（{secs:.0f}s）…")
+        t0 = time.time()
+        best = []
+        while time.time() - t0 < secs:
+            self.spin(0.1)
+            if self.cloud is None or self.odom_cam is None or self.pose is None:
+                continue
+            try:
+                from rb_perception.lidar_ball import body_frame_cloud, find_ball_candidates
+                body = body_frame_cloud(self.cloud, self.odom_cam)
+                cands = find_ball_candidates(body, self.args.lidar_cfg)
+            except Exception as e:  # noqa: BLE001
+                log("雷达找球", f"失败: {e}", C_WARN)
+                return []
+            if cands:
+                best = cands
+                break
+        if not best:
+            log("雷达找球", "附近没找到球形候选（地面杂点/球太远/球在盲区）", C_WARN)
+            return []
+        # 车体系 → 场地系（用当前场地位姿；+y 是左）
+        px, py, pyaw = self.pose
+        out = []
+        for c in best:
+            bx, by = float(c["x"]), float(c["y"])
+            c_, s_ = math.cos(pyaw), math.sin(pyaw)
+            fx = px + c_ * bx - s_ * by
+            fy = py + s_ * bx + c_ * by
+            dist = math.hypot(bx, by)
+            # 车体系方位：右正左负（和相机 bearing 约定一致）
+            b = -math.degrees(math.atan2(by, bx))
+            out.append((fx, fy, b, dist))
+        out.sort(key=lambda o: o[3])
+        for fx, fy, b, d in out[:3]:
+            log("雷达候选", f"场地({fx:.2f},{fy:.2f}) 车体系方位{b:+.1f}° 距离{d:.2f}m", C_OK)
+        return out
+
     def _on_dets_rear(self, m) -> None:
-        with self.lock:
-            self.dets_rear = list(m.detections)
+        # ⚠️ 这个 Runner 不用锁 —— 回调就是直接赋值（和 _on_dets 一样）。
+        #    我第一版写了 `with self.lock:`，而类里根本没有 lock 属性 →
+        #    回调抛 AttributeError，直接打断 ros2 执行器（现象是"找球"刚开始就崩）。
+        self.dets_rear = list(m.detections)
 
     def best_ball_rear(self):
         """后摄里置信度最高的目标球检测。"""
@@ -406,24 +499,89 @@ class Runner:
                     f"→ ({tx:.2f},{ty:.2f})")
         return self.goto(tx, ty, timeout=timeout)
 
-    def find_ball(self, timeout: float):
-        """原地慢转搜索。找到返回检测，超时返回 None。"""
-        log("找球", f"原地搜索 {self.args.ball_label} …")
+    def _scan_for_ball(self, seconds: float, wz: float, tag: str):
+        """原地按给定角速度转，边转边看摄像头。找到返回检测。"""
         t0 = time.time()
-        while time.time() - t0 < timeout:
+        while time.time() - t0 < seconds:
             self.spin(0.05)
             det = self.best_ball()
             if det is not None:
                 self.stop()
-                log("找到球", f"{det.label} conf={det.confidence:.2f} "
-                             f"bearing={math.degrees(det.bearing_rad):+.1f}° "
-                             f"dist={det.distance_m:.2f}m", C_OK)
+                log("找到球", f"[{tag}] {det.label} conf={det.confidence:.2f} "
+                              f"bearing={math.degrees(det.bearing_rad):+.1f}° "
+                              f"dist={det.distance_m:.2f}m", C_OK)
                 return det
-            t = self._Twist()
-            t.angular.z = self.args.search_wz
-            self.cmd_pub.publish(t)
+            tw = self._Twist()
+            tw.angular.z = wz
+            self.cmd_pub.publish(tw)
         self.stop()
-        log("找球失败", f"{timeout:.0f}s 内没看到 {self.args.ball_label}", C_BAD)
+        return None
+
+    def move_into_field(self, dist: float, timeout: float = 30.0) -> bool:
+        """朝【场地中心】方向走 dist 米（三级都找不到时，往场内挪一点换个视角）。"""
+        if self.pose is None:
+            return False
+        cx, cy = self.field_l / 2.0, self.field_w / 2.0
+        px, py, _ = self.pose
+        vx, vy = cx - px, cy - py
+        n = math.hypot(vx, vy)
+        if n < 1e-6:
+            return False
+        tx, ty = px + vx / n * dist, py + vy / n * dist
+        m = 0.35                                    # 别跑出场
+        tx = min(max(tx, m), self.field_l - m)
+        ty = min(max(ty, m), self.field_w - m)
+        log("进场", f"朝场地中心挪 {dist:.2f}m → ({tx:.2f},{ty:.2f})")
+        return self.goto(tx, ty, timeout=timeout)
+
+    def find_ball(self, timeout: float):
+        """三级找球：① 前摄转圈 → ② 雷达 360° 粗定位 → ③ 进场 + 顺时针旋转。
+
+        为什么不让摄像头一直盲转：
+          前摄视野只有约 ±40°，必须转着找；雷达约 360°、6m 范围，
+          【不用转】就能给出球的大致方位。所以合理顺序是
+          "雷达先给大致位置 → 摄像头转过去精确确认"，比盲转快得多。
+        雷达只做粗定位（地面上一个小点簇，容易有杂点），
+        最终对准仍然靠摄像头 —— 两者各司其职。
+        """
+        # ── ① 前摄原地转圈找 ──
+        log("找球①", f"前摄原地搜索 {self.args.ball_label}（{timeout:.0f}s）")
+        det = self._scan_for_ball(timeout, self.args.search_wz, "前摄")
+        if det is not None:
+            return det
+
+        # ── ② 雷达兜底：不用转圈就知道球的大致方位 ──
+        if not self.args.no_lidar_fallback:
+            log("找球②", "前摄没看到 → 用雷达找大致位置（360°，不用转圈）")
+            for fx, fy, bdeg, dist in self.lidar_find_ball()[:3]:
+                if self.pose is None:
+                    break
+                # 车体系方位右正左负 ⇒ 世界角 = yaw − bearing
+                want = wrap_pi(self.pose[2] - math.radians(bdeg))
+                log("转向候选", f"车体系方位 {bdeg:+.1f}° → 世界角 "
+                                f"{math.degrees(want):+.1f}°（场地 {fx:.2f},{fy:.2f}）")
+                if not self.rotate_to(want, timeout=20.0):
+                    log("转向候选", "转向失败，试下一个", C_WARN)
+                    continue
+                # 转过去后用摄像头确认（雷达是粗定位，必须摄像头复核）
+                det = self._scan_for_ball(3.0, 0.0, f"雷达候选{dist:.1f}m")
+                if det is not None:
+                    return det
+                log("雷达候选", "转过去后摄像头没确认到球（可能是地面杂点）", C_WARN)
+        else:
+            log("找球②", "雷达兜底已关闭", C_DIM)
+
+        # ── ③ 都没有：先向场内挪，再顺时针旋转找 ──
+        log("找球③", f"雷达也没找到 → 向场内移动 {self.args.into_field:.2f}m，"
+                     f"再顺时针旋转找球 {self.args.cw_scan_sec:.0f}s")
+        self.move_into_field(self.args.into_field)
+        self.spin(0.3)
+        det = self._scan_for_ball(self.args.cw_scan_sec, self.args.cw_wz, "顺时针")
+        if det is not None:
+            return det
+
+        self.stop()
+        log("找球失败", "三级都试过：前摄转圈 / 雷达 360° / 进场顺时针 —— 都没找到球", C_BAD)
         return None
 
     def close(self) -> None:
@@ -476,6 +634,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
                     help="相机光轴相对车头的偏置 rad")
     # ── 现场规格：对准 → 停在球前 70cm → 转 180° → 后退 20cm ──
+    # ── 三级找球 ──
+    ap.add_argument("--no-lidar-fallback", action="store_true",
+                    help="关掉雷达兜底找球（默认开）")
+    ap.add_argument("--lidar-cloud", default="/cloud_registered",
+                    help="雷达点云话题（车体系变换用）")
+    ap.add_argument("--lidar-odom", default="/Odometry",
+                    help="camera_init 系位姿（把点云转到车体系用）")
+    ap.add_argument("--lidar-seconds", type=float, default=4.0,
+                    help="雷达找球累计时长")
+    ap.add_argument("--into-field", type=float, default=1.0,
+                    help="三级都找不到时，先朝场内走多少米（默认 1.0）")
+    ap.add_argument("--cw-scan-sec", type=float, default=40.0,
+                    help="进场后顺时针旋转找球时长")
+    ap.add_argument("--cw-wz", type=float, default=-0.35,
+                    help="顺时针旋转角速度 rad/s（【负】= 顺时针）")
     ap.add_argument("--rear-offset", type=float, default=0.25,
                     help="后摄到旋转中心的距离 m（装完量一下；后摄在车后填正数）")
     ap.add_argument("--rear-topic", default="/perception/detections_rear",
@@ -549,6 +722,8 @@ def main(argv: list[str] | None = None) -> int:
                                    encoding="utf-8")) or {}).get("field", {}) or {}
         L = float(fld.get("length_m", 14.0))
         W = float(fld.get("width_m", 7.5))
+        # 交给 Runner：三级找球的"向场内移动"要用场地中心
+        run.field_l, run.field_w = L, W
         log("位姿", f"出发点 ({sx:+.2f}, {sy:+.2f}, {math.degrees(syaw):+.1f}°)")
         log("场地", f"{L:.1f} × {W:.1f} m，绕场 inset={args.inset:.2f}m")
 
