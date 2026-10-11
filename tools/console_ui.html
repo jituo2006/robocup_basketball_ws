@@ -201,9 +201,17 @@
       <img id="cam" src="/api/camera.mjpg" alt="相机">
     </div>
     <div class="card">
-      <h2>📡 雷达俯视图（/cloud_registered，以车为中心，车头朝上）</h2>
-      <img id="lidar" src="/api/lidar.mjpg" alt="雷达">
-      <div class="hint">灰色框 = 场地边界；◇ = 传球点/投篮点/篮筐/出发点；彩色圆 = 球检测（带距离）；红箭头 = 车。</div>
+      <h2>📡 雷达俯视图（/cloud_registered）</h2>
+      <div class="row" style="margin-bottom:8px">
+        <button id="vField" onclick="setView('field')" style="margin:0">🏟 场地固定</button>
+        <button id="vRobot" onclick="setView('robot')" style="margin:0">🚗 车头朝上</button>
+      </div>
+      <img id="lidar" src="/api/lidar.mjpg?view=field" alt="雷达">
+      <div class="hint">
+        <b>场地固定</b>（默认）= x 向右、y 向上，和 RViz 俯视一致 —— 对着实物核对位置用这个。<br>
+        <b>车头朝上</b> = 以车为中心、车头永远朝上 —— 看"球在我哪一侧"方便。<br>
+        灰框 = 场地边界；◇ = 传球点/投篮点/篮筐/出发点；彩圈 = 球检测（带距离）；红箭头 = 车。
+      </div>
     </div>
   </div>
 
@@ -326,6 +334,19 @@ async function act(name, args){
 }
 
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
+
+let LIDAR_VIEW = localStorage.getItem('lidarView') || 'field';
+function setView(v){
+  LIDAR_VIEW = v;
+  localStorage.setItem('lidarView', v);
+  const img = $('lidar');
+  if(img) img.src = '/api/lidar.mjpg?view=' + v;   // 换 src 会重连 MJPEG
+  const f = $('vField'), r = $('vRobot');
+  if(f && r){
+    f.style.borderColor = v === 'field' ? 'var(--blue)' : 'var(--line)';
+    r.style.borderColor = v === 'robot' ? 'var(--blue)' : 'var(--line)';
+  }
+}
 
 function flowRun(){
   if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
@@ -528,6 +549,7 @@ function render(s){
 async function tick(){
   try{ render(await (await fetch('/api/state')).json()); }catch(e){}
 }
+setView(LIDAR_VIEW);
 tick();
 setInterval(tick, 1000);
 </script>

@@ -324,3 +324,39 @@ def test_smoother_ignores_nan():
     mod = _load()
     s = mod.BallSmoother()
     assert s.update("z", 1.0, float("nan"), 0.0, 1.0) is None
+
+
+# ---------------------------------------------------------------------------
+# field_to_screen：场地固定视角（x 右、y 上，与 RViz 俯视一致）
+# ⚠️ 现场核心诉求：车在出发点 (1,1) 必须显示在场地的【左下】，不是右下。
+#    之前只有"车头朝上"一种视角，整个场地跟着车头转，车看起来在框的右下角，
+#    对着实物核对时左右会误判。
+# ---------------------------------------------------------------------------
+def test_field_view_origin_is_bottom_left():
+    mod = _load()
+    px, py = mod.field_to_screen(0.0, 0.0, 0.0, 0.0, 10.0, 30.0)
+    assert px < W / 2 and py > H / 2, f"场地原点应在左下，实际 ({px},{py})"
+
+
+def test_field_view_x_grows_right():
+    mod = _load()
+    x1, _ = mod.field_to_screen(2.0, 0.0, 0.0, 0.0, 10.0, 30.0)
+    x2, _ = mod.field_to_screen(12.0, 0.0, 0.0, 0.0, 10.0, 30.0)
+    assert x2 > x1, "场地 x 增大应向右"
+
+
+def test_field_view_y_grows_up():
+    mod = _load()
+    _, y1 = mod.field_to_screen(0.0, 1.0, 0.0, 0.0, 10.0, 30.0)
+    _, y2 = mod.field_to_screen(0.0, 6.0, 0.0, 0.0, 10.0, 30.0)
+    assert y2 < y1, "场地 y 增大应向上（图像 y 变小）"
+
+
+def test_field_view_start_pose_is_left_of_field_center():
+    """出发点 (1,1) 在 14×7.5 场地里必须落在左半边 —— 这就是用户要的。"""
+    mod = _load()
+    px, py = mod.field_to_screen(1.0, 1.0, 0.0, 0.0, 50.0, 30.0)
+    assert px < W / 2, f"出发点应在屏幕左半边，实际 px={px}"
+    # 篮筐在场地远端 → 右半边
+    hx, _ = mod.field_to_screen(12.425, 3.75, 0.0, 0.0, 50.0, 30.0)
+    assert hx > W / 2, f"篮筐应在屏幕右半边，实际 px={hx}"

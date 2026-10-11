@@ -121,6 +121,15 @@ def draw_texts(img_bgr, items):
     return np.array(pil)[:, :, ::-1].copy()
 
 
+def field_to_screen(wx, wy, fx0, fy0, scale, margin=28.0, w=LIDAR_W, h=LIDAR_H):
+    """场地固定视角：x 向右、y 向上（与 RViz 俯视一致）。
+
+    fx0/fy0 是场地左下角在场地系里的坐标（一般 0,0）。
+    标量/ndarray 都适用。
+    """
+    return margin + (np.asarray(wx) - fx0) * scale, h - margin - (np.asarray(wy) - fy0) * scale
+
+
 def depth_to_slant(depth_m: float, bearing_rad: float, max_bearing_deg: float = 78.0):
     """单目【光轴深度】→ 斜距。
 
@@ -197,7 +206,8 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
     return w / 2.0 - left * scale, h / 2.0 - fwd * scale
 
 
-def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
+def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
+                 view: str = "field") -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
@@ -206,17 +216,34 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
 
     # 世界坐标 → 画布：以机器人为中心，朝上为 +x（车头方向固定朝上）
     cx, cy, cyaw = (pose if pose else (0.0, 0.0, 0.0))
-    scale = min(LIDAR_W, LIDAR_H) / (2.0 * LIDAR_RANGE_M)
-
-    def to_px(wx, wy):
-        px, py = world_to_screen(wx, wy, cx, cy, cyaw, scale)
-        return int(px), int(py)
-
-    # 场地边界（浅灰矩形）
     L = float(field.get("length_m", 14.0))
     W = float(field.get("width_m", 7.5))
+
+    # ── 两套坐标变换 ──────────────────────────────────────────────
+    if view == "robot":
+        # 车头朝上：以车为中心，看"球在我哪一侧"方便
+        scale = min(LIDAR_W, LIDAR_H) / (2.0 * LIDAR_RANGE_M)
+
+        def to_px(wx, wy):
+            px, py = world_to_screen(wx, wy, cx, cy, cyaw, scale)
+            return int(px), int(py)
+    else:
+        # 场地固定（默认）：整个场地画全，x→右、y→上，和 RViz 俯视一致。
+        # 现场对着实物核对时不容易左右误判。
+        margin = 30.0
+        scale = min((LIDAR_W - 2 * margin) / max(L, 1e-3),
+                    (LIDAR_H - 2 * margin) / max(W, 1e-3)) * 0.94
+
+        def to_px(wx, wy):
+            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin)
+            return int(px), int(py)
+
+    # 场地边界（浅灰矩形）+ 中线
     pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
     cv2.polylines(img, [pts], True, (70, 70, 70), 1, cv2.LINE_AA)
+    if view != "robot":
+        cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (48, 48, 48), 1, cv2.LINE_AA)
+        cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (48, 48, 48), 1, cv2.LINE_AA)
 
     # 得分点参考（传球区/投篮点/篮筐）
     refs = [("传球区", field.get("pass_zone_target")), ("投篮点", field.get("shoot_zone_target")),
@@ -231,32 +258,41 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
     # 点云（按高度上色）
     if cloud_xyz is not None and len(cloud_xyz):
         p = cloud_xyz
-        px_f, py_f = world_to_screen(p[:, 0], p[:, 1], cx, cy, cyaw, scale)
+        if view == "robot":
+            px_f, py_f = world_to_screen(p[:, 0], p[:, 1], cx, cy, cyaw, scale)
+            dx = p[:, 0] - cx
+            dy = p[:, 1] - cy
+            fwd = dx * math.cos(cyaw) + dy * math.sin(cyaw)
+            left = -dx * math.sin(cyaw) + dy * math.cos(cyaw)
+            keep_near = ((np.abs(fwd) < LIDAR_RANGE_M * 1.2) &
+                         (np.abs(left) < LIDAR_RANGE_M * 1.2))
+        else:
+            px_f, py_f = field_to_screen(p[:, 0], p[:, 1], 0.0, 0.0, scale, 30.0)
+            keep_near = np.ones(len(p), dtype=bool)     # 场地模式不按半径裁
         px = px_f.astype(np.int32)
         py = py_f.astype(np.int32)
-        # 只画视野内的（±1.2 倍范围，画布外丢弃）
-        dx = p[:, 0] - cx
-        dy = p[:, 1] - cy
-        fwd = dx * math.cos(cyaw) + dy * math.sin(cyaw)
-        left = -dx * math.sin(cyaw) + dy * math.cos(cyaw)
-        m = ((px >= 0) & (px < LIDAR_W) & (py >= 0) & (py < LIDAR_H)
-             & (np.abs(fwd) < LIDAR_RANGE_M * 1.2) & (np.abs(left) < LIDAR_RANGE_M * 1.2))
+        m = ((px >= 0) & (px < LIDAR_W) & (py >= 0) & (py < LIDAR_H) & keep_near)
         z = p[m, 2]
         zn = np.clip((z + 0.3) / 2.0, 0, 1)
         cols = np.stack([(60 + 195 * zn), (200 - 120 * zn), (255 - 200 * zn)], axis=1)
         img[py[m], px[m]] = cols.astype(np.uint8)
 
-    # 机器人（中心红箭头，朝上）
-    cv2.arrowedLine(img, (LIDAR_W // 2, LIDAR_H // 2),
-                    (LIDAR_W // 2, LIDAR_H // 2 - 26), (60, 60, 255), 3,
-                    cv2.LINE_AA, tipLength=0.35)
-    cv2.circle(img, (LIDAR_W // 2, LIDAR_H // 2), 14, (60, 60, 255), 1, cv2.LINE_AA)
+    # 机器人（红箭头）
+    rx, ry = to_px(cx, cy)
+    if view == "robot":
+        tip = (rx, ry - 26)
+    else:
+        # 场地模式：箭头按 yaw 转（世界 +x 是屏幕右，+y 是屏幕上）
+        tip = (int(rx + 30 * math.cos(cyaw)), int(ry - 30 * math.sin(cyaw)))
+    cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
+    cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
 
-    # 视野半径标尺
-    r = int(LIDAR_RANGE_M * scale)
-    cv2.circle(img, (LIDAR_W // 2, LIDAR_H // 2), r, (48, 48, 48), 1, cv2.LINE_AA)
-    texts.append((f"{LIDAR_RANGE_M:.0f} m", (LIDAR_W // 2 + 6, LIDAR_H // 2 - r + 2),
-                  (110, 110, 110), 13))
+    # 视野半径标尺（只在车头朝上模式有意义）
+    if view == "robot":
+        r = int(LIDAR_RANGE_M * scale)
+        cv2.circle(img, (LIDAR_W // 2, LIDAR_H // 2), r, (48, 48, 48), 1, cv2.LINE_AA)
+        texts.append((f"{LIDAR_RANGE_M:.0f} m", (LIDAR_W // 2 + 6, LIDAR_H // 2 - r + 2),
+                      (110, 110, 110), 13))
 
     # 球检测（相机方位角 + 光轴深度 → 场地坐标）
     now = time.time()
@@ -279,12 +315,13 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
         px, py = to_px(wx, wy)
         col = (0, 200, 255) if "basket" in label else (255, 180, 60)
         cv2.circle(img, (px, py), 9, col, 2, cv2.LINE_AA)
-        cv2.line(img, (LIDAR_W // 2, LIDAR_H // 2), (px, py), col, 1, cv2.LINE_AA)
+        cv2.line(img, (rx, ry), (px, py), col, 1, cv2.LINE_AA)
         texts.append((f"{label} {r:.2f}m", (px + 12, py - 8), col, 13))
 
     # 左上角文字状态
     lines = [
-        (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°", (215, 215, 215), 15),
+        (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°"
+         + ("   [场地固定]" if view != "robot" else "   [车头朝上]"), (215, 215, 215), 15),
         (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
         (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}", (150, 150, 150), 15),
@@ -1019,6 +1056,11 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
 
     @app.route("/api/lidar.mjpg")
     def api_lidar():
+        # ?view=robot 切换成"车头朝上"；默认场地固定（和 RViz 俯视一致）
+        view = (request.args.get("view") or "field").lower()
+        if view not in ("field", "robot"):
+            view = "field"
+
         def gen():
             while True:
                 with bridge.lock:
@@ -1027,7 +1069,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     dets = list(bridge.state["dets"])
                     lok = bridge.state["launcher_ok"]
                     ok = bridge.state["loc_ok"]
-                jpg = render_lidar(xyz, pose, dets, field, lok, ok)
+                jpg = render_lidar(xyz, pose, dets, field, lok, ok, view=view)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
