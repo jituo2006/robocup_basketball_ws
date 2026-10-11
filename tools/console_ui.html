@@ -46,6 +46,13 @@
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .row button{margin-bottom:0}
+  /* ⚠️ .grid2 之前被页面用了好几处（双摄卡/雷达找球卡/抓球卡）却没定义 ——
+     这些地方全退化成普通 div、竖着堆，所以"两个画面只看到一个"。
+     现在补上：等宽 2 列，窄屏自动变 1 列。 */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+  .grid2 label{margin-top:0}
+  .grid2 input,.grid2 select{width:100%}
+  @media (max-width:900px){.grid2{grid-template-columns:1fr}}
   .kv{display:flex;justify-content:space-between;gap:8px;padding:3px 0;
       border-bottom:1px dashed #262c37;font-size:13px}
   .kv:last-child{border:0}
@@ -153,21 +160,7 @@
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
     </div>
 
-    <div class="card" id="cardRearCam">
-      <h2>后摄像头（车正后方）</h2>
-      <img id="camrear" src="/api/camera_rear.mjpg" alt="后摄">
-      <div class="hint" id="rearstats">—</div>
-      <div class="hint">
-        <b>装法</b>：车正后方、位置居中、比前摄低、<b>水平无俯仰</b>（平着看后面）。<br>
-        <b>用途</b>：转 180° 之后前摄看不到球了，后摄正好对着球 → 用它做精准定位，
-        并闭环退那 20cm。<br>
-        <b>话题</b>：<code>/camera_rear/image_raw/compressed</code> →
-        <code>/perception/detections_rear</code>（单独一个话题，因为
-        <b>后摄 bearing 左右是反的</b>：世界方位角 = yaw + bearing，前摄是 yaw − bearing）。<br>
-        ⚠️ 后摄内参还没标定（现在是按 hfov 反推），测距有系统偏差 ——
-        要精准得先跑 <code>tools/calibrate_camera.py</code> 标它。
-      </div>
-    </div>
+        </div>
 
     <div class="card" id="cardSerialText">
       <h2>机构文本指令（这台机构的真实协议）</h2>
@@ -326,9 +319,25 @@
 
   <!-- 中列：画面 -->
   <div>
-    <div class="card">
-      <h2>📷 相机画面（/camera/image_raw/compressed）</h2>
-      <img id="cam" src="/api/camera.mjpg" alt="相机">
+    <div class="card" id="cardCams">
+      <h2>📷 双摄像头实时画面</h2>
+      <div class="grid2" style="gap:8px;align-items:start">
+        <div>
+          <div class="hint" style="margin-top:0"><b>前摄</b> · /camera/image_raw/compressed</div>
+          <img id="cam" src="/api/camera.mjpg" alt="前摄">
+        </div>
+        <div>
+          <div class="hint" style="margin-top:0"><b>后摄</b> · /camera_rear/image_raw/compressed</div>
+          <img id="camrear" src="/api/camera_rear.mjpg" alt="后摄">
+        </div>
+      </div>
+      <div class="hint" id="camstats">—</div>
+      <div class="hint">
+        两路都是 MJPEG 实时流。**前摄**朝车头（找球用），**后摄**朝车尾
+        （转 180° 后对着球，做精准定位 + 闭环后退）。<br>
+        ⚠️ 浏览器对同一个域名有并发连接上限，MJPEG 每路都占一条**长连接** ——
+        如果偶尔有一路不动，刷新页面即可（不是节点问题）。
+      </div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -590,15 +599,16 @@ function lbMode(m){
   const e = $('lbEnabled'); if(e) e.checked = true;
 }
 function renderRearCam(s){
-  const box = $('rearstats');
+  const box = $('camstats');
   if(!box) return;
-  const has = !!s.cam_rear_stamp;
-  const n = (s.dets_rear || []).length;
-  const balls = (s.dets_rear || []).filter(d => (d.label||'').startsWith('ball'));
-  box.innerHTML = has
-    ? `<span style="color:var(--ok)">后摄 在线</span>　检测 ${n} 个` +
-      (balls.length ? `　<span style="color:var(--blue)">球 ${balls.length}</span>` : '')
-    : '<span style="color:var(--dim)">后摄 没有画面（节点没起？设备名对不上？）</span>';
+  const f = s.has_cam, r = !!s.cam_rear_stamp;
+  const fb = (s.dets || []).filter(d => (d.label||'').startsWith('ball')).length;
+  const rb = (s.dets_rear || []).filter(d => (d.label||'').startsWith('ball')).length;
+  const one = (ok, txt) => ok
+    ? `<span style="color:var(--ok)">${txt} 在线</span>`
+    : `<span style="color:var(--bad)">${txt} 无画面</span>`;
+  box.innerHTML = one(f, '前摄') + `（球 ${fb}）　` + one(r, '后摄') + `（球 ${rb}）` +
+    (f && r ? '' : '　⚠️ 有一路没画面：查 device_name / 节点是否起来');
 }
 
 function renderMissionNode(s){
