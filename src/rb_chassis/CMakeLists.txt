@@ -12,7 +12,6 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(motor_lib REQUIRED)
 find_package(Threads REQUIRED)
 
 # 自带补丁版 bupt_can（防"旧速度帧积压→停车后突然窜车"的补丁 + 析构判空）
@@ -33,7 +32,7 @@ add_library(omni_chassis src/omni_chassis.cpp)
 target_include_directories(omni_chassis PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_link_libraries(omni_chassis base_chassis motor_lib rb_can)
+target_link_libraries(omni_chassis base_chassis rb_can)
 ament_target_dependencies(omni_chassis rclcpp geometry_msgs nav_msgs)
 
 # ---- 底盘节点（参数化）----
@@ -51,12 +50,15 @@ install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_export_include_directories(include)
 ament_export_libraries(base_chassis omni_chassis)
-ament_export_dependencies(rclcpp geometry_msgs nav_msgs motor_lib)
+ament_export_dependencies(rclcpp geometry_msgs nav_msgs)
 if(BUILD_TESTING)
   enable_testing()
   add_executable(test_omni_kinematics test/test_omni_kinematics.cpp)
   target_include_directories(test_omni_kinematics PRIVATE include)
   add_test(NAME omni_kinematics COMMAND test_omni_kinematics)
+  add_executable(test_dji_protocol test/test_dji_protocol.cpp)
+  target_include_directories(test_dji_protocol PRIVATE include)
+  add_test(NAME dji_protocol COMMAND test_dji_protocol)
   add_executable(test_can_lifecycle test/test_can_lifecycle.cpp)
   target_link_libraries(test_can_lifecycle rb_can)
   target_link_options(test_can_lifecycle PRIVATE

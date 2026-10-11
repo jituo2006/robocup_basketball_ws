@@ -7,7 +7,6 @@
 
 #include "base_chassis.h"
 #include "bupt_can/bupt_can.h"
-#include "motor_lib/dji_board.h"
 
 /**
  * 全向轮底盘（4 轮 X 型布置，驱动：DJI RoboMaster M3508 经大疆驱动板）。
@@ -17,7 +16,8 @@
  */
 class OmniChassis : public Chassis {
 private:
-  std::shared_ptr<DJIBoard> dji_board;
+  std::shared_ptr<Can> can_handle_;
+  void sendDjiCommand(uint16_t motor, uint16_t opcode, int32_t value = 0);
   // 存下来只为日志/排查用。之前 initialize() 里把 board_id 写死成 0u 打印，
   // 害得排查时误以为"配置是 1 但实际用了 0"，白白去改了能用的配置。
   uint32_t board_id_ = 0;
