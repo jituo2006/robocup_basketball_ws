@@ -213,3 +213,55 @@ def test_rear_geometry_signs_are_opposite():
     # 正后方：x 应为 -(后摄偏移 + 深度)
     pb0 = m.ball_body_from_rear(0.25, 0.0, 0.90)
     assert pb0[0] == pytest.approx(-1.15) and pb0[1] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# console.sh 的端口占用处理
+# ---------------------------------------------------------------------------
+def _console_sh() -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[3] / "tools" / "console.sh").read_text(
+        encoding="utf-8")
+
+
+def test_console_sh_handles_port_in_use_instead_of_crashing():
+    """端口被占时必须真正处理，不能只打印警告然后照样起。
+
+    现场现象：console.sh 打印"端口 8090 已被占用"，然后照样 exec →
+    Flask 报 Address already in use + terminate + 核心转储，看着像程序崩了。
+    """
+    src = _console_sh()
+    assert "is_our_console" in src, "应有'是不是自家控制台'的判断"
+    assert "--force" in src, "应支持 --force 接管"
+    assert "自动改用空闲端口" in src, "被别的程序占用时应自动换端口"
+
+
+def test_console_sh_console_detect_avoids_pipefail_trap():
+    """判断里不能用 `curl ... | grep -q ...`。
+
+    ⚠️ 脚本开头是 `set -o pipefail`，而 grep -q 一找到就退出 → 关掉管道 →
+    curl 收 SIGPIPE → 退出码非 0 → pipefail 让整条管道判为失败。
+    实测这样"明明是自家控制台却认不出来"，走错分支最后还是崩。
+    """
+    src = _console_sh()
+    i = src.find("is_our_console()")
+    assert i > 0
+    # ⚠️ 按函数体精确截取（到第一个顶格的 "}"），不要用固定长度 ——
+    #    取 900 字符会越界到后面那段，把别人的 grep -q 也算进来（踩过）。
+    j = src.find("\n}", i)
+    assert j > i, "找不到 is_our_console 的结尾"
+    body = src[i:j]
+    # ⚠️ 只看【代码行】，跳过注释 —— 注释里正要写"不能用 grep -q"来说明原因。
+    #    第一版就是这么误报的（和之前 --params-file 那次一模一样）。
+    code = [ln for ln in body.splitlines() if not ln.lstrip().startswith("#")]
+    code_txt = "\n".join(code)
+    assert "grep -q" not in code_txt, "判断里不能用 grep -q（pipefail 下会误判）"
+    assert "case " in code_txt or "grep -c" in code_txt, \
+        "应先用变量接住响应再匹配"
+
+
+def test_console_sh_passes_port_to_app_explicitly():
+    """自动换端口后必须把 --port 显式传给 app，否则它还是绑原端口。"""
+    src = _console_sh()
+    assert 'tools/console_app.py --port "$PORT"' in src, \
+        'exec 时必须显式带 --port "$PORT"（否则自动换端口不生效）'
