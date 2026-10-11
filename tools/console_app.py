@@ -1329,6 +1329,11 @@ DEBUG_TOOLS = {
         "args": ["--takeover", "--yes"],
         "label": "绕场一圈 → 寻球 → 走到球前 → 转身背对球",
     },
+    "TEST_GRAB_PLACE": {
+        "script": "tools/test_grab_place.py",
+        "args": [],
+        "label": "抓球并放下（机构序列）",
+    },
     "TEST_CHASSIS_DRY": {
         "script": "tools/test_chassis.py",
         "args": [],
@@ -1361,7 +1366,7 @@ class ToolRunner:
         lvl = "TOOL" if code == 0 else "ERROR"
         self.log.append((time.time(), lvl, name, f"— {name} 结束，退出码 {code} —"))
 
-    def start(self, key: str):
+    def start(self, key: str, extra_args=None):
         spec = DEBUG_TOOLS.get(key)
         if not spec:
             return False, f"未知调试脚本 {key}"
@@ -1374,7 +1379,8 @@ class ToolRunner:
             cmd = ["bash", "-c",
                    "source /opt/ros/humble/setup.bash && "
                    f"source {WS}/install/setup.bash && "
-                   f"exec python3 {spec['script']} " + " ".join(spec["args"])]
+                   f"exec python3 {spec['script']} " +
+                   " ".join(list(spec["args"]) + list(extra_args or []))]
             self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))
             self.proc = subprocess.Popen(
                 cmd, cwd=str(WS), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1642,6 +1648,26 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             if name == "LIDAR_BALL_RESET":
                 bridge.load_lidar_ball_cfg()
                 return jsonify({"ok": True, "msg": "已从 perception.yaml 重新读取默认值"})
+            if name == "GRAB_PLACE":
+                body = request.get_json(silent=True) or {}
+                a = ["--preset", str(body.get("preset") or "grab_place")]
+                if body.get("dry_run"):
+                    a.append("--dry-run")
+                    a.append("--no-countdown")
+                for k, flag in (("speed", "--speed"), ("angle", "--angle"),
+                                ("repeats", "--repeats"), ("interval", "--interval")):
+                    v = body.get(k)
+                    if v is not None and str(v) != "":
+                        try:
+                            a += [flag, str(int(v) if k in ("speed", "angle", "repeats")
+                                          else float(v))]
+                        except (TypeError, ValueError):
+                            pass
+                # 自定义步骤：前端传 JSON 字符串，原样透传（脚本会校验动作码）
+                if body.get("steps"):
+                    a += ["--steps", str(body["steps"])]
+                return jsonify(dict(zip(("ok", "msg"),
+                                        tool.start("TEST_GRAB_PLACE", a))))
             if name == "CHASSIS_ENABLE":
                 return jsonify(dict(zip(("ok", "msg"), chassis.start())))
             if name == "CHASSIS_STOP":

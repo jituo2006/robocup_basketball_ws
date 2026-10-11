@@ -225,6 +225,40 @@
         点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
     </div>
 
+    <div class="card" id="cardGrabPlace">
+      <h2>抓球并放下（机构序列调试）</h2>
+      <label>预设序列
+        <select id="gpPreset" onchange="gpPreview()">
+          <option value="grab_place">抓球 → 保持 → 放下（默认）</option>
+          <option value="grab_hold">只抓并保持（验证夹得牢不牢）</option>
+          <option value="place_only">只放（验证释放）</option>
+          <option value="slow_walk">慢速单步（每步停久，方便盯着看）</option>
+        </select>
+      </label>
+      <div class="grid2">
+        <label>转速 rpm（0=默认）<input type="number" id="gpSpeed" value="0" step="100"></label>
+        <label>角度（0=默认）<input type="number" id="gpAngle" value="0" step="1"></label>
+        <label>重复遍数<input type="number" id="gpRepeats" value="1" min="1" step="1"></label>
+        <label>遍间隔 s<input type="number" id="gpInterval" value="1.0" step="0.5"></label>
+      </div>
+      <div class="flowbox" id="gpPreview" style="display:block">—</div>
+      <div class="row" style="margin-top:6px">
+        <button class="ghost" onclick="gpRun(true)">🧪 干跑（只打印，安全）</button>
+        <button class="orange" onclick="gpRun(false)">▶ 真跑一遍</button>
+        <button class="danger" onclick="act('TOOL_STOP')">⏹ 停止</button>
+      </div>
+      <div class="hint">
+        <b>动作码</b>：0=发射 1=快发 2=运球 3=双运球 4=夹爪(翻转) 5=滑轨(翻转) 6=循环 7=停<br>
+        <b>为什么做成"步骤表"</b>：运球/双运球/夹爪/滑轨的<b>物理语义在下位机固件里</b>，
+        本仓库看不到 —— 到底哪步是"抓住"、哪步是"松开"只有上车试才知道。
+        所以给几个预设，现场哪个对就用哪个。<br>
+        <b>夹爪/滑轨是开关语义</b>：每发一次翻转一次。脚本会记录翻了几次
+        （偶数=回到初始态），日志里能看到。<br>
+        ⚠️ <b>会真动机构</b>：点之前确认机械周围没人、球在位、随时能断电。
+        不确定就先点「🧪 干跑」把步骤表打印出来看看。
+      </div>
+    </div>
+
     <div class="card">
       <h2>点动（按住即走，自动停）</h2>
       <div class="row3">
@@ -536,6 +570,40 @@ function renderLidarBall(s){
     if(!old) pl.insertAdjacentHTML('beforeend', html);
     else old.outerHTML = html;
   }
+}
+const GP_PRESETS = {
+  grab_place: [['DRIBBLE 运球', 1.5, '抓球'], ['STOP 停', 0.5, ''],
+               ['PAWL 夹爪翻转', 0.8, '抓/放取决于固件当前态'], ['STOP 停', 0.5, '']],
+  grab_hold:  [['DRIBBLE 运球', 2.0, '抓球'], ['PAWL 夹爪翻转', 3.0, '保持 3s，看夹住没']],
+  place_only: [['PAWL 夹爪翻转', 0.8, '释放'], ['STOP 停', 0.5, '']],
+  slow_walk:  [['DRIBBLE 运球', 2.0, ''], ['STOP 停', 1.5, ''],
+               ['PAWL 夹爪翻转', 2.0, ''], ['STOP 停', 1.5, ''],
+               ['SLIDEWAY 滑轨翻转', 2.0, ''], ['STOP 停', 1.5, '']]
+};
+function gpPreview(){
+  const box = $('gpPreview');
+  if(!box) return;
+  const list = GP_PRESETS[$('gpPreset')?.value] || [];
+  const n = parseInt($('gpRepeats')?.value) || 1;
+  box.innerHTML = list.map((x, i) =>
+    `${i+1}. <b>${x[0]}</b>　保持 ${x[1]}s　${x[2] ? '<span style="color:var(--dim)">' + x[2] + '</span>' : ''}`
+  ).join('<br>') + `<br><span style="color:var(--dim)">重复 ${n} 遍</span>`;
+}
+function gpRun(dry){
+  const body = {name:'GRAB_PLACE', preset: $('gpPreset')?.value || 'grab_place',
+                speed: $('gpSpeed')?.value, angle: $('gpAngle')?.value,
+                repeats: $('gpRepeats')?.value, interval: $('gpInterval')?.value,
+                dry_run: !!dry};
+  if(dry){
+    body.preset = body.preset;
+  } else {
+    const list = GP_PRESETS[body.preset] || [];
+    const txt = list.map((x,i) => `  ${i+1}. ${x[0]}  保持 ${x[1]}s`).join('\n');
+    if(!confirm('要真动机构！序列：\n' + txt +
+                `\n重复 ${body.repeats} 遍\n\n` +
+                '确认机械周围没人、球在位、随时能断电？')) return;
+  }
+  act('GRAB_PLACE', body);
 }
 function flowRun(){
   if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
