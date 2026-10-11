@@ -51,7 +51,7 @@ intrinsics:
   #    这不是"猜一个数":数值来自 4dc1131 那次实拍棋盘格标定，一直沿用到 9b83a0a。
   #    若之后用 tools/calibrate_camera.py --camera-role rear 重新标定，
   #    工具会把新值写回这里并置 calibrated: true。
-  calibrated: true
+  calibrated: false
   calibration_size: [1280, 720]
   fx: 794.16
   fy: 793.9

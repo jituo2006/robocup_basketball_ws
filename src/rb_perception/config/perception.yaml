@@ -17,7 +17,7 @@
 #   排球：5 号（周长 650-670mm → 直径约 21cm）
 
 camera:
-  calibrated: true  # 现有数值未经过本次质量验收；工具成功后置 true
+  calibrated: false  # 现有数值未经过本次质量验收；工具成功后置 true
   calibration_size: [1280, 720]
   # 相机内参。全部留 0 时，节点按 assumed_hfov_deg 反推 fx 并把主点设在图像中心。
   # 正式使用前务必用棋盘格标定后填入真实值：

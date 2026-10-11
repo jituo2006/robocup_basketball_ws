@@ -10,7 +10,7 @@ camera:
   - 0.0
   - 0.0
   - 0.0
-  calibrated: true
+  calibrated: false
   calibration_size:
   - 1280
   - 720
