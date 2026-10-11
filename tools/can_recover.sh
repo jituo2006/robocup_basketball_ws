@@ -42,8 +42,19 @@ if ! ip link show "$IFACE" >/dev/null 2>&1; then
   drops=$(_klog | grep -c "USB disconnect"); drops=${drops:-0}
   usb_seen=$(lsusb 2>/dev/null | grep -c "0c72:000c"); usb_seen=${usb_seen:-0}
   if [ "${usb_seen:-0}" -gt 0 ]; then
-    echo "      ${Y}! USB 上能看到 CAN 适配器（lsusb 0c72:000c），但 /sys 里没有接口${N}"
-    echo "      ${D}→ 它在枚举/掉线循环中，稍等几秒再跑，或换 USB 口/换线${N}"
+    echo "      ${Y}! USB 上能看到 CAN 适配器（lsusb 0c72:000c），但没有 can0 接口${N}"
+    # 区分两种完全不同的故障：掉线循环 vs 协议不应答
+    if _klog | tail -40 | grep -qE "probe of .* failed with error -110|waiting rsp .* failure: -110"; then
+      echo "      ${R}✗ 是【协议不应答】: peak_usb 发厂商命令超时(-110 = ETIMEDOUT)${N}"
+      echo "      ${D}  设备在 USB 层是活的（描述符能读），但固件不实现 PEAK 协议${N}"
+      echo "      ${D}  → 多半是兼容品（lsusb 的 Product 会显示 XCAN-USB，序列号为 0）${N}"
+      echo "      ${D}  → 换原厂 PCAN-USB，或换 Linux 原生支持的适配器${N}"
+    elif _klog | tail -40 | grep -qE "error -71|EPROTO|USB disconnect"; then
+      echo "      ${Y}! 是【掉线循环】: USB 层报错(-71 EPROTO)/反复 disconnect${N}"
+      echo "      ${D}  → 换 USB 线、换 USB 口（别插前面板），或加有源 hub${N}"
+    else
+      echo "      ${D}  → 稍等几秒再跑；仍不行就看 sudo dmesg -T | grep -E 'peak|can0'${N}"
+    fi
   else
     echo "      ${D}lsusb 里看不到 0c72:000c —— 适配器没插好（换线/换口试试）${N}"
   fi
