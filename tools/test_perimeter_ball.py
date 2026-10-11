@@ -126,6 +126,37 @@ def approach_axis(yaw: float, bearing_rad: float) -> float:
     return wrap_pi(yaw - bearing_rad)
 
 
+def ball_body_from_rear(rear_offset_x: float, bearing_rad: float, distance_m: float):
+    """后摄检测 → 球在【车体坐标】的位置（旋转中心为原点，+x 前、+y 左）。
+
+    ⚠️ 后摄朝 -x、顶朝上 ⇒ 图像右侧对应车的【左侧(+y)】
+       ⇒ 球相对车体的方向 = (-cos b, +sin b)（b 是右正左负的 bearing）
+    ⚠️ distance_m 是【光轴深度】，要 /cos(b) 才是斜距（和任务侧同一套换算）。
+    """
+    b = float(bearing_rad)
+    d = float(distance_m)
+    if not (b == b and d == d) or d <= 0.0:
+        return None
+    slant = d / max(math.cos(b), 1e-3)
+    return (-float(rear_offset_x) - slant * math.cos(b), slant * math.sin(b))
+
+
+def ball_world_from_rear(x: float, y: float, yaw: float, rear_offset_x: float,
+                         bearing_rad: float, distance_m: float):
+    """后摄检测 → 球在【场地坐标】的位置。"""
+    pb = ball_body_from_rear(rear_offset_x, bearing_rad, distance_m)
+    if pb is None:
+        return None
+    bx, by = pb
+    c, s = math.cos(yaw), math.sin(yaw)
+    return (x + c * bx - s * by, y + s * bx + c * by)
+
+
+def rear_world_angle(yaw: float, bearing_rad: float) -> float:
+    """后摄：球在场地系的方位角 = yaw + bearing（前摄是 yaw − bearing，符号相反）。"""
+    return wrap_pi(yaw + bearing_rad)
+
+
 def log(tag: str, msg: str, color: str = "") -> None:
     print(f"  {C_DIM}{time.strftime('%H:%M:%S')}{C_OFF} "
           f"{color}{tag:10}{C_OFF} {msg}", flush=True)
@@ -153,6 +184,10 @@ class Runner:
                                       self._on_pose, 10)
         self.node.create_subscription(DetectionArray, "/perception/detections",
                                       self._on_dets, 10)
+        # 后摄像头（车正后方）：转 180° 之后靠它做精准定位
+        self.dets_rear = []
+        self.node.create_subscription(
+            DetectionArray, self.args.rear_topic, self._on_dets_rear, 10)
 
         # 延迟导入任务侧的运动学（与任务用同一份，避免公式两套）
         sys.path.insert(0, f"{WS}/build/rb_mission")
@@ -169,6 +204,32 @@ class Runner:
         else:
             yaw = p.z
         self.pose = (p.x, p.y, yaw)
+
+    def _on_dets_rear(self, m) -> None:
+        with self.lock:
+            self.dets_rear = list(m.detections)
+
+    def best_ball_rear(self):
+        """后摄里置信度最高的目标球检测。"""
+        best = None
+        for d in list(getattr(self, "dets_rear", []) or []):
+            if d.label != self.args.ball_label:
+                continue
+            if best is None or d.confidence > best.confidence:
+                best = d
+        return best
+
+    def measure_rear_stable(self, timeout: float = 6.0, n: int | None = None):
+        """后摄多帧取中位数（同前摄的稳健做法）。"""
+        want = int(n or self.args.stable_frames)
+        got = []
+        t0 = time.time()
+        while len(got) < want and time.time() - t0 < timeout:
+            d = self.best_ball_rear()
+            if d is not None:
+                got.append((float(d.bearing_rad), float(d.distance_m)))
+            self.spin(0.05)
+        return median_ball(got)
 
     def _on_dets(self, m) -> None:
         self.dets = list(m.detections)
@@ -415,6 +476,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
                     help="相机光轴相对车头的偏置 rad")
     # ── 现场规格：对准 → 停在球前 70cm → 转 180° → 后退 20cm ──
+    ap.add_argument("--rear-offset", type=float, default=0.25,
+                    help="后摄到旋转中心的距离 m（装完量一下；后摄在车后填正数）")
+    ap.add_argument("--rear-topic", default="/perception/detections_rear",
+                    help="后摄检测话题")
     ap.add_argument("--align-dist", type=float, default=0.70,
                     help="对准到位时【车旋转中心】到球的距离 m（现场要求 70cm）")
     ap.add_argument("--align-tol-deg", type=float, default=1.5,
@@ -544,24 +609,53 @@ def main(argv: list[str] | None = None) -> int:
             log("转身未到位", "角度没到，停车退出", C_WARN)
             return 1
 
-        # ③ 朝球方向退 backup（现场要 20cm）
-        #    ⚠️ 转完 180° 后车头【背对】球，所以"朝球方向"= 车头反方向
+        # ③ 转身后【用后摄】做精准定位 —— 这正是后摄存在的意义
+        #    前摄此时背对球看不到，后摄正对着球（装得低、水平，近距离更清楚）
+        run.spin(0.4)
+        rear = run.measure_rear_stable(timeout=6.0)
+        front_after = run.measure_ball_stable(timeout=3.0, n=3)
+        if rear is not None:
+            rb, rd, rn = rear
+            wa = math.degrees(rear_world_angle(run.pose[2] if run.pose else 0.0, rb))
+            log("后摄定位", f"方位 {math.degrees(rb):+.2f}°（世界 {wa:+.1f}°）、"
+                            f"深度 {rd:.3f}m  [{rn} 帧中位数]", C_OK)
+            bw = ball_world_from_rear(
+                run.pose[0], run.pose[1], run.pose[2],
+                args.rear_offset, rb, rd) if run.pose else None
+            if bw:
+                log("球位置", f"据后摄推算球在场地 ({bw[0]:.2f}, {bw[1]:.2f})")
+                # 旋转中心到球的距离 = |球位 - 车心|
+                cd = math.hypot(bw[0] - run.pose[0], bw[1] - run.pose[1])
+                log("距离核对", f"旋转中心距球 {cd:.3f}m（对准时目标 {args.align_dist:.2f}m）")
+        else:
+            log("后摄无检测", "后摄没看到球 —— 检查话题 /perception/detections_rear、"
+                              "内参是否标定、球是否在视野里", C_WARN)
+        if front_after is not None:
+            log("注意", f"转身前摄还能看到球（方位 {math.degrees(front_after[0]):+.1f}°）"
+                        f" —— 球可能在侧面，核对一下", C_WARN)
+
+        # ④ 朝球方向退 backup（现场要 20cm）
+        #    ⚠️ 转完 180° 后车头【背对】球，"朝球方向"= 车头反方向
+        before = run.pose
         ok_back = run.backup_along(-abs(args.backup), timeout=30.0) \
             if args.turn_deg >= 90 else run.backup_along(abs(args.backup), timeout=30.0)
 
-        # ④ 收尾确认：再用相机看一眼（转完后相机应该看不到球了）
-        run.spin(0.4)
-        after = run.measure_ball_stable(timeout=4.0, n=3)
-        if after is None:
-            log("确认", "转身后相机看不到球 —— 符合预期（背面朝球）", C_OK)
-        else:
-            log("注意", f"转身后相机还能看到球，方位 {math.degrees(after[0]):+.1f}°"
-                        f" 距离 {after[1]:.2f}m —— 可能球在侧面，核对一下", C_WARN)
-
+        # ⑤ 退完再用后摄确认（闭环的最后一眼）
+        run.spin(0.3)
+        after_rear = run.measure_rear_stable(timeout=5.0, n=3)
         final_d = None
-        if run.pose is not None:
-            # 用最后一次伺服的球位置 + 现在的位移推算旋转中心到球的距离
-            final_d = args.align_dist - abs(args.backup)
+        if after_rear is not None:
+            ab, ad, an = after_rear
+            log("后摄复核", f"退完后：方位 {math.degrees(ab):+.2f}°、深度 {ad:.3f}m  [{an} 帧]",
+                C_OK)
+            if run.pose:
+                bw2 = ball_world_from_rear(run.pose[0], run.pose[1], run.pose[2],
+                                           args.rear_offset, ab, ad)
+                if bw2:
+                    final_d = math.hypot(bw2[0] - run.pose[0], bw2[1] - run.pose[1])
+        if before and run.pose:
+            moved = math.hypot(run.pose[0] - before[0], run.pose[1] - before[1])
+            log("位移核对", f"后退实际走了 {moved:.3f}m（指令 {args.backup:.2f}m）")
 
         print()
         if ok_turn and ok_back:
@@ -569,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"旋转中心距球 {args.align_dist:.2f}m ✓  "
                         f"转 {args.turn_deg:.0f}° ✓  后退 {args.backup:.2f}m ✓", C_OK)
             if final_d:
-                log("终点", f"旋转中心距球约 {final_d:.2f}m，背面朝球", C_OK)
+                log("终点", f"后摄确认：旋转中心距球约 {final_d:.2f}m，背面朝球", C_OK)
         elif ok_turn:
             log("部分完成", "对准 ✓  转身 ✓  但后退没完成", C_WARN)
         else:

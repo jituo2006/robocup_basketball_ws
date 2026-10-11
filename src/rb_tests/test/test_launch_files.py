@@ -135,3 +135,81 @@ def test_all_launch_files_render_without_object_repr():
             assert "object at 0x" not in cmd, f"{path.name} 的命令未替换：{cmd[:200]}"
     if checked == 0:
         pytest.skip("没有可渲染的 ExecuteProcess 命令")
+
+
+# ---------------------------------------------------------------------------
+# 前后双摄：launch 必须把两个感知的话题参数分别传对
+# ---------------------------------------------------------------------------
+def test_rear_camera_in_launch():
+    """后摄节点必须在 launch 里，并且用 camera_rear.yaml。"""
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    src = (ws / "src" / "rb_bringup" / "launch"
+           / "bringup_lidar_vision.launch.py").read_text(encoding="utf-8")
+    assert 'name="rb_camera_rear"' in src, "launch 里没有后摄节点"
+    assert "camera_rear.yaml" in src, "后摄没用 camera_rear.yaml"
+    assert 'name="rb_perception_rear"' in src, "launch 里没有后摄感知"
+
+
+def test_rear_perception_gets_all_topic_params():
+    """⚠️ 话题是 ROS 参数不是配置文件里的键 —— 必须逐个传对。
+
+    踩过的坑：只传 image_topic 不够，用压缩图时节点读的是 compressed_topic，
+    它的默认值指向【前摄】的图 → 后摄感知订了前摄画面、还把结果发到前摄话题上。
+    """
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    src = (ws / "src" / "rb_bringup" / "launch"
+           / "bringup_lidar_vision.launch.py").read_text(encoding="utf-8")
+    i = src.find('name="rb_perception_rear"')
+    assert i > 0
+    seg = src[i:i + 1200]
+    for key, val in (("image_topic", "/camera_rear/image_raw"),
+                     ("compressed_topic", "/camera_rear/image_raw/compressed"),
+                     ("output_topic", "/perception/detections_rear"),
+                     ("debug_image_topic", "/perception/debug_image_rear")):
+        assert key in seg, f"后摄感知少传了 {key}"
+        assert val in seg, f"{key} 的值不对（应含 {val}）"
+
+
+def test_rear_configs_have_rear_topics_and_names():
+    """后摄的两个配置文件：设备名按【名字】认，话题带 _rear，内参留待标定。"""
+    import yaml
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    cam = yaml.safe_load((ws / "src" / "rb_camera" / "config"
+                          / "camera_rear.yaml").read_text(encoding="utf-8"))
+    assert cam["camera"].get("device_name"), "后摄必须按名字认设备（编号会变）"
+    assert "rear" in cam["output"]["image_topic"], "后摄话题应带 _rear"
+    # ⚠️ publish_raw 和 publish_compressed 同类，放 camera: 块（output: 只放话题）
+    assert cam["camera"].get("publish_raw") is False, \
+        "后摄必须关掉原始图发布（1280x720 原始图 30Hz ≈80MB/s，GIL 下会把采集拖到 5fps）"
+    # 前摄也要有 device_name，否则会去抢 /dev/video0
+    front = yaml.safe_load((ws / "src" / "rb_camera" / "config"
+                            / "camera.yaml").read_text(encoding="utf-8"))
+    assert front["camera"].get("device_name"), "前摄也必须按名字认设备"
+
+
+def test_rear_geometry_signs_are_opposite():
+    """后摄的方位角换算必须和前摄相反（yaw+bearing vs yaw−bearing）。
+
+    这是整个双摄改动里最容易写错、又最难从现象看出问题的地方：
+    写反了车会朝镜像方向走。
+    """
+    import importlib.util
+    import math
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location(
+        "_tpb2", ws / "tools" / "test_perimeter_ball.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    # 同一侧的目标，前后摄算出来的世界方位角应符号相反
+    assert m.rear_world_angle(0.0, 0.3) == pytest.approx(m.bearing_to_world(0.0, -0.3))
+    assert m.rear_world_angle(0.0, 0.3) != pytest.approx(m.bearing_to_world(0.0, 0.3))
+    # 后摄在画面右侧(bearing>0)的目标 = 车的左侧 ⇒ 车体 y > 0
+    pb = m.ball_body_from_rear(0.25, 0.3, 0.90)
+    assert pb is not None and pb[1] > 0, "后摄画面右侧目标应在车的左侧(+y)"
+    # 正后方：x 应为 -(后摄偏移 + 深度)
+    pb0 = m.ball_body_from_rear(0.25, 0.0, 0.90)
+    assert pb0[0] == pytest.approx(-1.15) and pb0[1] == pytest.approx(0.0)

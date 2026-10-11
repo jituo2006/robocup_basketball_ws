@@ -79,6 +79,64 @@ _V4L2_ALIASES: dict[str, list[str]] = {
 _AUTO_EXPOSURE_MANUAL = 1
 
 
+def list_video_devices() -> list[tuple[str, str]]:
+    """返回 [(设备路径, 摄像头名)]，只含能用的（可采集的）节点。"""
+    out = []
+    try:
+        ls = subprocess.run(["v4l2-ctl", "--list-devices"], capture_output=True,
+                            text=True, timeout=6).stdout
+    except Exception:  # noqa: BLE001
+        return out
+    cur = ""
+    for line in ls.splitlines():
+        if line and not line.startswith(("\t", " ")) and line.rstrip().endswith(":"):
+            cur = line.rstrip().rstrip(":")
+        elif line.strip().startswith("/dev/video"):
+            out.append((line.strip(), cur))
+    return out
+
+
+def supports_mjpg_capture(dev: str) -> bool:
+    """这个节点能不能出 MJPG 图 —— 用来跳过 metadata 节点。
+
+    同一个物理摄像机会暴露两个 /dev/video：一个是图，一个是 metadata。
+    metadata 那个打不开/没帧，必须排掉（否则会挑中它，表现为"相机打不开"）。
+    """
+    try:
+        r = subprocess.run(["v4l2-ctl", "-d", dev, "--list-formats"],
+                           capture_output=True, text=True, timeout=6)
+        return "'MJPG'" in r.stdout or "'YUYV'" in r.stdout
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def resolve_device_by_name(name: str, log=None) -> str | None:
+    """按摄像头名（子串匹配，不区分大小写）找可采集的 /dev/videoN。
+
+    ⚠️ 不能用 /dev/videoN 写死：编号随插拔顺序变，重启就认错设备。
+    """
+    if not name:
+        return None
+    # ⚠️ 归一化空白：实测卡名是 "LRCP  V1080P"（两个空格），配置里写一个空格
+    #    就会匹配失败 → 退到写死的 /dev/videoN（不可靠）。
+    key = " ".join(str(name).split()).lower()
+    def norm(s):
+        return " ".join((s or "").split()).lower()
+    cands = [(d, n) for d, n in list_video_devices() if key in norm(n)]
+    if not cands:
+        # 再退一步：按第一个词匹配（"LRCP V1080P" → "lrcp"）
+        first = key.split(" ")[0]
+        cands = [(d, n) for d, n in list_video_devices() if first and first in norm(n)]
+    for d, n in cands:
+        if supports_mjpg_capture(d):
+            if log:
+                log(f"按名字 '{name}' 找到设备 {d}（{n}）")
+            return d
+    if log and cands:
+        log(f"名字 '{name}' 匹配到 {[d for d, _ in cands]} 但都不支持采集，跳过")
+    return None
+
+
 def parse_v4l2_ctrls(text: str) -> dict[str, int]:
     """解析 `v4l2-ctl --list-ctrls` 的输出，返回 {控件名: 当前值}。
 
@@ -125,6 +183,9 @@ class CameraNode(Node):
 
         # 常用项允许 ROS 参数覆盖（方便现场临时换设备/分辨率，不改文件）
         self.device = str(self.declare_parameter("device", str(cam.get("device", "/dev/video0"))).value)
+        # ⚠️ 优先按【摄像头名】认设备（编号会随插拔顺序变，写死会认错）
+        self.device_name = str(self.declare_parameter(
+            "device_name", str(cam.get("device_name", ""))).value)
         self.width = int(self.declare_parameter("width", int(cam.get("width", 1280))).value)
         self.height = int(self.declare_parameter("height", int(cam.get("height", 720))).value)
         self.fps = float(self.declare_parameter("fps", float(cam.get("fps", 30.0))).value)
@@ -143,7 +204,12 @@ class CameraNode(Node):
         #    同时"发布 30fps 采集 11fps"（在重复发同一帧）。
         #    感知用的是压缩话题（rb_perception 订阅 .../compressed），原始图没人用。
         #    需要 RViz 看原图时再把它打开。
-        self.publish_raw = bool((self.cfg.get("output") or {}).get("publish_raw", False))
+        # ⚠️ publish_raw 和 publish_compressed 是【同一类】开关，
+        #    都放在配置的 camera: 块里（output: 块只放话题名）。
+        #    我第一版写成从 output: 读 —— 读不到，只是恰好默认值也是 False
+        #    才没暴露出问题（配置项形同虚设）。
+        self.publish_raw = bool(self.declare_parameter(
+            "publish_raw", bool(cam.get("publish_raw", False))).value)
         self.ae_enabled = bool(ae.get("enabled", False))
         self.ae_target = float(ae.get("target_brightness", 115.0))
         self.ae_deadband = float(ae.get("deadband", 8.0))
@@ -399,6 +465,18 @@ class CameraNode(Node):
 
     # -- 采集线程 ----------------------------------------------------------
     def _open_capture(self) -> bool:
+        # 按名字认设备（比 /dev/videoN 稳，编号会随插拔顺序变）
+        if self.device_name:
+            found = resolve_device_by_name(
+                self.device_name,
+                log=lambda m: self.get_logger().info(m))
+            if found and found != self.device:
+                self.get_logger().info(f"设备按名字解析: {self.device} → {found}")
+                self.device = found
+            elif not found:
+                self.get_logger().warn(
+                    f"按名字 '{self.device_name}' 没找到可采集的摄像头，"
+                    f"仍试 {self.device}（可用 v4l2-ctl --list-devices 核对）")
         try:
             cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
         except Exception as exc:  # noqa: BLE001

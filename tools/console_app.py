@@ -569,6 +569,8 @@ class Bridge:
             "launcher_ok": False, "perception_ok": False,
             "launcher_status": "", "odom_delay": None, "odom_x": None,
             "dets": [], "dets_stamp": 0.0,
+            "cam_rear": None, "cam_rear_stamp": 0.0, "cam_rear_fps": 0.0,
+            "dets_rear": [], "dets_rear_stamp": 0.0,
             # 雷达找球（界面可调；默认关，保持与改动前一致）
             "odom": None,
             "lb_enabled": False, "lb_mode": "fuse", "lb_cands": [],
@@ -594,6 +596,13 @@ class Bridge:
         sub1(Bool, "/rb_launcher/ok", self._on_lok, 10)
         sub1(StringMsg, "/rb_launcher/status", self._on_lstatus, 10)
         sub1(DetectionArray, t.get("dets", "/perception/detections"), self._on_dets, 10)
+        # ── 后摄像头（车正后方）──
+        # ⚠️ 后摄的 bearing 左右是反的（画面右侧 = 车的左侧），
+        #    所以单独订阅、单独存，不跟前摄混在一个列表里。
+        sub1(CompressedImage, t.get("image_rear", "/camera_rear/image_raw/compressed"),
+             self._on_image_rear, self._sensor_qos)
+        sub1(DetectionArray, t.get("dets_rear", "/perception/detections_rear"),
+             self._on_dets_rear, 10)
         sub1(CompressedImage, t.get("image", "/camera/image_raw/compressed"),
              self._on_image, self._sensor_qos)
         # 原图兜底：离线仿真的 publish_test_image 发的是未压缩 /camera/image_raw，
@@ -729,6 +738,16 @@ class Bridge:
         with self.lock:
             self.state["dets"] = list(m.detections)
             self.state["dets_stamp"] = time.time()
+
+    def _on_image_rear(self, m):
+        with self.lock:
+            self.state["cam_rear"] = bytes(m.data)
+            self.state["cam_rear_stamp"] = time.time()
+
+    def _on_dets_rear(self, m):
+        with self.lock:
+            self.state["dets_rear"] = list(m.detections)
+            self.state["dets_rear_stamp"] = time.time()
 
     def _on_image(self, m):
         now = time.time()
@@ -969,7 +988,12 @@ class Bridge:
             s["round_stages"] = list(self.ROUND_STAGES)
             s["has_cam"] = s.get("cam") is not None
             s["cam"] = None
+            s["cam_rear"] = None      # ⚠️ 同样是原始 JPEG 字节，不能进 JSON
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
+            if time.time() - float(s.get("cam_rear_stamp") or 0.0) > 1.0:
+                s["cam_rear"] = None
+            if time.time() - float(s.get("dets_rear_stamp") or 0.0) > 1.5:
+                s["dets_rear"] = []
             # 检测过期就清空 —— 否则感知停了之后旧列表一直挂在页面上
             # （现场现象："雷达没开怎么还有 rack_ring"）
             if time.time() - float(s.get("dets_stamp") or 0.0) > 1.5:
@@ -978,6 +1002,12 @@ class Bridge:
                           "bearing_deg": math.degrees(d.bearing_rad),
                           "dist": (None if d.distance_m != d.distance_m else float(d.distance_m))}
                          for d in s["dets"][:12]]
+            # 后摄检测：单独一份，因为它 bearing 的左右是反的
+            s["dets_rear"] = [{"label": d.label, "conf": float(d.confidence),
+                               "bearing_deg": math.degrees(d.bearing_rad),
+                               "dist": (None if d.distance_m != d.distance_m
+                                        else float(d.distance_m))}
+                              for d in s.get("dets_rear", []) if hasattr(d, "label")]
             return s
 
 
@@ -1621,6 +1651,20 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                       for (tt, lv, src, ms) in list(stack.log)[-40:]]
         s["logs"] = sorted(s["logs"], key=lambda x: x["t"])[-140:]
         return jsonify(s)
+
+    @app.route("/api/camera_rear.mjpg")
+    def api_camera_rear_mjpg():
+        """后摄像头实时画面（和 camera.mjpg 同一套做法）。"""
+        def gen():
+            while True:
+                with bridge.lock:
+                    jpg = bridge.state["cam_rear"]
+                if jpg:
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                           b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
+                           + jpg + b"\r\n")
+                time.sleep(0.1)
+        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
     @app.route("/api/camera.mjpg")
     def api_camera():

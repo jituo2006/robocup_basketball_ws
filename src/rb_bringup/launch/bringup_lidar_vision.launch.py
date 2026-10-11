@@ -93,6 +93,30 @@ def generate_launch_description():
              output="screen",
              parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml"),
                           "device": camera_device}]),
+        # ── 后摄像头（装在车正后方）────────────────────────────────────
+        # 同一套节点代码，只是配置换成 camera_rear.yaml：
+        #   * device_name 按名字认设备（编号随插拔顺序变，不能写死）
+        #   * 话题带 _rear 前缀
+        # ⚠️ 故意【不】传 device 覆盖：后摄靠 device_name 自己找。
+        Node(package="rb_camera", executable="camera_node", name="rb_camera_rear",
+             output="screen",
+             parameters=[{"config_file": _share("rb_camera", "config", "camera_rear.yaml")}]),
+        # 后摄的感知单独一个实例 → /perception/detections_rear
+        # （后摄 bearing 左右相反，不能和前摄混在一个话题里）
+        Node(package="rb_perception", executable="perception_node", name="rb_perception_rear",
+             output="screen",
+             # ⚠️ 话题是【ROS 参数】不是配置文件里的键，必须在这里逐个传。
+             #    尤其 compressed_topic 是【独立】参数：只传 image_topic 不够 ——
+             #    用压缩图时节点读的是 compressed_topic，默认值指向【前摄】的图，
+             #    结果后摄感知订了前摄的画面、还把结果发到前摄话题上（踩过）。
+             parameters=[{"config_file": _share("rb_perception", "config", "perception_rear.yaml"),
+                          "image_topic": "/camera_rear/image_raw",
+                          "compressed_topic": "/camera_rear/image_raw/compressed",
+                          "use_compressed": use_compressed,
+                          "output_topic": "/perception/detections_rear",
+                          "debug_image_topic": "/perception/debug_image_rear",
+                          "publish_debug_image": False}]),
+
         Node(package="rb_perception", executable="perception_node", name="rb_perception",
              output="screen",
              parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),

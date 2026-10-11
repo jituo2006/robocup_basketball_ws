@@ -153,6 +153,22 @@
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
     </div>
 
+    <div class="card" id="cardRearCam">
+      <h2>后摄像头（车正后方）</h2>
+      <img id="camrear" src="/api/camera_rear.mjpg" alt="后摄">
+      <div class="hint" id="rearstats">—</div>
+      <div class="hint">
+        <b>装法</b>：车正后方、位置居中、比前摄低、<b>水平无俯仰</b>（平着看后面）。<br>
+        <b>用途</b>：转 180° 之后前摄看不到球了，后摄正好对着球 → 用它做精准定位，
+        并闭环退那 20cm。<br>
+        <b>话题</b>：<code>/camera_rear/image_raw/compressed</code> →
+        <code>/perception/detections_rear</code>（单独一个话题，因为
+        <b>后摄 bearing 左右是反的</b>：世界方位角 = yaw + bearing，前摄是 yaw − bearing）。<br>
+        ⚠️ 后摄内参还没标定（现在是按 hfov 反推），测距有系统偏差 ——
+        要精准得先跑 <code>tools/calibrate_camera.py</code> 标它。
+      </div>
+    </div>
+
     <div class="card" id="cardSerialText">
       <h2>机构文本指令（这台机构的真实协议）</h2>
       <div class="row">
@@ -573,6 +589,18 @@ function lbMode(m){
                         body: JSON.stringify({name:'LIDAR_BALL', enabled:true, mode:m})}).catch(()=>{});
   const e = $('lbEnabled'); if(e) e.checked = true;
 }
+function renderRearCam(s){
+  const box = $('rearstats');
+  if(!box) return;
+  const has = !!s.cam_rear_stamp;
+  const n = (s.dets_rear || []).length;
+  const balls = (s.dets_rear || []).filter(d => (d.label||'').startsWith('ball'));
+  box.innerHTML = has
+    ? `<span style="color:var(--ok)">后摄 在线</span>　检测 ${n} 个` +
+      (balls.length ? `　<span style="color:var(--blue)">球 ${balls.length}</span>` : '')
+    : '<span style="color:var(--dim)">后摄 没有画面（节点没起？设备名对不上？）</span>';
+}
+
 function renderMissionNode(s){
   const m = s.mission_node || {};
   const box = $('missionstate');
@@ -770,6 +798,7 @@ function renderProgress(s){
 
 function render(s){
   window._st = s;
+  renderRearCam(s);
   renderMissionNode(s);
   renderLidarBall(s);
   renderChassis(s);

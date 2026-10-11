@@ -11,7 +11,11 @@
 #    如果用 YUYV，高分辨率下帧率会掉到 6~9fps。
 
 camera:
-  device: "/dev/video0"     # UVC 相机的采集节点（/dev/video1 通常是 metadata，别用）
+  device: "/dev/video0"
+  # ⚠️ 按【名字】认设备，比 /dev/videoN 稳：编号随插拔顺序变，重启就认错。
+  #    前摄 = 原来的 "USB 2.0 Camera: HD USB Camera"
+  #    后摄 = 新加的 "LRCP V1080P"（见 camera_rear.yaml）
+  device_name: "HD USB Camera"     # UVC 相机的采集节点（/dev/video1 通常是 metadata，别用）
   width: 1280               # 识别远处球用 1280x720；CPU 吃紧或要更低延迟可改 640x480
   height: 720
   fps: 30.0                 # 相机请求帧率（实际由相机能力决定）
@@ -35,11 +39,10 @@ camera:
   #   JPEG 把 640x480 压到 ~40KB，30fps 才 1.2MB/s，轻松跑满帧率。
   #   配套：rb_perception 要用 -p use_compressed:=true 订阅 /camera/image_raw/compressed
   publish_compressed: true
-  # ⚠️ 是否发布【原始未压缩图】。默认 false ——
-  #    1280x720 原始图 2.7MB/帧，30Hz ≈ 80MB/s；Python 有 GIL，这个发布线程
-  #    会和采集线程抢锁，实测把采集从 50fps 拖到 5.8fps（同时"发布30 采集11"
-  #    在重复发同一帧）。感知只用压缩话题，原始图没人用。
-  #    要用 RViz 看原图 / 跑颜色标定时再打开。
+  # 是否发布【原始未压缩图】。默认 false：
+  #   1280x720 原始图 2.7MB/帧、30Hz ≈ 80MB/s；Python 有 GIL，这个发布线程会和
+  #   采集线程抢锁，实测把采集从 50fps 拖到 5.8fps。感知用的是压缩话题，
+  #   原始图没人用（要用 RViz 看原图/跑颜色标定时再打开）。
   publish_raw: false
   jpeg_quality: 80
 
