@@ -177,3 +177,24 @@ def test_lidar_detection_has_no_image_coords():
     assert d.source == "lidar"
     assert math.isnan(d.px) and math.isnan(d.py)
     assert math.isfinite(d.bearing_rad) and math.isfinite(d.distance_m)
+
+
+def test_shipped_config_path_is_correct():
+    """配置里 lidar_ball 必须挂在 perception: 下 —— 节点就是按这个路径读的。
+
+    ⚠️ 曾经把它写到了 yaml 顶层，节点 self.cfg["perception"]["lidar_ball"]
+    永远读不到 → 功能静默失效（开关打开也没用）。这种错只能靠路径断言拦。
+    """
+    import pathlib
+    import yaml
+    cfg_path = (pathlib.Path(__file__).resolve().parents[1]
+                / "config" / "perception.yaml")
+    c = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    assert "perception" in c, "配置必须有 perception 段"
+    assert "lidar_ball" in c["perception"], \
+        "lidar_ball 必须在 perception: 下（节点按 cfg['perception']['lidar_ball'] 读）"
+    lb = c["perception"]["lidar_ball"]
+    # 默认必须是关闭的：用户明确要求保留现在的模式
+    assert lb["enabled"] is False, "出厂默认必须 enabled: false"
+    assert lb["mode"] in ("camera", "lidar", "fuse")
+    assert lb["mode"] == "camera" or lb["enabled"] is False
