@@ -1323,6 +1323,11 @@ class ActionGuard:
         "TEST_PERIMETER": 10.0, "TEST_GRAB_PLACE": 10.0,
         "CAN_RECOVER": 20.0,
     }
+    # ⚠️ 点动(JOG)/传球/停止任务这些是【要连按】的，绝不能加冷却：
+    #    冷却会把 UI 的点动按钮废掉（按一下要等 2 秒）✗。
+    #    它们只需要"不许并发"（前端 _inflight + 后端 busy 已经在管）。
+    NO_COOLDOWN = {"JOG", "IDLE", "PASS", "SHOOT", "LAUNCH_TEXT",
+                   "LAUNCH_GRAB", "LAUNCH_PLACE", "LAUNCH_INIT"}
     DEFAULT_COOLDOWN = 2.0
     # 长动作的"在跑"最长挂多久（超时自动释放，别把界面锁死）
     BUSY_TIMEOUT = 180.0
@@ -1359,7 +1364,8 @@ class ActionGuard:
                         self._reject(now, msg)
                         return False, msg
             # 同动作冷却
-            cd = float(self.COOLDOWN.get(name, self.DEFAULT_COOLDOWN))
+            cd = 0.0 if name in self.NO_COOLDOWN else \
+                float(self.COOLDOWN.get(name, self.DEFAULT_COOLDOWN))
             prev = self.last.get(name, 0.0)
             if now - prev < cd:
                 msg = (f"拒绝重复下发【{name}】：{cd:.0f}s 内已经下过一次"
