@@ -178,9 +178,11 @@ def test_weak_intrinsic_calibration_never_gets_a_quality_pass():
     assert calibration_quality([op]*15, [ip]*15, (1280, 720), .1, K, np.zeros(5), [], [])
 
 
-def test_rear_is_separate_and_unconfigured_not_guessed():
+def test_confirmed_rear_device_is_separate_and_geometry_still_requires_calibration():
     cfg = yaml.safe_load((WS/'src/rb_camera/config/camera_rear.yaml').read_text())
-    assert cfg['camera']['device'] == ''
+    assert cfg['camera']['device'] == '/dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0'
+    front = yaml.safe_load((WS/'src/rb_camera/config/camera.yaml').read_text())
+    assert front['camera']['device'] != cfg['camera']['device']
     assert cfg['output']['image_topic'] == '/camera_rear/image_raw'
     assert cfg['output']['health_topic'] == '/rb_camera_rear/ok'
     cfg = yaml.safe_load((WS/'src/rb_perception/config/perception_rear.yaml').read_text())

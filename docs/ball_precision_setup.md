@@ -21,8 +21,9 @@
 
 ## 通电前可完成的内容
 
-1. 设置后相机设备：在 Linux 执行 `ls -l /dev/v4l/by-id/`，辨认前后设备，
-   把后相机的稳定路径填入 `src/rb_camera/config/camera_rear.yaml` 的 `camera.device`。
+1. 2026-10-12 已由现场确认并配置：前相机为 HD Camera，后相机为 LRCP V1080P，
+   分别绑定 `/dev/v4l/by-id/usb-HD_Camera_Manufacturer_USB_2.0_Camera-video-index0`
+   和 `/dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0`。
    同一摄像头可能有多个节点，使用能采集 MJPG 的 video-index0；不能仅按 video0/video1 猜。
 2. 本轮默认 `calibrated: false`、`extrinsics_confirmed: false`、`intake_confirmed: false`。
    这些标志表示测量尚未完成，不能用猜测数值把它们改成 true。
@@ -44,7 +45,7 @@ python3 tools/calibrate_camera.py --print-board --pdf --out /tmp/chessboard.pdf
 
 ```bash
 python3 tools/calibrate_camera.py --camera-role front --auto
-python3 tools/calibrate_camera.py --camera-role rear --auto --device /dev/v4l/by-id/实际后相机路径
+python3 tools/calibrate_camera.py --camera-role rear --auto
 # 或已有照片文件夹：
 python3 tools/calibrate_camera.py --camera-role rear --images /tmp/rear_calib
 ```
@@ -97,11 +98,12 @@ python3 tools/calibrate_ball_geometry.py --camera-role rear \
 
 ## 通电后的静止验收（先不动车）
 
-外部 FAST-LIO 尚未完成此前掉线后的最终部署。保留已有外部源码修改，
-核对并应用 `tools/fastlio_latest_input.patch`，仅重新构建/启动雷达相关组件。
+2026-10-12 已完成 Linux Git 同步、三个上层包构建和 FAST-LIO 编译安装；
+保留了外部仓库已有修改，仅新增当前扫描输出设置，没有重编译或启动底盘。
+以后部署新主机时核对 `tools/fastlio_latest_input.patch`，仅构建雷达相关组件。
 确认 `scan_bodyframe_pub_en: true`，输出 `/cloud_registered_body`，消息 frame_id 为 `body`。
 使用当前扫描，不使用累积地图；雷达/相机使用同一 ROS 时钟。
-此轮没有远程部署，也没有启动任何实车测试。
+Linux 上 236 项离线测试通过。运动与标定验收仍需现场完成。
 
 仅构建这些 Python 包（消息 ABI 不变），按需重启对应感知/采集节点：
 

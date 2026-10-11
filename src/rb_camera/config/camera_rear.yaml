@@ -1,6 +1,6 @@
-# device 留空直到核对稳定设备路径；不默认打开前相机。
+# 2026-10-12 现场确认：LRCP V1080P 为车尾相机，使用固定 USB 路径。
 camera:
-  device: ''
+  device: /dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0
   width: 1280
   height: 720
   fps: 15.0
