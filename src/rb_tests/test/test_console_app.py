@@ -440,3 +440,41 @@ def test_mirror_y_flips_y_only():
     x2, _ = mod.field_to_screen(1.0, 2.0, 0, 0, 50.0, 30.0, mirror_y=True)
     assert x1 == x2, "mirror_y 不该影响 x"
     assert abs((y1 + y2) - H) < 1e-6, f"y 应关于画布中线对称，{y1}+{y2}≠{H}"
+
+
+# ---------------------------------------------------------------------------
+# odom_cloud_to_field：点云从 camera_init 变换到 field
+# ⚠️ 缺这步的现场表现："点云显示在 B、箭头（field 位姿）在 A"，两者对不上。
+#    /cloud_registered 是 FAST-LIO 在 camera_init 系里的点，而位姿是 field 系。
+# ---------------------------------------------------------------------------
+def test_cloud_transform_identity():
+    import numpy as np
+    mod = _load()
+    pts = np.array([[1.0, 2.0, 0.0], [3.0, -1.0, 0.5]])
+    out = mod.odom_cloud_to_field(pts, 0.0, 0.0, 0.0)
+    assert np.allclose(out, pts), "零变换应原样返回"
+
+
+def test_cloud_transform_translation():
+    import numpy as np
+    mod = _load()
+    out = mod.odom_cloud_to_field(np.array([[0.0, 0.0, 0.0]]), -0.5, 7.0, 0.0)
+    assert out[0][0] == pytest.approx(-0.5)
+    assert out[0][1] == pytest.approx(7.0)
+
+
+def test_cloud_transform_rotation_then_translation():
+    """先旋转再平移（p_field = R·p_ci + t），顺序不能反。"""
+    import numpy as np
+    mod = _load()
+    # 绕 z 转 90°：(1,0) → (0,1)
+    out = mod.odom_cloud_to_field(np.array([[1.0, 0.0, 0.0]]), 10.0, 20.0, math.pi / 2)
+    assert out[0][0] == pytest.approx(10.0, abs=1e-6)
+    assert out[0][1] == pytest.approx(21.0), f"应是 R 后再加 t，实际 {out[0]}"
+
+
+def test_cloud_transform_keeps_z():
+    import numpy as np
+    mod = _load()
+    out = mod.odom_cloud_to_field(np.array([[1.0, 1.0, -0.3]]), 5.0, 5.0, 1.2)
+    assert out[0][2] == pytest.approx(-0.3), "z 不该被平面变换影响"

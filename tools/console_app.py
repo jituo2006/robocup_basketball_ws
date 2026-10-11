@@ -219,6 +219,22 @@ class BallSmoother:
 _smoother = BallSmoother()
 
 
+def odom_cloud_to_field(cloud_xyz, tx: float, ty: float, theta: float):
+    """把 camera_init 系的点云变换到 field 系。
+
+    定位节点发 `field → camera_init` 的**刚性变换**（不是 EKF 后的位姿）：
+      p_field = R(theta)·p_ci + (tx, ty)
+    点云不做这步就直接画，会落在 camera_init 原点附近 —— 现场表现为
+    "点云显示在 B、而箭头（field 位姿）在 A"，两者对不上。
+    """
+    c, s = math.cos(theta), math.sin(theta)
+    out = np.empty_like(cloud_xyz)
+    out[:, 0] = c * cloud_xyz[:, 0] - s * cloud_xyz[:, 1] + tx
+    out[:, 1] = s * cloud_xyz[:, 0] + c * cloud_xyz[:, 1] + ty
+    out[:, 2] = cloud_xyz[:, 2]
+    return out
+
+
 def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
     """场地系 (wx,wy) → 俯视图像素。**车头朝上，车的左边在屏幕左边。**
 
@@ -234,7 +250,7 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
 
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                  view: str = "field", mirror_x: bool = False,
-                 mirror_y: bool = False) -> bytes:
+                 mirror_y: bool = False, odom_tf=None) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
@@ -262,9 +278,11 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         # ⚠️ 出发区 A/B 突出在场地左边线【之外】（x<0），
         #    所以绘图范围要含场外一圈，否则方块会被裁掉。
         _zs = (field.get("start_zones") or {})
-        _ext = float(field.get("start_zone_offset_m", 1.0) or 0.0) + 0.4
-        X0, X1 = -_ext, L + 0.3
-        Y0, Y1 = -0.3, W + 0.3
+        # 出发区可能从【任一】边线向外突出（现场是上下边线），
+        # 所以四个方向都留出余量，否则突出的方块会被裁掉。
+        _ext = float(field.get("start_zone_offset_m", 1.0) or 0.0) + 0.6
+        X0, X1 = -_ext, L + _ext
+        Y0, Y1 = -_ext, W + _ext
         _fl, _fw = X1 - X0, Y1 - Y0
         scale = min((LIDAR_W - 2 * margin) / max(_fl, 1e-3),
                     (LIDAR_H - 2 * margin) / max(_fw, 1e-3)) * 0.98
@@ -393,6 +411,10 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # 点云（按高度上色）
     if cloud_xyz is not None and len(cloud_xyz):
         p = cloud_xyz
+        # ⚠️ 点云在 FAST-LIO 的 camera_init 系里，必须先变换到 field 系再画。
+        #    不做这步点云会落在 camera_init 原点附近（现场现象："点云在 B、箭头在 A"）。
+        if odom_tf is not None:
+            p = odom_cloud_to_field(cloud_xyz, *odom_tf)
         if view == "robot":
             px_f, py_f = world_to_screen(p[:, 0], p[:, 1], cx, cy, cyaw, scale)
             dx = p[:, 0] - cx
@@ -471,7 +493,10 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
          (215, 215, 215), 15),
         (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
-        (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}", (150, 150, 150), 15),
+        (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}"
+         + ("" if view == "robot" else
+            ("　✓已变换到场地系" if odom_tf is not None
+             else "　⚠️未变换(缺 field←camera_init TF)")), (150, 150, 150), 15),
     ]
     for i, (txt, col, size) in enumerate(lines):
         texts.append((txt, (12, 8 + i * 20), col, size))
@@ -559,6 +584,21 @@ class Bridge:
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
         self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
+
+        # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
+        # （定位节点发 field→camera_init，是刚性变换，不是 EKF 位姿）
+        self._tf_buffer = None
+        self._tf_listener = None
+        try:
+            from tf2_ros import Buffer, TransformListener
+            self._tf_buffer = Buffer()
+            self._tf_listener = TransformListener(self._tf_buffer, self.node)
+        except Exception as e:  # noqa: BLE001
+            self.node.get_logger().warn(f"tf2 不可用，点云将不做坐标变换: {e}")
+        self.odom_frame_name = str(
+            ((cfg.get("localization") or {}).get("odom_frame")) or "camera_init")
+        self.field_frame_name = str(
+            ((cfg.get("localization") or {}).get("field_frame")) or "field")
 
         self._spin_thread = threading.Thread(target=self._spin, daemon=True)
         self._spin_thread.start()
@@ -760,6 +800,25 @@ class Bridge:
             self.pub_cmd.publish(self._Twist())
         threading.Thread(target=run, daemon=True).start()
         return True, f"点动 {seconds}s"
+
+    def odom_to_field_tf(self):
+        """返回 (tx, ty, theta)：camera_init 原点在 field 下的位置与相对朝向。
+
+        点云乘这个变换才能和 /localization/pose 对上。查不到返回 None。
+        """
+        if self._tf_buffer is None:
+            return None
+        try:
+            import rclpy.time
+            tr = self._tf_buffer.lookup_transform(
+                self.field_frame_name, self.odom_frame_name, rclpy.time.Time())
+            q = tr.transform.rotation
+            th = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                            1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            return (float(tr.transform.translation.x),
+                    float(tr.transform.translation.y), float(th))
+        except Exception:  # noqa: BLE001
+            return None
 
     def snapshot(self):
         """返回可 JSON 化的快照。
@@ -1366,8 +1425,10 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     dets = list(bridge.state["dets"])
                     lok = bridge.state["launcher_ok"]
                     ok = bridge.state["loc_ok"]
+                odom_tf = bridge.odom_to_field_tf()
                 jpg = render_lidar(xyz, pose, dets, field, lok, ok,
-                                   view=view, mirror_x=mirror, mirror_y=mirror_y)
+                                   view=view, mirror_x=mirror, mirror_y=mirror_y,
+                                   odom_tf=odom_tf)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
@@ -1441,7 +1502,19 @@ def main(argv=None):
     tool = ToolRunner(logbuf)
     checks = SystemChecks(logbuf)
     chassis = ChassisManager(logbuf, checks)
-    bridge = Bridge({"topics": topics})
+    try:
+        loc_cfg = yaml.safe_load(
+            (WS / "src/rb_localization/config/localization.yaml").read_text(
+                encoding="utf-8")) or {}
+        loc_conv = loc_cfg.get("odom_frame_conversion") or {}
+        loc_out = loc_cfg.get("output") or {}
+    except Exception:  # noqa: BLE001
+        loc_conv, loc_out = {}, {}
+    bridge = Bridge({"topics": topics, "localization": {
+        # ⚠️ 名字要和定位节点实际用的完全一致，否则 TF 查不到（静默不变换）
+        "odom_frame": loc_conv.get("odom_frame") or "camera_init",
+        "field_frame": loc_out.get("field_frame") or "field",
+    }})
     app = make_app(bridge, stack, tool, checks, chassis, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")

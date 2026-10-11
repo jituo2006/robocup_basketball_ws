@@ -31,8 +31,8 @@ odom_frame_conversion:
   # ⚠️ 车摆在【出发区 A】（官方图左上、突出场外）。A 区中心暂按 (-0.5, 7.0)，
   #    现场卷尺核对后必须与 mission.yaml 的 field.start_zones.A 保持一致。
   start_pose:
-    x: -0.5
-    y: 7.0
+    x: 1.5
+    y: 8.0
     yaw: 0.0
 
   # 雷达安装偏移：base = sensor + R(**车体yaw**) · (sensor_to_base)
@@ -99,8 +99,8 @@ output:
   publish_rate_hz: 20.0
 
 initial_pose:
-  x: -0.5
-  y: 7.0
+  x: 1.5
+  y: 8.0
   yaw: 0.0
 
 ekf:
