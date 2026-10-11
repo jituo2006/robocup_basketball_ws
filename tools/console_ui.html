@@ -248,8 +248,12 @@
       <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
-      <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b>（SIGTERM 掉任务节点），
-        点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
+      <div class="hint" id="missionstate">—</div>
+      <div class="row">
+        <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
+        <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
+      </div>
+      <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b> —— 做法是 <b>SIGTERM 掉任务节点</b>，所以跑完之后「回出发点 / 去投篮点 / 起任务」都会报"服务不可用" ✗。<b>跑完记得点「🔄 重启任务节点」</b>。<br>点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
     </div>
 
     <div class="card" id="cardGrabPlace">
@@ -569,6 +573,16 @@ function lbMode(m){
                         body: JSON.stringify({name:'LIDAR_BALL', enabled:true, mode:m})}).catch(()=>{});
   const e = $('lbEnabled'); if(e) e.checked = true;
 }
+function renderMissionNode(s){
+  const m = s.mission_node || {};
+  const box = $('missionstate');
+  if(box){
+    box.innerHTML = m.running
+      ? '<span style="color:var(--ok)">任务节点 运行中</span>'
+      : '<span style="color:var(--bad)">任务节点 未运行 —— GOTO/起任务都会报"服务不可用"，点上面的 🔄 重启</span>';
+  }
+}
+
 function renderLidarBall(s){
   const en = $('lbEnabled');
   if(en && document.activeElement !== en) en.checked = !!s.lb_enabled;
@@ -747,6 +761,7 @@ function renderProgress(s){
 
 function render(s){
   window._st = s;
+  renderMissionNode(s);
   renderLidarBall(s);
   renderChassis(s);
   renderChecks(s);

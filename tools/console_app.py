@@ -1211,6 +1211,89 @@ def probe_can():
             "usb_disconnects": drops, "vidpid": PCAN_VIDPID}
 
 
+class MissionManager:
+    """单独起/停 rb_mission。
+
+    ⚠️ 为什么需要它：寻球/绕场脚本会 SIGTERM 掉 mission 节点来接管 /cmd_vel，
+    跑完不会自己回来，之后所有 GOTO / 起任务都报"服务不可用"。
+    """
+
+    def __init__(self, log_deque):
+        self.log = log_deque
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+
+    @property
+    def running(self) -> bool:
+        # ⚠️ 不能只看 self.proc：boot.sh / ros2 launch 起的 mission 节点
+        #    不归这里管，不看进程就会起【重复节点】（实测 /rb_mission 出现两个，
+        #    两个节点抢 /cmd_vel，行为不可预测）。
+        if self.proc is not None and self.proc.poll() is None:
+            return True
+        return self._external_running()
+
+    @staticmethod
+    def _external_running() -> bool:
+        """按可执行名找 mission_node（不用 -f，避免匹配到自己的命令行）。"""
+        try:
+            out = subprocess.run(["ps", "-eo", "comm"], capture_output=True,
+                                 text=True, timeout=4).stdout
+            return any(l.strip() == "mission_node" for l in out.splitlines())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _pump(self, proc):
+        for raw in iter(proc.stdout.readline, b""):
+            try:
+                self.log.append((time.time(), "MISSION", "rb_mission",
+                                 raw.decode("utf-8", "replace").rstrip()))
+            except Exception:  # noqa: BLE001
+                pass
+        self.log.append((time.time(), "MISSION", "rb_mission",
+                         f"— 任务节点退出 code={proc.poll()} —"))
+
+    def start(self, wait_s: float = 6.0):
+        with self.lock:
+            if self.running:
+                return True, "任务节点已经在跑"
+        cfg = WS / "install/rb_mission/share/rb_mission/config/mission.yaml"
+        if not cfg.is_file():
+            cfg = WS / "src/rb_mission/config/mission.yaml"
+        # ⚠️ 必须 -p config_file:=（节点自己读 yaml），不能 --params-file
+        cmd = ["bash", "-c",
+               "source /opt/ros/humble/setup.bash && "
+               f"source {WS}/install/setup.bash && "
+               "exec ros2 run rb_mission mission_node --ros-args "
+               "-r __node:=rb_mission "
+               f"-p config_file:={cfg}"]
+        self.log.append((time.time(), "MISSION", "rb_mission", "=== 启动任务节点 ==="))
+        try:
+            self.proc = subprocess.Popen(cmd, cwd=str(WS), stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, start_new_session=True)
+        except Exception as e:  # noqa: BLE001
+            return False, f"启动失败: {e}"
+        threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
+        time.sleep(max(0.5, wait_s))          # 等 DDS 把服务挂上去
+        if not self.running:
+            return False, "任务节点起来就退了（看日志）"
+        return True, "任务节点已启动（等 1~2 秒服务才可见）"
+
+    def stop(self):
+        with self.lock:
+            if not self.running:
+                return False, "任务节点没在跑"
+            try:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
+            except Exception:  # noqa: BLE001
+                pass
+        return True, "已发送停止"
+
+    def snapshot(self):
+        ext = self._external_running()
+        return {"running": self.running, "managed": self.proc is not None
+                and self.proc.poll() is None, "external": ext}
+
+
 class ChassisManager:
     """单独起/停 rb_chassis，并盯日志确认"电机已使能"。"""
 
@@ -1486,7 +1569,8 @@ def panic():
 # Flask 应用
 # ─────────────────────────────────────────────────────────────────────────────
 def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
-             checks: SystemChecks, chassis: ChassisManager, field: dict):
+             checks: SystemChecks, chassis: ChassisManager,
+             mission: MissionManager, field: dict):
     import cv2
     from flask import Flask, Response, jsonify, request, send_file
 
@@ -1505,6 +1589,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["tool_running"] = tool.running
         s["tool_name"] = tool.name
         s["chassis"] = chassis.snapshot()
+        s["mission_node"] = mission.snapshot()
         s["odom_tf_ok"] = bridge.odom_to_field_tf() is not None
         # 雷达找球：算一次，地图和面板共用；候选在【车体系】，
         # 这里顺手转成场地系供地图直接画
@@ -1708,6 +1793,15 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     a += ["--steps", str(body["steps"])]
                 return jsonify(dict(zip(("ok", "msg"),
                                         tool.start("TEST_GRAB_PLACE", a))))
+            if name == "MISSION_RESTART":
+                ok, msg = mission.stop() if mission.running else (True, "")
+                if ok:
+                    time.sleep(1.0)
+                return jsonify(dict(zip(("ok", "msg"), mission.start())))
+            if name == "MISSION_START":
+                return jsonify(dict(zip(("ok", "msg"), mission.start())))
+            if name == "MISSION_STOP":
+                return jsonify(dict(zip(("ok", "msg"), mission.stop())))
             if name == "CHASSIS_ENABLE":
                 return jsonify(dict(zip(("ok", "msg"), chassis.start())))
             if name == "CHASSIS_STOP":
@@ -1755,8 +1849,9 @@ def main(argv=None):
         "odom_frame": loc_conv.get("odom_frame") or "camera_init",
         "field_frame": loc_out.get("field_frame") or "field",
     }})
+    mission = MissionManager(logbuf)
     bridge.load_lidar_ball_cfg()   # 必须在 Bridge 建好之后！
-    app = make_app(bridge, stack, tool, checks, chassis, field)
+    app = make_app(bridge, stack, tool, checks, chassis, mission, field)
 
     print(f"\n  🏀 综合控制台 http://{args.host}:{args.port}")
     print(f"     本机访问   http://127.0.0.1:{args.port}")

@@ -546,3 +546,59 @@ def test_console_lidar_ball_call_not_inside_lock():
                 assert name not in ln, (
                     f"第 {i+1} 行在 `with lock` 块内调了 {name}() —— 会死锁")
             i += 1
+
+
+# ---------------------------------------------------------------------------
+# 重启任务节点：修"寻球之后回不了出发点"
+# ---------------------------------------------------------------------------
+def test_mission_restart_is_wired():
+    from pathlib import Path
+    src = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
+    assert "class MissionManager" in src
+    for a in ("MISSION_RESTART", "MISSION_START", "MISSION_STOP"):
+        assert f'name == "{a}"' in src, f"后端缺动作 {a}"
+    assert "mission = MissionManager(logbuf)" in src
+
+
+def test_mission_manager_detects_external_node():
+    """⚠️ 必须能识别 boot.sh 起的 mission —— 否则按重开会起【重复节点】。
+
+    实测出现过 /rb_mission 两个实例，两个节点抢 /cmd_vel，行为不可预测。
+    """
+    from pathlib import Path
+    src = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
+    i = src.find("class MissionManager")
+    body = src[i:i + 2500]
+    assert "_external_running" in body, "MissionManager 必须查外部进程"
+    assert "ps" in body and "comm" in body, \
+        "查进程要用 ps -eo comm（用 -f 会匹配到自己的命令行，永远为真）"
+
+
+def test_mission_restart_uses_config_file_param_not_params_file():
+    """mission.yaml 是节点自己读的配置，必须 -p config_file:=。
+
+    写成 --params-file 会报 "Cannot have a value before ros__parameters"。
+    """
+    from pathlib import Path
+    src = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
+    i = src.find("class MissionManager")
+    body = src[i:i + 2500]
+    assert "config_file:=" in body
+    # ⚠️ 只看【真正的命令行】那一行 —— 注释里写 "--params-file" 是在说明"不能用它"，
+    #    不能连注释一起判（第一版就是这么误报的）。
+    cmd_lines = [l for l in body.splitlines()
+                 if "ros2 run rb_mission" in l or "exec ros2 run" in l]
+    assert cmd_lines, "找不到启动 mission 的命令行"
+    for l in cmd_lines:
+        assert "--params-file" not in l, f"命令行里用了 --params-file: {l.strip()}"
+
+
+def test_ui_has_mission_restart_button_and_warning():
+    from pathlib import Path
+    ui = Path(_WS / "tools/console_ui.html").read_text(encoding="utf-8")
+    for k in ("MISSION_RESTART", "MISSION_STOP", "missionstate", "renderMissionNode"):
+        assert k in ui, f"界面缺 {k}"
+    # 寻球提示里必须说清"跑完要重启任务节点"
+    i = ui.find("接管 /cmd_vel")
+    assert i > 0
+    assert "重启任务节点" in ui[i:i + 400], "寻球提示里要写清跑完得重启任务节点"
