@@ -485,6 +485,11 @@ class OnnxDetector(BaseDetector):
         self.input_size = int(cfg.get("input_size", 0) or 0)
         self.conf_thr = float(cfg.get("conf_threshold", 0.35))
         self.iou_thr = float(cfg.get("iou_threshold", 0.45))
+        # 跨类别重复抑制：同一颗球被不同类别框住时只留置信度高的。
+        # 0 表示关闭。判据是包含度 inter/min(area)，不是 IoU（同物体两框大小可能差很多）。
+        self.cross_class_overlap = float(cfg.get("cross_class_overlap", 0.55) or 0.0)
+        self.cross_class_labels = set(cfg.get(
+            "cross_class_labels", ["ball_basketball", "ball_volleyball"]) or [])
         self.max_det = int(cfg.get("max_detections", 20))
         self.real_size = float(cfg.get("real_diameter_m", 0.0) or 0.0)
         self.class_real_size = cfg.get("class_real_size", {}) or {}
@@ -584,6 +589,45 @@ class OnnxDetector(BaseDetector):
         return np.ascontiguousarray(tensor), s, px, py
 
     # -- 后处理 ------------------------------------------------------------
+    @staticmethod
+    @staticmethod
+    def _containment(a, b) -> float:
+        """包含度 = 交集 / min(面积)。同物体两框大小差很多时比 IoU 稳。"""
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+        iy = max(0.0, min(ay2, by2) - max(ay1, by1))
+        inter = ix * iy
+        aa = max(0.0, (ax2 - ax1)) * max(0.0, (ay2 - ay1))
+        ba = max(0.0, (bx2 - bx1)) * max(0.0, (by2 - by1))
+        m = min(aa, ba)
+        return inter / m if m > 1e-9 else 0.0
+
+    def _suppress_cross_class(self, results: list):
+        """同一颗球被不同类别框住时，只保留置信度最高的那个。
+
+        为什么需要：YOLO 后处理是每类独立 NMS，类别之间不互相抑制 ——
+        实测同一颗球会同时留下 ball_basketball(0.9) 和 ball_volleyball(0.3)，
+        在界面上就表现为"没放排球却检出 volleyball"。
+        只对球类生效，避免误伤 hoop/rack_ring/pillar 与球的重叠。
+        """
+        if self.cross_class_overlap <= 0 or len(results) < 2:
+            return results
+        keep = []
+        for r in sorted(results, key=lambda d: -d.confidence):
+            dup = False
+            for k in keep:
+                if r.label not in self.cross_class_labels or k.label not in self.cross_class_labels:
+                    continue
+                if r.label == k.label:
+                    continue          # 同类已在 _nms 处理过
+                if self._containment(r.bbox, k.bbox) > self.cross_class_overlap:
+                    dup = True
+                    break
+            if not dup:
+                keep.append(r)
+        return keep
+
     @staticmethod
     def _nms(boxes: np.ndarray, scores: np.ndarray, iou_thr: float) -> list[int]:
         """纯 numpy NMS（不引入 torch/torchvision，车上依赖越少越好）。"""
@@ -769,6 +813,7 @@ class OnnxDetector(BaseDetector):
                 distance_m=cam.distance_m(size_px, real),
                 diameter_m=real,
             ))
+        results = self._suppress_cross_class(results)
         self._cached = results
         return results
 

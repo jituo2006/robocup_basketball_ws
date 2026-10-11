@@ -259,15 +259,23 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         # 场地固定（默认）：整个场地画全，x→右、y→上，和 RViz 俯视一致。
         # 现场对着实物核对时不容易左右误判。
         margin = 30.0
-        scale = min((LIDAR_W - 2 * margin) / max(L, 1e-3),
-                    (LIDAR_H - 2 * margin) / max(W, 1e-3)) * 0.94
+        # ⚠️ 出发区 A/B 突出在场地左边线【之外】（x<0），
+        #    所以绘图范围要含场外一圈，否则方块会被裁掉。
+        _zs = (field.get("start_zones") or {})
+        _ext = float(field.get("start_zone_offset_m", 1.0) or 0.0) + 0.4
+        X0, X1 = -_ext, L + 0.3
+        Y0, Y1 = -0.3, W + 0.3
+        _fl, _fw = X1 - X0, Y1 - Y0
+        scale = min((LIDAR_W - 2 * margin) / max(_fl, 1e-3),
+                    (LIDAR_H - 2 * margin) / max(_fw, 1e-3)) * 0.98
         _mir = (mirror_x and view == "field")
         _miry = (mirror_y and view == "field")
 
         def to_px(wx, wy):
-            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin,
+            # 用"场外左下角"当原点，让整个可见区居中
+            px, py = field_to_screen(wx - X0, wy - Y0, 0.0, 0.0, scale, margin,
                                      mirror_x=_mir, mirror_y=_miry,
-                                     field_l=L, field_w=W)
+                                     field_l=_fl, field_w=_fw)
             return int(px), int(py)
 
     # 场地边界（浅灰矩形）+ 中线
@@ -342,17 +350,27 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         except (TypeError, ValueError):
             pass
 
-    # 出发区（配置里只有 home 点；画一个 0.6m 的方块示意，实际尺寸待现场确认）
-    hm = field.get("home") or {}
-    if isinstance(hm, dict) and "x" in hm:
-        hx, hy = float(hm["x"]), float(hm["y"])
-        half = 0.30
-        _poly([(hx - half, hy - half), (hx + half, hy - half),
-               (hx + half, hy + half), (hx - half, hy + half), (hx - half, hy - half)],
-              (90, 150, 90), 1, close=False)
-        _arc(hx, hy, 0.22, (90, 150, 90), 1)
-        q = to_px(hx, hy)
-        texts.append(("出发区", (q[0] + 10, q[1] + 20), (110, 180, 110), 13))
+    # 出发区：官方图里 A/B 是**突出在场地左边线之外**的方块。
+    # 尺寸与中心都从配置读（现场量完改 start_zone_size_m / start_zones 即可）。
+    sz = float(field.get("start_zone_size_m", 1.0) or 1.0)
+    zones = field.get("start_zones") or {}
+    home = field.get("home") or {}
+    if not zones and isinstance(home, dict) and "x" in home:
+        zones = {"A": home}                      # 兜底：只配了 home 就画一个
+    for zname, zc in zones.items():
+        if not (isinstance(zc, dict) and "x" in zc):
+            continue
+        zx, zy = float(zc["x"]), float(zc["y"])
+        h2 = sz / 2.0
+        _poly([(zx - h2, zy - h2), (zx + h2, zy - h2), (zx + h2, zy + h2),
+               (zx - h2, zy + h2), (zx - h2, zy - h2)],
+              (90, 150, 90), 2, close=False)
+        q = to_px(zx, zy)
+        is_home = (isinstance(home, dict) and abs(zx - float(home.get("x", 1e9))) < 1e-6
+                   and abs(zy - float(home.get("y", 1e9))) < 1e-6)
+        col = (140, 220, 140) if is_home else (80, 110, 80)
+        texts.append((f"出发区{zname}" + ("（当前）" if is_home else ""),
+                      (q[0] - 22, q[1] + 4), col, 13))
 
     # 篮筐符号（篮板 + 篮圈）
     if isinstance(hoop, dict) and "x" in hoop:
@@ -384,9 +402,9 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
             keep_near = ((np.abs(fwd) < LIDAR_RANGE_M * 1.2) &
                          (np.abs(left) < LIDAR_RANGE_M * 1.2))
         else:
-            px_f, py_f = field_to_screen(p[:, 0], p[:, 1], 0.0, 0.0, scale, 30.0,
+            px_f, py_f = field_to_screen(p[:, 0] - X0, p[:, 1] - Y0, 0.0, 0.0, scale, 30.0,
                                          mirror_x=_mir, mirror_y=_miry,
-                                         field_l=L, field_w=W)
+                                         field_l=_fl, field_w=_fw)
             keep_near = np.ones(len(p), dtype=bool)     # 场地模式不按半径裁
         px = px_f.astype(np.int32)
         py = py_f.astype(np.int32)

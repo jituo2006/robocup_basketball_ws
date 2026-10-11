@@ -262,3 +262,69 @@ def test_only_mapped_false_keeps_all():
     dets = d.detect(np.zeros((720, 1280, 3), np.uint8),
                     CameraModel.from_config({}, 1280, 720))
     assert len(dets) == 2
+
+
+# ---------------------------------------------------------------------------
+# 跨类别重复抑制：修"同一颗球被同时报成 basketball 和 volleyball"
+# （现场反馈"没放排球却检出 volleyball"）
+#
+# 根因：YOLO 后处理是【每类分别做 NMS】，类别之间不互相抑制 —— 同一颗球可以
+# 同时留下 ball_basketball 和 ball_volleyball 两个框，低置信度那个就是假检测。
+# ---------------------------------------------------------------------------
+def _mk_det(label, conf, box):
+    from rb_perception.detectors import Detection
+    return Detection(label=label, confidence=conf, bbox=box, px=0.0, py=0.0,
+                     bbox_px_w=10.0, bbox_px_h=10.0, bearing_rad=0.0,
+                     distance_m=1.0, diameter_m=0.24)
+
+
+class _Suppressor:
+    """只借用 _suppress_cross_class + _containment，不需要真 ONNX session。"""
+    cross_class_overlap = 0.55
+    cross_class_labels = {"ball_basketball", "ball_volleyball"}
+
+    # _suppress_cross_class 内部会调 self._containment，测试类也要有
+    _containment = staticmethod(OnnxDetector._containment)
+
+    def _suppress_cross_class(self, results):
+        return OnnxDetector._suppress_cross_class(self, results)
+
+
+def test_cross_class_duplicate_is_suppressed():
+    """同一颗球被报成两类 → 只留置信度高的那个。"""
+    r = [_mk_det("ball_basketball", 0.9, (0.40, 0.40, 0.60, 0.60)),
+         _mk_det("ball_volleyball", 0.3, (0.405, 0.405, 0.595, 0.595))]
+    out = _Suppressor()._suppress_cross_class(r)
+    assert [d.label for d in out] == ["ball_basketball"]
+
+
+def test_real_two_balls_are_both_kept():
+    """真有篮球+排球且不重叠时必须两个都留 —— 别把真检测也杀了。"""
+    r = [_mk_det("ball_basketball", 0.9, (0.10, 0.40, 0.25, 0.60)),
+         _mk_det("ball_volleyball", 0.8, (0.70, 0.40, 0.85, 0.60))]
+    out = _Suppressor()._suppress_cross_class(r)
+    assert sorted(d.label for d in out) == ["ball_basketball", "ball_volleyball"]
+
+
+def test_hoop_overlap_is_not_suppressed():
+    """球和 hoop 框重叠时不该互相抑制（hoop 不在作用类别里）。"""
+    r = [_mk_det("ball_basketball", 0.9, (0.40, 0.40, 0.60, 0.60)),
+         _mk_det("hoop", 0.95, (0.41, 0.41, 0.59, 0.59))]
+    out = _Suppressor()._suppress_cross_class(r)
+    assert sorted(d.label for d in out) == ["ball_basketball", "hoop"]
+
+
+def test_cross_class_can_be_disabled():
+    class S(_Suppressor):
+        cross_class_overlap = 0.0
+    r = [_mk_det("ball_basketball", 0.9, (0.40, 0.40, 0.60, 0.60)),
+         _mk_det("ball_volleyball", 0.3, (0.405, 0.405, 0.595, 0.595))]
+    assert len(S()._suppress_cross_class(r)) == 2, "阈值=0 应关闭抑制"
+
+
+def test_containment_beats_iou_for_different_sizes():
+    """同物体两框大小差很多时，包含度要能判成重复（IoU 会偏低）。"""
+    big = (0.30, 0.30, 0.70, 0.70)     # 面积 0.16
+    small = (0.45, 0.45, 0.55, 0.55)   # 面积 0.01，完全在大框里
+    c = OnnxDetector._containment(big, small)
+    assert c > 0.99, f"小框完全在大框内，包含度应≈1，实际 {c}"

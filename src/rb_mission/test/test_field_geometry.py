@@ -114,9 +114,21 @@ def test_pass_zone_polygon_is_well_formed(field):
 
 
 def test_xy_are_inside_court_bounds(field):
-    """所有动作点都应落在场地内（x∈[0,14], y∈[0,7.5]），否则是明显的坐标写错。"""
-    for key in ("home", "hoop", "pass_zone_target", "shoot_zone_target",
+    """动作点应落在场地内（x∈[0,14], y∈[0,7.5]），否则是明显的坐标写错。
+
+    ⚠️ `home` 例外：官方《比赛场地标识示意图》里出发区 A/B 是**突出在场地左边线
+    之外**的方块（挑战赛规则 §2.4 的场地图，左下角标了「1000 1000」）。
+    所以 home 允许在场外，但仍要有界（不许写离谱的值）。
+    """
+    L, W = field["length_m"], field["width_m"]
+    for key in ("hoop", "pass_zone_target", "shoot_zone_target",
                 "shoot_zone_target_30", "three_point_center"):
         p = field[key]
-        assert 0.0 <= p["x"] <= field["length_m"], f"{key}.x 越界"
-        assert 0.0 <= p["y"] <= field["width_m"], f"{key}.y 越界"
+        assert 0.0 <= p["x"] <= L, f"{key}.x 越界"
+        assert 0.0 <= p["y"] <= W, f"{key}.y 越界"
+
+    # home / start_zones 允许突出场外，但不能离场地太远（软限位同为 ±2m）
+    for key, p in [("home", field["home"])] + \
+            [(f"start_zones.{k}", v) for k, v in (field.get("start_zones") or {}).items()]:
+        assert -2.0 <= p["x"] <= L + 2.0, f"{key}.x 超出软限位"
+        assert -2.0 <= p["y"] <= W + 2.0, f"{key}.y 超出软限位"
