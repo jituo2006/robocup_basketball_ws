@@ -40,7 +40,12 @@ done
 #      * 是别的程序 → 自动往后找一个空闲端口
 #      * --force → 把旧的我们自己的控制台杀掉，接管这个端口
 FORCE=0
-for a in "$@"; do [ "$a" = "--force" ] && FORCE=1; done
+APP_ARGS=()
+for a in "$@"; do
+    # --force 是 console.sh 自己的开关，不能透传给 app
+    # （透传过 → argparse 报 "unrecognized arguments: --force"，控制台起不来）
+    if [ "$a" = "--force" ]; then FORCE=1; else APP_ARGS+=("$a"); fi
+done
 
 is_our_console() {
     # ⚠️ 不能用 `curl ... | grep -q ...`：脚本开头是 `set -o pipefail`，
@@ -111,5 +116,8 @@ exec env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/local/bin:/opt/ros/humble/bin \
         cd '$WS'
         # ⚠️ 必须显式带 --port：上面可能因为端口被占【自动换了端口】，
         #    而 $* 里没有 --port，不显式传的话 app 还是会去绑原来的端口 → 崩。
-        exec python3 tools/console_app.py --port "$PORT" $*
+        # ⚠️ 用 APP_ARGS（已剔掉 --force），不要用 $* ——
+        #    否则 app 的 argparse 收到不认识的 --force 直接退出。
+        #    显式带 --port：上面可能因端口被占【自动换过端口】。
+        exec python3 tools/console_app.py --port "$PORT" "${APP_ARGS[@]}"
     "
