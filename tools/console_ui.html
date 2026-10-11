@@ -108,12 +108,15 @@
 </style>
 </head>
 <body>
+  <div id="guardbar" style="display:none;position:sticky;top:0;z-index:50;
+       background:#3a2a10;color:#ffd08a;padding:6px 10px;font-size:13px;
+       border-bottom:1px solid #6a4a20"></div>
 <header>
   <h1>🏀 控制台</h1>
   <div class="pills" id="pills"></div>
   <div style="margin-left:auto;display:flex;gap:8px">
-    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_START')">▶ 启动整套</button>
-    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>
+    <button data-guard="STACK_START" class="ghost" style="width:auto;margin:0" onclick="act('STACK_START')">▶ 启动整套</button>
+    <button data-guard="STACK_STOP" class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>
   </div>
 </header>
 
@@ -122,11 +125,11 @@
   <div>
     <div class="card" style="border-color:#2a3a55">
       <h2>系统（上电后先点这个）</h2>
-      <button class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
+      <button data-guard="CHECK_READY" class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
       <div class="flowbox" id="flowbox" style="display:none"></div>
       <div class="row">
         <button onclick="act('CHECK_READY')">✓ 就绪检查</button>
-        <button onclick="act('CAN_RECOVER')">🔌 CAN 恢复</button>
+        <button data-guard="STACK_START" onclick="act('CAN_RECOVER')">🔌 CAN 恢复</button>
       </div>
       <div class="row" style="margin-top:8px">
         <button onclick="act('STACK_START')">▶ 只启动整套</button>
@@ -134,11 +137,11 @@
       </div>
 
       <div style="border-top:1px solid var(--line);margin:10px 0 8px"></div>
-      <button class="orange" onclick="chassisEnable()">🔌 CAN + 电机使能</button>
+      <button data-guard="CHASSIS_STOP" class="orange" onclick="chassisEnable()">🔌 CAN + 电机使能</button>
       <div class="flowbox" id="chbox" style="display:none"></div>
       <div class="row">
         <button onclick="act('CHASSIS_STOP')">⏹ 停底盘节点</button>
-        <button onclick="act('CAN_RECOVER')">🔌 只恢复 CAN</button>
+        <button data-guard="PASS" onclick="act('CAN_RECOVER')">🔌 只恢复 CAN</button>
       </div>
       <div class="hint">
         <b>🔌 CAN + 电机使能</b> = 查 PCAN 适配器 → 不行就恢复 can0 →
@@ -153,10 +156,10 @@
 
     <div class="card">
       <h2>起任务（一局）</h2>
-      <button class="primary" onclick="act('PASS')">🔵 传球 PASS</button>
+      <button data-guard="IDLE" class="primary" onclick="act('PASS')">🔵 传球 PASS</button>
       <button class="orange" onclick="act('SHOOT')">🟠 投篮 SHOOT</button>
       <button onclick="act('IDLE')">⏹ 停止任务（IDLE）</button>
-      <button class="danger" onclick="if(confirm('确认急停？'))act('PANIC')">🛑 急停</button>
+      <button data-guard="LAUNCH_TEXT" class="danger" onclick="if(confirm('确认急停？'))act('PANIC')">🛑 急停</button>
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
     </div>
 
@@ -164,18 +167,18 @@
     <div class="card" id="cardSerialText">
       <h2>机构文本指令（这台机构的真实协议）</h2>
       <div class="row">
-        <button class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
-        <button class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
+        <button data-guard="LAUNCH_GRAB" class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
+        <button data-guard="LAUNCH_PLACE" class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
       </div>
       <div class="row">
         <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 抓取 MOVE 1 90 5</button>
-        <button onclick="act('LAUNCH_PLACE')">👐 放下 MOVE 1 0 5</button>
+        <button data-guard="LAUNCH_TEXT" onclick="act('LAUNCH_PLACE')">👐 放下 MOVE 1 0 5</button>
       </div>
       <label style="margin-top:6px">自由输入（不含换行，节点会补）
         <input type="text" id="stCmd" placeholder="例如 MOVE 1 90 5">
       </label>
       <div class="row">
-        <button onclick="act('LAUNCH_TEXT',{command:($('stCmd')||{}).value})">▶ 发送</button>
+        <button data-guard="LAUNCH" onclick="act('LAUNCH_TEXT',{command:($('stCmd')||{}).value})">▶ 发送</button>
       </div>
       <div class="hint">
         <b>协议</b>：<code>STOP</code> 停 · <code>ZERO</code> 初始化 ·
@@ -191,8 +194,8 @@
     <div class="card">
       <h2>机构（拿球 / 发球）</h2>
       <div class="row">
-        <button onclick="act('LAUNCH',{action:0})">🚀 发射</button>
-        <button onclick="act('LAUNCH',{action:1})">⚡ 快发</button>
+        <button data-guard="LAUNCH" onclick="act('LAUNCH',{action:0})">🚀 发射</button>
+        <button data-guard="LAUNCH" onclick="act('LAUNCH',{action:1})">⚡ 快发</button>
       </div>
       <div class="row">
         <button onclick="act('LAUNCH',{action:2})">🤲 运球</button>
@@ -224,7 +227,7 @@
       <div class="row3" style="margin-bottom:6px">
         <button id="lbCam"  onclick="lbMode('camera')" style="margin:0">📷 只用相机</button>
         <button id="lbLid"  onclick="lbMode('lidar')"  style="margin:0">📡 只用雷达</button>
-        <button id="lbFuse" onclick="lbMode('fuse')"   style="margin:0">🔀 融合（推荐）</button>
+        <button data-guard="LIDAR_BALL_RESET" id="lbFuse" onclick="lbMode('fuse')"   style="margin:0">🔀 融合（推荐）</button>
       </div>
       <div class="grid2">
         <label>雷达高度 z_min<input type="number" id="lbzmin" step="0.05" onchange="lbSet()"></label>
@@ -237,7 +240,7 @@
         <label>配对阈值 m<input type="number" id="lbmatch" step="0.1" onchange="lbSet()"></label>
       </div>
       <div class="row" style="margin-top:6px">
-        <button onclick="act('LIDAR_BALL_RESET')">↺ 从 config 重读默认</button>
+        <button data-guard="TOOL_STOP" onclick="act('LIDAR_BALL_RESET')">↺ 从 config 重读默认</button>
       </div>
       <div class="flowbox" id="lbStats" style="display:block">—</div>
       <div class="hint">
@@ -252,14 +255,14 @@
     <div class="card">
       <h2>调试测试（整车脚本）</h2>
       <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
-      <button class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
+      <button data-guard="MISSION_RESTART" class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
       <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
       <div class="hint" id="missionstate">—</div>
       <div class="row">
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
-        <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
+        <button data-guard="TOOL_STOP" onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div>
       <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b> —— 做法是 <b>SIGTERM 掉任务节点</b>，所以跑完之后「回出发点 / 去投篮点 / 起任务」都会报"服务不可用" ✗。<b>跑完记得点「🔄 重启任务节点」</b>。<br>点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
     </div>
@@ -498,7 +501,20 @@ function toast(msg, kind){
   setTimeout(()=>d.remove(), 4200);
 }
 
+// ⚠️ 防连点：同一条动作在飞行中就不要再发一次。
+//    现场教训：连点「底盘使能」起了两个底盘节点抢 CAN（报"无法独占 can0"）；
+//    连点「启动整套」起了两套 boot.sh 导致节点重复。
+const _inflight = new Set();
 async function act(name, args){
+  if(_inflight.has(name)){
+    toast(`${name}: 上一次还没结束，别重复点`, 'bad');
+    return;
+  }
+  // 本地也按后端给的冲突表挡一次（后端仍会兜底）
+  const why = guardConflict(name);
+  if(why){ toast(`${name} 被拦下：${why}`, 'bad'); return; }
+  _inflight.add(name);
+  renderGuard();
   try{
     const r = await fetch('/api/action', {method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -506,6 +522,50 @@ async function act(name, args){
     const j = await r.json();
     toast(`${name}: ${j.msg || (j.ok ? '已发送' : '失败')}`, j.ok ? 'ok' : 'bad');
   }catch(e){ toast(`${name} 请求失败: ${e}`, 'bad'); }
+  finally{ _inflight.delete(name); renderGuard(); }
+}
+
+// 用后端下发的 classes/blocks 判断当前能不能点（唯一数据源，别在前端再抄一份规则）
+function guardConflict(name){
+  const g = (window._st && window._st.guard) || null;
+  if(!g || !g.classes) return '';
+  if((g.always || []).includes(name)) return '';
+  const cls = g.classes[name];
+  if(!cls) return '';
+  const blocks = (g.blocks || {})[cls] || [cls];
+  const busy = g.busy || {};
+  for(const c of Object.keys(busy)){
+    if(blocks.includes(c)) return `${busy[c]}s 前开始的「${c}」还在跑`;
+  }
+  return '';
+}
+
+// 页面加载后每 0.5s 把冲突按钮变灰
+function renderGuard(){
+  const g = (window._st && window._st.guard) || null;
+  const names = new Set(Object.keys((g && g.classes) || {}));
+  document.querySelectorAll('[data-guard]').forEach(el=>{
+    const n = el.dataset.guard;
+    const busyNow = _inflight.has(n);
+    const conflict = guardConflict(n);
+    el.disabled = !!(busyNow || conflict);
+    if(conflict) el.title = '现在不能点：' + conflict;
+    else if(busyNow) el.title = '正在执行…';
+    else el.removeAttribute('title');
+  });
+  // 顶部横幅
+  const bar = $('guardbar');
+  if(bar){
+    const busy = (g && g.busy) || {};
+    const keys = Object.keys(busy);
+    if(keys.length){
+      bar.style.display = '';
+      bar.textContent = '⏳ 正在执行：' + keys.map(k=>`${k}(${busy[k]}s)`).join('、') +
+        '　—— 冲突的动作已自动禁用';
+    }else{
+      bar.style.display = 'none';
+    }
+  }
 }
 
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});

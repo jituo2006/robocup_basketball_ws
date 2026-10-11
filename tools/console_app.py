@@ -1239,6 +1239,151 @@ class Bridge:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 下发守卫：防重复、防冲突
+# ─────────────────────────────────────────────────────────────────────────────
+class ActionGuard:
+    """控制台动作的重复/冲突保护。
+
+    为什么需要：控制台有 22 种动作，原先【没有任何保护】——
+    已经真实发生过：点两次「底盘使能」得到两个底盘节点抢 CAN
+    （报"无法独占 can0"）；重复点「启动整套」起了两套 boot.sh 导致节点重复；
+    寻球脚本和任务节点同时发 /cmd_vel 互相抵消。
+
+    规则：
+      * 每个动作属于一个【冲突类】，同类同一时刻只允许一个在跑
+      * 同一条动作还有冷却时间，防手抖连点
+      * 跨类硬冲突直接拒绝（跑着寻球就不许起整套/使能底盘）
+      * PANIC / TOOL_STOP 永不拦截 —— 急停不能被守卫挡住
+      * 长动作有"在跑"标记，超时自动释放（避免卡死把界面锁住）
+      * 被拒绝必须给出原因，绝不静默失败
+    """
+
+    # 动作 → 冲突类
+    CLASSES = {
+        # 会驱动底盘的（脚本会接管 /cmd_vel）
+        "TEST_BALL": "motion", "TEST_PERIMETER": "motion",
+        "TEST_GRAB_PLACE": "motion", "TEST_CHASSIS_DRY": "motion",
+        "GRAB_PLACE": "motion", "GOTO": "motion", "JOG": "motion",
+        # 机构串口（文本协议必须串行，连发会叠指令）
+        "LAUNCH": "mech", "LAUNCH_TEXT": "mech", "LAUNCH_INIT": "mech",
+        "LAUNCH_GRAB": "mech", "LAUNCH_PLACE": "mech",
+        # 整栈起停
+        "STACK_START": "stack", "STACK_STOP": "stack", "STARTUP_FLOW": "stack",
+        # 底盘 CAN
+        "CHASSIS_ENABLE": "chassis", "CHASSIS_STOP": "chassis",
+        "CAN_RECOVER": "chassis",
+        # 任务
+        "MISSION_START": "mission", "MISSION_STOP": "mission",
+        "MISSION_RESTART": "mission", "PASS": "mission", "SHOOT": "mission",
+        "IDLE": "mission",
+    }
+
+    # 跑着某一类时，还有哪些类不许动（含自身）
+    BLOCKS = {
+        "motion":  {"motion", "stack", "chassis", "mission"},
+        "stack":   {"motion", "stack", "chassis"},
+        "chassis": {"motion", "chassis"},
+        "mission": {"motion", "mission"},
+        "mech":    {"mech"},
+    }
+
+    # 冷却时间（秒）——重动作给长一点
+    COOLDOWN = {
+        "STACK_START": 30.0, "STACK_STOP": 20.0, "STARTUP_FLOW": 30.0,
+        "CAN_RECOVER": 20.0, "CHASSIS_ENABLE": 10.0, "CHASSIS_STOP": 10.0,
+        "MISSION_RESTART": 10.0, "GRAB_PLACE": 10.0, "TEST_BALL": 10.0,
+        "TEST_PERIMETER": 10.0, "TEST_GRAB_PLACE": 10.0,
+        "CAN_RECOVER": 20.0,
+    }
+    DEFAULT_COOLDOWN = 2.0
+    # 长动作的"在跑"最长挂多久（超时自动释放，别把界面锁死）
+    BUSY_TIMEOUT = 180.0
+
+    # 永不拦截
+    ALWAYS = {"PANIC", "TOOL_STOP"}
+
+    def __init__(self):
+        import threading
+        self.lock = threading.Lock()
+        self.last: dict[str, float] = {}       # 动作 → 上次下发时间
+        self.busy: dict[str, float] = {}       # 冲突类 → 开始时间
+        self.rejects: list[tuple[float, str]] = []
+
+    def check(self, name: str) -> tuple[bool, str]:
+        """能不能下发。返回 (ok, msg)。"""
+        if not name or name in self.ALWAYS:
+            return True, ""
+        now = time.time()
+        cls = self.CLASSES.get(name)
+        with self.lock:
+            # 清理超时的 busy
+            for c, t0 in list(self.busy.items()):
+                if now - t0 > self.BUSY_TIMEOUT:
+                    del self.busy[c]
+            # 同类/跨类冲突
+            if cls:
+                blocked_by = self.BLOCKS.get(cls, {cls})
+                for c, t0 in self.busy.items():
+                    if c in blocked_by:
+                        who = self.WHO.get(c, c)
+                        msg = (f"拒绝下发【{name}】：{who} 正在执行"
+                               f"（已 {now - t0:.0f}s），先等它结束")
+                        self._reject(now, msg)
+                        return False, msg
+            # 同动作冷却
+            cd = float(self.COOLDOWN.get(name, self.DEFAULT_COOLDOWN))
+            prev = self.last.get(name, 0.0)
+            if now - prev < cd:
+                msg = (f"拒绝重复下发【{name}】：{cd:.0f}s 内已经下过一次"
+                       f"（还剩 {cd - (now - prev):.1f}s）")
+                self._reject(now, msg)
+                return False, msg
+        return True, ""
+
+    WHO = {   # 人类可读的类名
+        "motion": "一个会驱动底盘的脚本", "mech": "一条机构串口指令",
+        "stack": "整套软件的起停", "chassis": "底盘 CAN 操作",
+        "mission": "任务流程",
+    }
+
+    def begin(self, name: str) -> None:
+        cls = self.CLASSES.get(name)
+        with self.lock:
+            now = time.time()
+            self.last[name] = now
+            if cls:
+                self.busy[cls] = now
+
+    def end(self, name: str) -> None:
+        """动作结束就释放（长动作在 finally 里调）。"""
+        cls = self.CLASSES.get(name)
+        with self.lock:
+            if cls and cls in self.busy:
+                # 只有确实是自己开的才释放
+                del self.busy[cls]
+
+    def snapshot(self) -> dict:
+        now = time.time()
+        with self.lock:
+            busy = {c: round(now - t0, 1) for c, t0 in self.busy.items()
+                    if now - t0 <= self.BUSY_TIMEOUT}
+            return {"busy": busy,
+                    "classes": dict(self.CLASSES),
+                    "blocks": {k: sorted(v) for k, v in self.BLOCKS.items()},
+                    "always": sorted(self.ALWAYS),
+                    "recent_rejects": [m for _, m in self.rejects[-5:]]}
+
+    def _reject(self, now: float, msg: str) -> None:
+        self.rejects.append((now, msg))
+        del self.rejects[:-20]
+
+    def conflict_hint(self, name: str) -> str:
+        """给前端用：这个动作为什么现在不能点（空串 = 能点）。"""
+        ok, msg = self.check(name)
+        return "" if ok else msg
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 整套软件管理（起/停 boot.sh）
 # ─────────────────────────────────────────────────────────────────────────────
 class StackManager:
@@ -1854,6 +1999,9 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     def index():
         return send_file(str(Path(__file__).with_name("console_ui.html")))
 
+    # 下发守卫（防重复/防冲突）—— 见 ActionGuard 的注释
+    guard = ActionGuard()
+
     @app.route("/api/state")
     def api_state():
         s = bridge.snapshot()
@@ -1894,6 +2042,9 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["logs"] += [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                       for (tt, lv, src, ms) in list(stack.log)[-40:]]
         s["logs"] = sorted(s["logs"], key=lambda x: x["t"])[-140:]
+        # 下发守卫状态：前端据此把冲突按钮变灰（必须在这里注入 ——
+        # Bridge.snapshot() 里没有 guard 这个名字，插那儿会 NameError）
+        s["guard"] = guard.snapshot()
         return jsonify(s)
 
     @app.route("/api/camera_overlay", methods=["GET", "POST"])
@@ -1969,6 +2120,12 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         d = request.get_json(force=True, silent=True) or {}
         name = (d.get("name") or "").strip()
         args = d.get("args") or {}
+        # ── 下发守卫：拒绝重复/冲突，但绝不拦 PANIC ──
+        ok, why = guard.check(name)
+        if not ok:
+            bridge.log_line("WARN", "guard", why)
+            return jsonify({"ok": False, "msg": why, "rejected": True})
+        guard.begin(name)
         try:
             if name == "CAMERA_EXPOSURE":
                 return jsonify(dict(zip(("ok", "msg"), bridge.camera_exposure(
@@ -2099,6 +2256,10 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001
             return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"})
+        finally:
+            # 动作真正结束后才释放冲突类 —— 长动作（起整套/跑脚本/恢复 CAN）
+            # 会在 Flask 这个请求里阻塞到结束，所以这里释放正好等于"跑完了"
+            guard.end(name)
 
     return app
 
