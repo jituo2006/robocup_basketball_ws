@@ -650,9 +650,29 @@ class MissionNode(Node):
                 self.set_phase(P_SEEK_BALL, f"第 {self.actions_done + 1} 次：继续找球")
             return
 
+    def clamp_into_field(self, x: float, y: float,
+                         margin: float = 0.25) -> tuple[float, float]:
+        """把目标点夹进场地内（留 margin 边距）。
+
+        ⚠️ 为什么必须有：出发区按官方场地图是【突出在场外】的方块，
+        home=(1.5, 8.0) 的 y 超出上边界 0.5m。RETURN_HOME 直接开过去就会
+        冲出场地（现场反馈"容易跑出去"）。这里兜底：配置写错也只是回到
+        场内边缘，不会跑到场外。
+        """
+        fl = float(self.field.get("length_m", 14.0))
+        fw = float(self.field.get("width_m", 7.5))
+        cx = min(max(float(x), margin), fl - margin)
+        cy = min(max(float(y), margin), fw - margin)
+        if abs(cx - float(x)) > 1e-6 or abs(cy - float(y)) > 1e-6:
+            self.get_logger().warn(
+                f"回位目标 ({x:.2f},{y:.2f}) 在场地外，已夹到 ({cx:.2f},{cy:.2f})")
+        return cx, cy
+
     def _phase_return_home(self) -> None:
-        home = self.field.get("home", {}) or {}
-        if self._navigate_to(float(home.get("x", 0.0)), float(home.get("y", 0.0))):
+        # 优先用【场内】的回位点；没配才退回 home（并夹进场地）
+        tgt = self.field.get("home_return") or self.field.get("home", {}) or {}
+        x, y = self.clamp_into_field(float(tgt.get("x", 0.0)), float(tgt.get("y", 0.0)))
+        if self._navigate_to(x, y):
             self.set_phase(P_DONE, "已停稳回到出发区")
 
     def _phase_goto(self) -> None:

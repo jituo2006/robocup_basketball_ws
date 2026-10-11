@@ -202,7 +202,7 @@
       <h2>导航（仅 IDLE 下可用）</h2>
       <button onclick="gotoNamed('pass_zone_target')">🎯 去传球点</button>
       <button onclick="gotoNamed('shoot_zone_target')">🎯 去投篮点</button>
-      <button onclick="gotoNamed('home')">🏠 回出发点</button>
+      <button onclick="gotoNamed('home_return','home')">🏠 回出发点（场内）</button>
     </div>
 
     <div class="card" id="cardLidarBall">
@@ -704,10 +704,19 @@ function toolRun(key){
   act(key);
 }
 
-function gotoNamed(key){
+function gotoNamed(key, fallback){
   const s = window._st;
-  const p = s && s.field && s.field[key];
+  const f = (s && s.field) || {};
+  // ⚠️ 回位优先用场内点 home_return；home 是突出场外的出发区中心，
+  //    直接开过去会冲出场地（现场"回初始点容易跑出去"）。
+  const p = f[key] || (fallback ? f[fallback] : null);
   if(!p){ toast('配置里没有 ' + key, 'bad'); return; }
+  if(f.home_return){
+    // 前端也夹一次，避免后端没起来时手滑
+    const L = f.length_m || 14, W = f.width_m || 7.5, m = 0.25;
+    p.x = Math.min(Math.max(p.x, m), L - m);
+    p.y = Math.min(Math.max(p.y, m), W - m);
+  }
   act('GOTO', {x:p.x, y:p.y, yaw:0, align:false});
 }
 
