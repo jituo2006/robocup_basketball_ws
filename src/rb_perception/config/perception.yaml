@@ -168,8 +168,8 @@ perception:
     cloud_frame: body
     odom_topic: /Odometry
     extrinsics_confirmed: false
-    base_from_cloud: null      # IMU -> base_link，4x4，包含安装位置与方向
-    base_from_camera: null     # OpenCV 光学坐标 -> base_link，4x4
+    base_from_cloud: [[0.0871557427,-0.9961946981,0.0,0.2377573387],[0.9961946981,0.0871557427,0.0,0.0129879989],[0.0,0.0,1.0,0.28588],[0.0,0.0,0.0,1.0]]
+    base_from_camera: [[0.0,-0.3420201433,0.9396926208,0.34],[-1.0,0.0,0.0,-0.0],[0.0,-0.9396926208,-0.3420201433,0.33],[0.0,0.0,0.0,1.0]]
     max_age_s: 0.30
     max_sync_s: 0.10
     min_confidence: 0.60

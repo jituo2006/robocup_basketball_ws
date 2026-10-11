@@ -1,0 +1,72 @@
+{
+  "calibration_verified": false,
+  "reference": "base_link origin adopted as four-wheel centre ground projection; +x front, +y left, +z up",
+  "cad_origin_m": [
+    -0.009324363828198241,
+    -0.08252369111530342,
+    0.3357660884979377
+  ],
+  "front_camera_position_m": [
+    0.34,
+    -1.2698175844150228e-15,
+    0.33
+  ],
+  "rear_camera_position_m": [
+    -0.27142135623730906,
+    4.787836793695988e-16,
+    0.21
+  ],
+  "front_downward_deg": 20,
+  "rear_downward_deg": 0,
+  "rail_tip_midpoint_m": [
+    -0.65,
+    1.356236776502151e-06,
+    0.016499999999992382
+  ],
+  "lidar_centre_m": [
+    0.26,
+    -1.2698175844150228e-15,
+    0.33
+  ],
+  "base_from_imu": [
+    [
+      0.08715574274765814,
+      -0.9961946980917455,
+      0.0,
+      0.23775733865166748
+    ],
+    [
+      0.9961946980917455,
+      0.08715574274765814,
+      0.0,
+      0.012987998927600889
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.28588
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "assumptions": [
+    "camera centre taken as optical centre",
+    "LiDAR geometric centre taken as LiDAR frame origin",
+    "level IMU mounting and legacy -85 degree yaw compensation retained",
+    "zero camera roll",
+    "CAD horizontal beam midpoints match actual camera mounts",
+    "rear camera longitudinal position remains CAD candidate; front camera and LiDAR and rail-tip x overridden by latest field measurements"
+  ],
+  "camera_intrinsics": "front existing values; rear CameraModel fallback 60 degree assumed HFOV; neither verified",
+  "assembly_sha256": "c922a0440e62a18b8daf3062608f1c272a226276119b22373357e7273d77a32a",
+  "latest_field_measurements": {
+    "rail_tip_behind_body_centre_m": 0.65,
+    "lidar_centre_ahead_body_centre_m": 0.26,
+    "front_camera_ahead_of_lidar_centre_m": 0.08
+  }
+}

@@ -2,7 +2,7 @@
 ball_label: ball_basketball
 target_center_distance_m: 0.60  # 导轨最外端中点到球心的三维距离，不减球半径
 intake_confirmed: false
-intake_position_base_m: null  # 两条车尾取球导轨最外端中点相对 base_link，[x,y,z]
+intake_position_base_m: [-0.65, 1.356236776502151e-06, 0.016499999999992382]  # x采用现场实测-0.65m；高度为CAD候选，未独立验收
 intake_outward_xy: [-1.0, 0.0]
 distance_tolerance_m: 0.02
 lateral_tolerance_m: 0.02

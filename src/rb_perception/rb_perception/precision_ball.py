@@ -5,6 +5,7 @@ Camera coordinates follow OpenCV (x right, y down, z forward).
 Uncertain/stale measurements never become authoritative ranges.
 """
 from dataclasses import replace
+import copy
 import math
 
 import cv2
@@ -162,3 +163,24 @@ def fuse_precision(detections, cloud, cloud_stamp, cloud_frame, image_stamp, now
     if result["targets"]:
         result.update(valid=True, reason="ok")
     return out, result
+
+
+def diagnose_geometry(detections, cloud, cloud_stamp, cloud_frame, image_stamp, now, cam,
+                      camera_cfg, cfg):
+    """Observe measured/CAD candidates without authorising motion or claiming calibration.
+
+    Uses the production projection and sphere fitter. Unknown optical calibration
+    remains an explicit limitation, even if a fit passes the point-quality gates.
+    Returned control distances stay NaN and report.valid is ALWAYS False.
+    """
+    candidate_camera, candidate_lidar = copy.deepcopy(camera_cfg), copy.deepcopy(cfg)
+    candidate_camera['calibrated'] = True
+    candidate_lidar['extrinsics_confirmed'] = True
+    _, report = fuse_precision(detections, cloud, cloud_stamp, cloud_frame, image_stamp,
+                               now, cam, candidate_camera, candidate_lidar)
+    report.update(diagnostic_only=True, calibration_verified=False,
+                  fit_quality_passed=bool(report['valid']),
+                  reason='diagnostic:' + report['reason'], valid=False)
+    out = [replace(d, distance_m=float('nan')) if d.label in BALL_RADII else d
+           for d in detections]
+    return out, report

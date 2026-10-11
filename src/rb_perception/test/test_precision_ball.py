@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import yaml
 from rb_perception.detectors import CameraModel, Detection
-from rb_perception.precision_ball import fit_sphere, fuse_precision, rigid, transform
+from rb_perception.precision_ball import fit_sphere, fuse_precision, rigid, transform, diagnose_geometry
 from rb_perception.ball_approach import Arrival, errors, command
 
 WS = Path(__file__).resolve().parents[3]
@@ -52,6 +52,25 @@ def test_planar_background_is_not_a_ball():
     x, y = np.meshgrid(np.linspace(-.1, .1, 10), np.linspace(-.1, .1, 10))
     assert fit_sphere(np.c_[x.ravel(), y.ravel(), np.ones(x.size)], .12, {}) is None
     assert fit_sphere(sphere([0, 0, 1.])[:5], .12, {}) is None
+
+
+def test_diagnostic_fit_never_authorises_motion_or_changes_confirmation_flags():
+    cam, points, d, cfg, c, expected = scene()
+    cfg['extrinsics_confirmed'] = False; c['calibrated'] = False
+    out, report = diagnose_geometry([d], points, 10., 'body', 10.02, 10.04, cam, c, cfg)
+    assert report['fit_quality_passed'] and report['diagnostic_only']
+    assert not report['valid'] and not report['calibration_verified']
+    assert np.allclose(report['targets'][0]['centre_base_m'], expected)
+    assert math.isnan(out[0].distance_m)
+    assert not cfg['extrinsics_confirmed'] and not c['calibrated']
+
+
+def test_diagnostic_fit_still_rejects_stale_clouds():
+    cam, points, d, cfg, c, _ = scene()
+    out, report = diagnose_geometry([d], points, 9., 'body', 10.02, 10.04, cam, c, cfg)
+    assert not report['fit_quality_passed'] and not report['targets']
+    assert report['reason'] == 'diagnostic:stale_or_unsynchronised'
+    assert math.isnan(out[0].distance_m)
 
 
 @pytest.mark.parametrize('rear', [False, True])
