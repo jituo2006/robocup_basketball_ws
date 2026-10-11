@@ -41,7 +41,7 @@ from rb_msgs.msg import Detection, DetectionArray
 
 from .lidar_ball import (body_frame_cloud, find_ball_candidates,
                             fuse as fuse_lidar_balls)
-from .detectors import BaseDetector, CameraModel, build_detectors
+from .detectors import BaseDetector, CameraModel, OnnxDetector, build_detectors
 
 # 不同类别用不同颜色画框，方便肉眼调参
 _DEBUG_COLORS = {
@@ -77,6 +77,10 @@ class PerceptionNode(Node):
 
         self.cfg: dict[str, Any] = {}
         self.load_config()
+        # OpenCV 的圆环检测同样会默认用满 CPU，需要给雷达处理留出余量。
+        cv_threads = max(1, int((self.cfg.get("perception") or {}).get("opencv_threads", 2)))
+        cv2.setNumThreads(cv_threads)
+        self.get_logger().info(f"OpenCV 线程数 {cv_threads}")
 
         self.detectors: list[BaseDetector] = []
         self.detector_notes: list[str] = []
@@ -152,6 +156,11 @@ class PerceptionNode(Node):
 
     def rebuild_detectors(self) -> None:
         self.detectors, self.detector_notes = build_detectors(self.cfg.get("perception", {}))
+        for det in self.detectors:
+            if isinstance(det, OnnxDetector) and det.available:
+                self.get_logger().info(
+                    f"YOLO 已加载: {det.cfg['model_path']}, 输入 {det.input_size}, "
+                    f"类别 {det.model_names}, 每 {det.every_n} 帧推理")
 
     # -- 主回调 ------------------------------------------------------------
     def on_image(self, msg: Image) -> None:
@@ -159,10 +168,10 @@ class PerceptionNode(Node):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except CvBridgeError as exc:
-            self.get_logger().warn(f"图像转换失败: {exc}")
+            self.get_logger().warn(f"图像转换失败: {exc}", throttle_duration_sec=5.0)
             return
         except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(f"图像转换异常: {exc}")
+            self.get_logger().warn(f"图像转换异常: {exc}", throttle_duration_sec=5.0)
             return
         self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
 
@@ -218,7 +227,8 @@ class PerceptionNode(Node):
             try:
                 results = det.detect(frame, cam)
             except Exception as exc:  # noqa: BLE001
-                self.get_logger().warn(f"检测器 {det.label} 异常: {exc}")
+                self.get_logger().warn(
+                    f"检测器 {det.label} 异常: {exc}", throttle_duration_sec=5.0)
                 continue
             for r in results:
                 if per_label.get(r.label, 0) >= self.max_per_label:
@@ -252,11 +262,8 @@ class PerceptionNode(Node):
         out.detections = [self.to_msg(d, stamp) for d in found]
         self.pub.publish(out)
 
-        # 限频打印，避免日志洪泛
-        summary = " ".join(f"{k}:{v}" for k, v in sorted(per_label.items())) or "无目标"
-        if summary != self.last_summary or self.frame_count % 100 == 0:
-            self.get_logger().info(f"检测结果 {summary}")
-            self.last_summary = summary
+        # 目标数量随框抖动频繁变化，只在周期统计中输出最新摘要。
+        self.last_summary = " ".join(f"{k}:{v}" for k, v in sorted(per_label.items())) or "无目标"
 
         if self.publish_debug:
             self.publish_debug_image(frame, found, cam)
@@ -273,7 +280,10 @@ class PerceptionNode(Node):
         """
         now = time.time()
         dt = now - self._stats_t
-        if dt <= 1e-6 or self._stats_n == 0:
+        if dt <= 1e-6:
+            return
+        if self._stats_n == 0:
+            self.get_logger().warn("视觉未收到可处理图像", throttle_duration_sec=10.0)
             self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
             return
         self.last_fps = self._stats_n / dt
@@ -281,7 +291,7 @@ class PerceptionNode(Node):
         self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
         self.get_logger().info(
             f"视觉 {self.last_fps:.1f} fps，每帧 {self.last_proc_ms:.1f} ms"
-            f"（累计 {self.frame_count} 帧）")
+            f"（累计 {self.frame_count} 帧），目标 {self.last_summary}")
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()

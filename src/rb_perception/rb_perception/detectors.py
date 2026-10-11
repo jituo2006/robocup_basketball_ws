@@ -493,6 +493,10 @@ class OnnxDetector(BaseDetector):
         self.max_det = int(cfg.get("max_detections", 20))
         self.real_size = float(cfg.get("real_diameter_m", 0.0) or 0.0)
         self.class_real_size = cfg.get("class_real_size", {}) or {}
+        # 球径取框的较大边；定位柱的实物尺寸是宽度，不能用柱高测距。
+        self.class_size_axis = cfg.get("class_size_axis", {}) or {}
+        if any(axis not in ("max", "width") for axis in self.class_size_axis.values()):
+            raise ValueError("class_size_axis 只支持 max 或 width")
         self.class_map = {int(k): str(v) for k, v in (cfg.get("class_map", {}) or {}).items()}
         self.name_map = {str(k): str(v) for k, v in (cfg.get("name_map", {}) or {}).items()}
         # 跳帧：YOLO 是 CPU 上的大头（416 输入约 13ms/帧）。球在相邻帧之间位置变化很小，
@@ -801,7 +805,7 @@ class OnnxDetector(BaseDetector):
             # 去畸变后再算方位角与像素尺寸（与颜色检测器一致）
             uw = cam.measure_size((x1, py), (x2, py))
             uh = cam.measure_size((px, y1), (px, y2))
-            size_px = max(uw, uh)
+            size_px = uw if self.class_size_axis.get(label) == "width" else max(uw, uh)
 
             results.append(Detection(
                 label=label,
