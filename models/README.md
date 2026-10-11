@@ -28,4 +28,17 @@ FAST-LIO 独立初始化时，Linux 的
 关闭的是 `/Laser_map` 累积全图输出；`/Odometry` 和 `/cloud_registered` 继续发布。
 原配置备份于 `/tmp/rb-fastlio-config-before-20261012.yaml`。
 
+同一 FAST-LIO 版本的 Livox 输入队列从固定 20 帧改为可配置的小型可靠队列，
+`common.lidar_queue_depth` 默认 5，允许 1–20；修改后重启 FAST-LIO 生效。
+避免排队处理约 2 秒以前的点云；IMU 队列和几何标定参数保持原值。
+独立依赖仓库的精确改动保存在 `tools/fastlio_latest_input.patch`，可在该依赖根目录
+用 `git apply --check` 校验后应用。本次只编译 `fastlio_mapping` 目标。
+加载 ROS 环境、结束旧 FAST-LIO 节点后，`python3 tools/fastlio_basic_logger.py`
+可以单独运行定位并过滤逐帧调试输出；支持 `--executable`、`--config` 调整路径。
+
+2026-10-12 最后一轮改动状态：SSH 在可配置队列版本的编译期间中断，
+尚未确认该版本编译完成或替换运行文件。断连前运行的是可靠单帧队列版本：
+30 秒收到 41 条里程计，消息年龄中位数 0.0237 秒，但定位有效标志仅 231/601，
+因此还不能认为定位健康检查通过。需重新连接主机，完成小型可靠队列的部署及复验。
+
 初始化成功和新模型完成推理不代表找球方向/距离已经校准；需用已知球距与角度复验。
