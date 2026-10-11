@@ -729,7 +729,9 @@ class Bridge:
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
-        self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
+        self._cmd_vel_topic = t.get("cmd_vel", "/cmd_vel")
+        self._pub_cmd_lock = threading.Lock()
+        self.pub_cmd = self.node.create_publisher(Twist, self._cmd_vel_topic, 10)
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
 
         # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
@@ -1055,9 +1057,37 @@ class Bridge:
         req.action, req.speed, req.angle = int(action), int(speed), int(angle)
         return self._call(self.cli_launch, req)
 
+    def refresh_cmd_publisher(self) -> None:
+        """重建 /cmd_vel 发布者。
+
+        ⚠️ 为什么需要：FastRTPS 有个坑 —— 如果控制台先起、底盘后起，
+        控制台那个【更早创建的 writer】有时不会被底盘的 reader 发现，
+        于是 /cmd_vel 话题上明明有数据（ros2 topic hz 能测到 ✓）、
+        QoS 也完全匹配 ✓，但底盘【就是收不到】✗，输出永远是 0。
+        现象极具误导性：看起来像电机/底盘坏了。
+
+        实测：手动 ros2 topic pub 立刻能到电机 ✓，控制台发就不到 ✗；
+        把控制台重启一次（在底盘之后）立刻就好 ✓。
+
+        所以在每次下发运动指令前重建一次发布者 —— 新的 writer 一定能被发现。
+        开销可忽略（点动本来就要等 0.4s）。
+        """
+        try:
+            with self._pub_cmd_lock:
+                if getattr(self, "pub_cmd", None) is not None:
+                    try:
+                        self.node.destroy_publisher(self.pub_cmd)
+                    except Exception:  # noqa: BLE001
+                        pass
+                self.pub_cmd = self.node.create_publisher(
+                    self._Twist, getattr(self, "_cmd_vel_topic", "/cmd_vel"), 10)
+        except Exception:  # noqa: BLE001
+            pass
+
     def jog(self, vx: float, vy: float, wz: float, seconds: float = 0.4):
         """点动：先发速度，再自动归零（不依赖前端松手）。"""
         def run():
+            self.refresh_cmd_publisher()
             t0 = time.time()
             while time.time() - t0 < seconds:
                 t = self._Twist()
