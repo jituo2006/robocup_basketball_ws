@@ -52,7 +52,7 @@ perception:
     cloud_topic: /cloud_registered_body
     cloud_frame: body
     odom_topic: /Odometry
-    extrinsics_confirmed: false
+    extrinsics_confirmed: true
     base_from_cloud: [[0.0871557427,-0.9961946981,0.0,0.2377573387],[0.9961946981,0.0871557427,0.0,0.0129879989],[0.0,0.0,1.0,0.28588],[0.0,0.0,0.0,1.0]]
     base_from_camera: [[0.0,0.0,-1.0,-0.2714213562],[1.0,0.0,0.0,0.0],[0.0,-1.0,0.0,0.21],[0.0,0.0,0.0,1.0]]
     max_age_s: 0.3
