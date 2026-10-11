@@ -89,10 +89,26 @@ def generate_launch_description():
 
     # ③ 其余节点
     rest = [
+        # ⚠️ 【不要】给前摄传 device 覆盖 ✗
+        #
+        # 以前写的是 parameters=[{..., "device": camera_device}]，而
+        # camera_device 的默认值是写死的 "/dev/video0"。它会【覆盖】
+        # camera.yaml 里的稳定路径 /dev/v4l/by-id/usb-HD_Camera_...-video-index0 ✗。
+        #
+        # 而两个摄像头插在不同 USB 口时枚举顺序会变：现场就出现过
+        #     HD Camera   → /dev/video2   （前摄）
+        #     LRCP V1080P → /dev/video0   （后摄）
+        # 于是前摄去开 /dev/video0 —— 那是【后摄的设备】，已被后摄节点占用 ✗
+        # 结果前摄日志刷
+        #     打不开相机 /dev/video0（插好了吗？被别的进程占用？）
+        #     /camera/image_raw/compressed 一直没有数据
+        #     /perception/detections 一直没有数据
+        # → 现象就是"前摄看不到球 / 没有识别到球" ✗
+        #
+        # 设备路径就该只由 camera.yaml 的 by-id 决定 ✓（按名字认设备，与枚举顺序无关）。
         Node(package="rb_camera", executable="camera_node", name="rb_camera",
              output="screen",
-             parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml"),
-                          "device": camera_device}]),
+             parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml")}]),
         Node(package="rb_perception", executable="perception_node", name="rb_perception",
              output="screen",
              parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),
