@@ -185,6 +185,14 @@ class CameraNode(Node):
         intr = self.cfg.get("intrinsics", {}) or {}
 
         # 常用项允许 ROS 参数覆盖（方便现场临时换设备/分辨率，不改文件）
+        # ⚠️ 限制 OpenCV 线程数：默认它会用满所有核来做 resize/编解码，
+        #    两个相机 + 两个感知一起上会把 16 核吃光（实测负载 22 > 16 核，
+        #    采集从 30fps 掉到 4~5fps → 画面卡顿）。单线程足够。
+        try:
+            import cv2 as _cv2
+            _cv2.setNumThreads(1)
+        except Exception:  # noqa: BLE001
+            pass
         self.device = str(self.declare_parameter("device", str(cam.get("device", "/dev/video0"))).value)
         # ⚠️ 优先按【摄像头名】认设备（编号会随插拔顺序变，写死会认错）
         self.device_name = str(self.declare_parameter(
@@ -302,6 +310,7 @@ class CameraNode(Node):
         self._cap: cv2.VideoCapture | None = None
         self._read_failures = 0
         self._frames_read = 0
+        self._last_pub_seq = -1
         self._frames_published = 0
         self._last_status_t = time.time()
         self._last_read = 0
@@ -747,6 +756,15 @@ class CameraNode(Node):
             seq = self._seq
         if frame is None:
             return
+        # ⚠️ 没有新帧就【不要】重复发布！
+        #    原来这里把 seq 读出来却从没用过 → 定时器每个 tick 都把【同一帧】
+        #    重新 cv2.imencode 一遍发出去。实测采集 4~5fps 而发布 30fps：
+        #      * 白白烧 CPU（JPEG 编码是这里最贵的一步）
+        #      * 画面看着一卡一卡（30 帧里有 25 帧是完全相同的复制品）
+        #    现在只在 _seq 变化时发 —— 发布帧率自然等于采集帧率。
+        if seq == self._last_pub_seq:
+            return
+        self._last_pub_seq = seq
         stamp = self.get_clock().now().to_msg()
         try:
             msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")

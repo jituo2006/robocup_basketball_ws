@@ -144,7 +144,7 @@ perception:
       #   把 FAST-LIO 饿死 → load average 冲到 29（16 核机器）→
       #   /Odometry 时延从 300ms 恶化到 **2.2 秒** → 地图位置严重滞后 + 导航冲过目标点。
       #   640 输入用 2 核足够（单次 ~30ms），给 FAST-LIO / 定位 / 底盘留出 CPU。
-      intra_op_threads: 2
+      intra_op_threads: 1     # 只需 5~8fps，2 线程是浪费（实测两实例各开 2 线程 = 8 个核，把相机采集饿到 5fps）
       inter_op_threads: 1
       # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
       real_diameter_m: 0.24

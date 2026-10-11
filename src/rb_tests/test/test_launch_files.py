@@ -285,3 +285,53 @@ def test_front_camera_does_not_get_hardcoded_device():
     assert '"device": camera_device' not in seg, \
         "前摄不能带写死的 device —— 会和后摄抢同一个 /dev/videoN"
     assert "camera.yaml" in seg, "前摄应只用 config_file（里面配 device_name）"
+
+
+def test_camera_skips_duplicate_frames():
+    """⚠️ 相机不能把同一帧重复发布。
+
+    踩过：publish_latest() 读了 _seq 却从没用它 → 定时器每个 tick 都把
+    同一帧重新 cv2.imencode 发一遍。实测采集 4~5fps 而发布 30fps：
+      * JPEG 编码是这里最贵的一步，白烧 CPU（负载一度 22 > 16 核）
+      * 30 帧里 25 帧是完全相同的复制品 → 画面看着一卡一卡
+    现在只在 _seq 变化时发，发布帧率自然等于采集帧率。
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[3]
+           / "src/rb_camera/rb_camera/camera_node.py").read_text(encoding="utf-8")
+    assert "_last_pub_seq" in src, "应有'上一帧序号'记录"
+    i = src.find("def publish_latest")
+    assert i > 0
+    body = src[i:i + 1200]
+    assert "_last_pub_seq" in body, "publish_latest 必须在无新帧时提前返回"
+
+
+def test_camera_and_perception_cap_opencv_threads():
+    """相机/感知要限制 OpenCV 线程数。
+
+    默认 OpenCV 用满所有核做 resize/编解码；两个相机 + 两个感知一起上
+    会把 16 核吃光（实测负载 22 > 16 核），相机采集被饿到 4~5fps。
+    """
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    for rel in ("src/rb_camera/rb_camera/camera_node.py",
+                "src/rb_perception/rb_perception/perception_node.py"):
+        src = (ws / rel).read_text(encoding="utf-8")
+        assert "setNumThreads(1)" in src, f"{rel} 应限制 OpenCV 线程"
+
+
+def test_perception_configs_use_single_infer_thread():
+    """推理线程数应为 1：这两个实例只需 5~8fps，2 线程纯浪费。"""
+    import yaml
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    for name in ("perception.yaml", "perception_rear.yaml"):
+        d = yaml.safe_load((ws / "src/rb_perception/config" / name).read_text(encoding="utf-8"))
+        # ⚠️ 是 perception.detectors【列表】，不是 perception.detector（我第一版就写错了，
+        #    取不到键于是拿到默认值 2，测试误报"还是 2"）。
+        dets = ((d.get("perception") or {}).get("detectors") or [])
+        onnx = [x for x in dets if str(x.get("type", "")) == "onnx"]
+        assert onnx, f"{name} 里没有 onnx 检测器"
+        for x in onnx:
+            n = int(x.get("intra_op_threads", 2))
+            assert n == 1, f"{name} 的 intra_op_threads 应为 1（现在 {n}）"
