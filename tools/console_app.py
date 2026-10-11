@@ -367,10 +367,13 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # 机器人（红箭头）
     rx, ry = to_px(cx, cy)
     if view == "robot":
+        # 车头朝上视角：箭头恒朝上
         tip = (rx, ry - 26)
     else:
-        # 场地模式：箭头按 yaw 转（世界 +x 是屏幕右，+y 是屏幕上）
-        tip = (int(rx + 30 * math.cos(cyaw)), int(ry - 30 * math.sin(cyaw)))
+        # ⚠️ 场地模式必须用 to_px 算车头前方的第二个世界点，
+        #    这样 mirror_x 才会一起生效。手算 (rx+30cos, …) 在镜像视角下车头会反。
+        tx, ty = to_px(cx + 0.55 * math.cos(cyaw), cy + 0.55 * math.sin(cyaw))
+        tip = (int(tx), int(ty))
     cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
     cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
 
@@ -382,8 +385,13 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                       (110, 110, 110), 13))
 
     # 球检测（相机方位角 + 光轴深度 → 场地坐标）
+    # ⚠️ 只画【球】：rack_ring / hoop / pillar 是静态场地物，已作为场地区域画出来，
+    #    再当"检测到的球"画一遍既重复又误导（现场明确要求去掉 rack_ring）。
     now = time.time()
     for d in dets or []:
+        label0 = getattr(d, "label", "")
+        if not str(label0).startswith("ball"):
+            continue
         bearing = getattr(d, "bearing_rad", float("nan"))
         depth = getattr(d, "distance_m", float("nan"))
         # ⚠️ distance_m 是【光轴深度】不是斜距，必须先换算（曾经直接用 → 位置偏）
@@ -466,7 +474,7 @@ class Bridge:
             "in_pass_zone": False, "in_shoot_out": False, "estop": False,
             "launcher_ok": False, "perception_ok": False,
             "launcher_status": "", "odom_delay": None, "odom_x": None,
-            "dets": [], "cloud": None, "cam": None, "cam_stamp": 0.0,
+            "dets": [], "dets_stamp": 0.0, "cloud": None, "cam": None, "cam_stamp": 0.0,
             "cam_fps": 0.0, "cloud_fps": 0.0,
         }
         self._cam_times: deque = deque(maxlen=30)
@@ -597,6 +605,7 @@ class Bridge:
     def _on_dets(self, m):
         with self.lock:
             self.state["dets"] = list(m.detections)
+            self.state["dets_stamp"] = time.time()
 
     def _on_image(self, m):
         now = time.time()
@@ -721,6 +730,10 @@ class Bridge:
             s["has_cam"] = s.get("cam") is not None
             s["cam"] = None
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
+            # 检测过期就清空 —— 否则感知停了之后旧列表一直挂在页面上
+            # （现场现象："雷达没开怎么还有 rack_ring"）
+            if time.time() - float(s.get("dets_stamp") or 0.0) > 1.5:
+                s["dets"] = []
             s["dets"] = [{"label": d.label, "conf": float(d.confidence),
                           "bearing_deg": math.degrees(d.bearing_rad),
                           "dist": (None if d.distance_m != d.distance_m else float(d.distance_m))}

@@ -382,3 +382,33 @@ def test_field_view_mirror_puts_hoop_on_the_left():
     assert x_hoop < W / 2, f"镜像后篮筐应在左半边，实际 px={x_hoop}"
     assert x_home > W / 2, f"镜像后出发点应在右半边，实际 px={x_home}"
     assert x_hoop < x_home, "篮筐必须在出发点的左边"
+
+
+def test_mirrored_view_heading_follows_the_map():
+    """镜像视角下，车头前方必须落在车的【左边】—— 和篮筐在同一侧。
+
+    ⚠️ 曾经的 BUG：mirror_x 只作用在 to_px 上，车头箭头却是手算的
+    (rx + 30·cos yaw, …)，结果"地图翻了、箭头还朝右"。
+    现场原话："现在雷达方向朝右，把它变成朝左就对了，地图不用动"。
+    """
+    mod = _load()
+    cx, cy, yaw = 1.0, 1.0, 0.0          # 车在出发区，车头朝 +x（朝篮筐）
+    scale, margin = 56.4, 30.0
+
+    rx, ry = mod.field_to_screen(cx, cy, 0, 0, scale, margin, mirror_x=True)
+    tx, ty = mod.field_to_screen(cx + 0.55 * math.cos(yaw), cy + 0.55 * math.sin(yaw),
+                                 0, 0, scale, margin, mirror_x=True)
+    assert tx < rx, f"镜像视角下车头应朝屏幕左，实际 车 x={rx} 车头 x={tx}"
+
+    hx, _ = mod.field_to_screen(12.425, 3.75, 0, 0, scale, margin, mirror_x=True)
+    assert hx < W / 2, "篮筐也应在左边 —— 车头和篮筐必须同侧，否则指反了"
+    assert abs(ty - ry) < 1e-6, "yaw=0 时箭头不该有纵向偏移"
+
+
+def test_unmirrored_view_heading_still_points_right():
+    """不镜像时保持标准方向（x 向右）—— 两种视角都要自洽。"""
+    mod = _load()
+    scale, margin = 56.4, 30.0
+    rx, _ = mod.field_to_screen(1.0, 1.0, 0, 0, scale, margin, mirror_x=False)
+    tx, _ = mod.field_to_screen(1.55, 1.0, 0, 0, scale, margin, mirror_x=False)
+    assert tx > rx, "不镜像时车头应朝屏幕右"
