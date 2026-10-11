@@ -22,6 +22,7 @@
 
 #include "bupt_can/bupt_can.h"
 #include "chassis_lib/omni_chassis.h"
+#include "chassis_lib/dji_protocol.h"
 
 namespace {
 // 关终端窗口时，进程收到的是 **SIGHUP**（不是 SIGINT）。rclcpp 默认只处理
@@ -59,6 +60,12 @@ int main(int argc, char **argv) {
   const auto dry_run = param_node->declare_parameter<bool>("dry_run", false);
   const auto angular_z_sign = param_node->declare_parameter<double>("angular_z_sign", 1.0);
   const auto config_file = param_node->declare_parameter<std::string>("config_file", "");
+  if (!rb_dji::validBoardId(board_id)) {
+    RCLCPP_ERROR(param_node->get_logger(),
+      "自定义 DJI v2 协议要求 board_id=1..3；不能将速度包改发到原生电调电流地址 0x200");
+    rclcpp::shutdown();
+    return 2;
+  }
   if (!config_file.empty()) {
     RCLCPP_ERROR(param_node->get_logger(),
       "底盘不读取 config_file；请用 --params-file %s 或 chassis.launch.py", config_file.c_str());
