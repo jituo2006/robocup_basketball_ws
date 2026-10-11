@@ -18,6 +18,10 @@ import pytest
 from rb_tests.ws import WS
 
 
+import pathlib
+_WS = pathlib.Path(__file__).resolve().parents[3]
+
+
 def _load():
     path = WS / "tools" / "console_app.py"
     if not path.is_file():
@@ -478,3 +482,26 @@ def test_cloud_transform_keeps_z():
     mod = _load()
     out = mod.odom_cloud_to_field(np.array([[1.0, 1.0, -0.3]]), 5.0, 5.0, 1.2)
     assert out[0][2] == pytest.approx(-0.3), "z 不该被平面变换影响"
+
+
+# ---------------------------------------------------------------------------
+# 防回归：UI 上每个按钮发的动作，后端必须有实现分支
+#
+# 起因：后端一直有 set_mission() 和客户端，但 action 分发里忘了接 PASS/SHOOT/IDLE
+# 三个分支 —— 页面上「传球/投篮/停止任务」按下去【静默无反应】。
+# 这种 bug 只有真按按钮才会发现，上车前审计差点漏掉。
+# ---------------------------------------------------------------------------
+def test_every_ui_action_has_backend_handler():
+    import re
+    from pathlib import Path
+    ui = Path(_WS / "tools/console_ui.html").read_text(encoding="utf-8")
+    app = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
+    acts = set(re.findall(r"act\('([A-Z_0-9]+)'", ui))
+    acts |= set(re.findall(r"act\(\"([A-Z_0-9]+)\"", ui))
+    assert acts, "没从 UI 里解析到任何动作，正则可能失效了"
+    handlers = set(re.findall(r'name == "([A-Z_0-9]+)"', app))
+    # 元组形式的 `name in ("A", "B")`
+    for grp in re.findall(r'name in \(([^)]*)\)', app):
+        handlers |= set(re.findall(r'"([A-Z_0-9]+)"', grp))
+    missing = sorted(acts - handlers)
+    assert not missing, f"UI 有按钮但后端没实现: {missing}（按下去会静默无反应）"

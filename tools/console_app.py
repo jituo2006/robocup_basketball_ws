@@ -1446,6 +1446,11 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         try:
             if name in ("PASS", "SHOOT", "IDLE"):
                 return jsonify(dict(zip(("ok", "msg"), bridge.set_mission(name))))
+            # ⚠️ 起任务：后端一直有 set_mission 接口和客户端，但分发里没接分支 ——
+            #    页面按「传球/投篮/停止任务」是【静默无反应】。上车前审计才发现。
+            if name in ("PASS", "SHOOT", "IDLE"):
+                ok, msg = bridge.set_mission(name)
+                return jsonify({"ok": bool(ok), "msg": msg})
             if name == "PANIC":
                 return jsonify(dict(zip(("ok", "msg"), panic())))
             if name == "LAUNCH":
