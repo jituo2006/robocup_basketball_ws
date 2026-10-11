@@ -608,7 +608,23 @@ class Bridge:
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
-        self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
+        # ⚠️ /cmd_vel 的发布者【绝不能常驻】✗
+        #
+        # precision_ball_approach.py:134 / :141 要求
+        #     node.count_publishers("/cmd_vel") == 1
+        # 即【恰好只有它自己一个】，否则直接
+        #     raise RuntimeError("another /cmd_vel publisher exists;
+        #                         stop its mission before testing")
+        #
+        # 控制台原来在启动时就 create_publisher(...) → 一直占着 /cmd_vel ✗
+        # → 从 UI 点「🔍 寻球」【必定失败】✗（脚本一启动就检测到"竞争发布者"并退出）
+        # → 而同一个脚本在终端里跑却正常 ✓（那时控制台没占话题）
+        # 现象就是用户说的"终端能跑、UI 点没反应" ✗。
+        #
+        # 改成【用时创建、用完销毁】：只在点动那零点几秒里存在 ✓。
+        self._cmd_vel_topic = t.get("cmd_vel", "/cmd_vel")
+        self.pub_cmd = None
+        self._pub_cmd_lock = threading.Lock()
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
 
         # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
@@ -828,16 +844,52 @@ class Bridge:
         req.action, req.speed, req.angle = int(action), int(speed), int(angle)
         return self._call(self.cli_launch, req)
 
+    def _ensure_cmd_pub(self):
+        """创建 /cmd_vel 发布者（仅在点动期间临时持有 ✓）。
+
+        见 __init__ 处的长注释：常驻会挡住 precision_ball_approach 的
+        独占检查，导致 UI 点「寻球」永远失败 ✗。
+        """
+        with self._pub_cmd_lock:
+            if self.pub_cmd is None:
+                self.pub_cmd = self.node.create_publisher(
+                    Twist, self._cmd_vel_topic, 10)
+            return self.pub_cmd
+
+    def _drop_cmd_pub(self):
+        """销毁 /cmd_vel 发布者，把话题让给找球脚本 ✓。
+
+        destroy 之后 DDS 的 publisher 计数不是立即更新，留一小段等待时间，
+        否则脚本刚启动那一秒仍可能数到 2 个而误判 ✗。
+        """
+        with self._pub_cmd_lock:
+            p, self.pub_cmd = self.pub_cmd, None
+        if p is not None:
+            try:
+                self.node.destroy_publisher(p)
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.4)
+
     def jog(self, vx: float, vy: float, wz: float, seconds: float = 0.4):
-        """点动：先发速度，再自动归零（不依赖前端松手）。"""
+        """点动：先发速度，再自动归零（不依赖前端松手）。
+
+        ⚠️ 发布者【用时创建、用完销毁】—— 不能常驻，原因见 __init__ 的长注释。
+        """
         def run():
-            t0 = time.time()
-            while time.time() - t0 < seconds:
-                t = self._Twist()
-                t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
-                self.pub_cmd.publish(t)
-                time.sleep(0.05)
-            self.pub_cmd.publish(self._Twist())
+            self._ensure_cmd_pub()
+            try:
+                t0 = time.time()
+                while time.time() - t0 < seconds:
+                    t = self._Twist()
+                    t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
+                    self.pub_cmd.publish(t)
+                    time.sleep(0.05)
+                self.pub_cmd.publish(self._Twist())
+            finally:
+                # 归零也要真的发出去，再释放话题 ✓
+                time.sleep(0.1)
+                self._drop_cmd_pub()
         threading.Thread(target=run, daemon=True).start()
         return True, f"点动 {seconds}s"
 
