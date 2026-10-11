@@ -324,13 +324,36 @@
         <div>
           <div class="hint" style="margin-top:0"><b>前摄</b> · /camera/image_raw/compressed</div>
           <img id="cam" src="/api/camera.mjpg" alt="前摄">
+          <fieldset id="expFront" disabled style="border:0;padding:0;margin-top:8px">
+            <label for="expFrontRange">前摄曝光</label>
+            <input id="expFrontRange" type="range" aria-label="前摄曝光滑块" oninput="editExposure('front',this.value)">
+            <div class="row">
+              <input id="expFrontValue" type="number" aria-label="前摄曝光数值" oninput="editExposure('front',this.value,true)">
+              <button onclick="applyExposure('front')">应用手动曝光</button>
+            </div>
+            <button onclick="applyExposure('front',true)">恢复自动曝光</button>
+          </fieldset>
+          <div class="hint" id="expFrontStatus">等待前摄曝光范围…</div>
         </div>
         <div>
           <div class="hint" style="margin-top:0"><b>后摄</b> · /camera_rear/image_raw/compressed</div>
           <img id="camrear" src="/api/camera_rear.mjpg" alt="后摄">
+          <fieldset id="expRear" disabled style="border:0;padding:0;margin-top:8px">
+            <label for="expRearRange">后摄曝光</label>
+            <input id="expRearRange" type="range" aria-label="后摄曝光滑块" oninput="editExposure('rear',this.value)">
+            <div class="row">
+              <input id="expRearValue" type="number" aria-label="后摄曝光数值" oninput="editExposure('rear',this.value,true)">
+              <button onclick="applyExposure('rear')">应用手动曝光</button>
+            </div>
+            <button onclick="applyExposure('rear',true)">恢复自动曝光</button>
+          </fieldset>
+          <div class="hint" id="expRearStatus">等待后摄曝光范围…</div>
         </div>
       </div>
       <div class="hint" id="camstats">—</div>
+      <div class="hint">曝光范围、步长和当前值均由各摄像头驱动读取，使用驱动原始单位。
+        应用手动值会关闭该路自动曝光；数值越大通常越亮，也可能降低帧率。
+        此处调整实时生效，重启相机后恢复配置文件设置。</div>
       <div class="hint">
         两路都是 MJPEG 实时流。**前摄**朝车头（找球用），**后摄**朝车尾
         （转 180° 后对着球，做精准定位 + 闭环后退）。<br>
@@ -805,9 +828,50 @@ function renderProgress(s){
   $('progress').innerHTML = rows.join('');
 }
 
+const exposureDirty = {front:false,rear:false};
+const exposurePending = {front:false,rear:false};
+function exposurePrefix(slot){ return slot === 'front' ? 'expFront' : 'expRear'; }
+function editExposure(slot,value,fromNumber=false){
+  exposureDirty[slot] = true;
+  const prefix = exposurePrefix(slot);
+  $(prefix + (fromNumber ? 'Range' : 'Value')).value = value;
+}
+async function applyExposure(slot,automatic=false){
+  const prefix = exposurePrefix(slot), input = $(prefix+'Value');
+  if(!automatic && (!input.value || !input.reportValidity())) return;
+  exposurePending[slot] = true;
+  $(prefix).disabled = true;
+  try{
+    const args = automatic ? {slot,auto:true} : {slot,value:Number(input.value)};
+    const response = await fetch('/api/action',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:'CAMERA_EXPOSURE',args})});
+    const result = await response.json();
+    toast(result.msg || '曝光设置失败',result.ok ? 'ok' : 'bad');
+    if(result.ok) exposureDirty[slot] = false;
+  }catch(error){ toast('曝光设置失败：'+error.message,'bad'); }
+  finally{ exposurePending[slot] = false; }
+}
+function renderExposure(s){
+  for(const slot of ['front','rear']){
+    const prefix = exposurePrefix(slot), info = (s.exposure||{})[slot]||{};
+    const available = info.available && Date.now()/1000-info.received < 3;
+    $(prefix).disabled = !available || exposurePending[slot];
+    if(!available){ $(prefix+'Status').textContent = '摄像头未连接或曝光状态过期'; continue; }
+    for(const suffix of ['Range','Value']){
+      const input = $(prefix+suffix);
+      input.min = info.min; input.max = info.max; input.step = info.step;
+      if(!exposureDirty[slot] && !exposurePending[slot] && document.activeElement!==input)
+        input.value = info.value;
+    }
+    $(prefix+'Status').textContent = `范围 ${info.min}–${info.max}，步长 ${info.step} · 当前 ${info.value} · ${info.auto?'自动':'手动'}`;
+  }
+}
+
 function render(s){
   window._st = s;
   renderRearCam(s);
+  renderExposure(s);
   renderMissionNode(s);
   renderLidarBall(s);
   renderChassis(s);

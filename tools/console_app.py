@@ -571,6 +571,7 @@ class Bridge:
             "dets": [], "dets_stamp": 0.0,
             "cam_rear": None, "cam_rear_stamp": 0.0, "cam_rear_fps": 0.0,
             "dets_rear": [], "dets_rear_stamp": 0.0,
+            "exposure": {},
             # 雷达找球（界面可调；默认关，保持与改动前一致）
             "odom": None,
             "lb_enabled": False, "lb_mode": "fuse", "lb_cands": [],
@@ -610,6 +611,10 @@ class Bridge:
         sub1(Image, t.get("image_raw", "/camera/image_raw"), self._on_raw_image, self._sensor_qos)
         sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._sensor_qos)
         sub1(Log, "/rosout", self._on_log, 50)
+        for slot, topic in (("front", "/camera/exposure"), ("rear", "/camera_rear/exposure")):
+            sub1(StringMsg, t.get("exposure_" + slot, topic),
+                 lambda msg, slot=slot: self._on_exposure(slot, msg), 1)
+        self._exposure_clients = {}
 
         from rb_msgs.srv import SerialText
         self.cli_text = self.node.create_client(
@@ -821,6 +826,59 @@ class Bridge:
             return False, "无响应"
         return bool(getattr(r, "accepted", getattr(r, "success", True))), \
             str(getattr(r, "message", ""))
+
+    def _on_exposure(self, slot, msg):
+        try:
+            info = json.loads(msg.data)
+            if not isinstance(info, dict):
+                return
+            with self.lock:
+                self.state["exposure"][slot] = dict(info, received=time.time())
+        except (ValueError, TypeError):
+            pass
+
+    def camera_exposure(self, slot, value=None, automatic=None):
+        from rclpy.parameter import Parameter
+        from rcl_interfaces.srv import SetParametersAtomically
+        if slot not in ("front", "rear"):
+            return False, "摄像头须为 front 或 rear"
+        if value is None and automatic is None:
+            return False, "缺少曝光设置"
+        if value is not None and (type(value) is not int):
+            return False, "曝光值必须为整数"
+        if automatic is not None and type(automatic) is not bool:
+            return False, "自动曝光开关必须为布尔值"
+        with self.lock:
+            info = dict(self.state.get("exposure", {}).get(slot, {}))
+        if not info.get("available") or time.time() - info.get("received", 0) > 3:
+            return False, "摄像头曝光状态不可用或过期"
+        node = info.get("node")
+        if not isinstance(node, str) or not node.startswith("/"):
+            return False, "摄像头节点信息不可用"
+        if value is not None and automatic is True:
+            return False, "请分别设置手动值或开启自动曝光"
+        cli = self._exposure_clients.get(node)
+        if cli is None:
+            cli = self.node.create_client(SetParametersAtomically, node + "/set_parameters_atomically")
+            self._exposure_clients[node] = cli
+        if not cli.wait_for_service(timeout_sec=1):
+            return False, "摄像头参数服务不可用"
+        req = SetParametersAtomically.Request()
+        settings = [Parameter("exposure.auto", value=bool(automatic) if value is None else False)]
+        if value is not None:
+            settings.append(Parameter("exposure.value", value=value))
+        req.parameters = [p.to_parameter_msg() for p in settings]
+        future = cli.call_async(req)
+        deadline = time.monotonic() + 5
+        while not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not future.done():
+            return False, "曝光设置响应超时，请查看当前读回值"
+        response = future.result()
+        if response is None or not response.result.successful:
+            return False, response.result.reason if response else "曝光设置无响应"
+        return True, ("自动曝光已开启" if value is None and automatic else
+                      f"手动曝光已设置为 {value}" if value is not None else "自动曝光已关闭")
 
     def set_mission(self, name: str):
         from rb_msgs.srv import SetMission
@@ -1731,6 +1789,9 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         name = (d.get("name") or "").strip()
         args = d.get("args") or {}
         try:
+            if name == "CAMERA_EXPOSURE":
+                return jsonify(dict(zip(("ok", "msg"), bridge.camera_exposure(
+                    args.get("slot"), args.get("value"), args.get("auto")))))
             if name in ("PASS", "SHOOT", "IDLE"):
                 return jsonify(dict(zip(("ok", "msg"), bridge.set_mission(name))))
             # ⚠️ 起任务：后端一直有 set_mission 接口和客户端，但分发里没接分支 ——

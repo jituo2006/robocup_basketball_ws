@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import math
+import json
 import os
 import re
 import shutil
@@ -49,7 +50,9 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
+from rcl_interfaces.msg import SetParametersResult
+from .exposure import exposure_capabilities, validate_exposure
 
 # V4L2 控件名在不同 UVC 驱动上不一致，这里给出别名表，按顺序取第一个存在的。
 # 本机实测这台 HD USB Camera 的实际控件名：
@@ -307,6 +310,17 @@ class CameraNode(Node):
         self._actual_h = 0
         self._actual_fourcc = ""
 
+        # Serialize driver writes with software AE so manual values cannot be overwritten.
+        self._control_lock = threading.RLock()
+        self.declare_parameter("exposure.value", self._ae_current)
+        self.ae_enabled = bool(self.declare_parameter("exposure.auto", self.ae_enabled).value)
+        self._ae_current = int(self.get_parameter("exposure.value").value)
+        self.controls_cfg["exposure"] = self._ae_current
+        self.add_on_set_parameters_callback(self._on_exposure_parameters)
+        self.exposure_pub = self.create_publisher(
+            String, self.image_topic.rsplit("/", 1)[0] + "/exposure", 1)
+        self.exposure_timer = self.create_timer(1.0, self.publish_exposure)
+
         self._thread = threading.Thread(target=self._capture_loop, name="rb_camera_capture", daemon=True)
         self._thread.start()
 
@@ -365,7 +379,74 @@ class CameraNode(Node):
             return False
         return r.returncode == 0
 
+    def _exposure_caps(self):
+        result = subprocess.run(
+            ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
+            capture_output=True, text=True, timeout=2)
+        return exposure_capabilities(result.stdout) if result.returncode == 0 else None
+
+    def _on_exposure_parameters(self, params):
+        requested = {p.name: p.value for p in params}
+        keys = {"exposure.value", "exposure.auto"}
+        if not keys.intersection(requested):
+            return SetParametersResult(successful=True)
+        try:
+            if set(requested) - keys:
+                raise ValueError("曝光参数须单独提交")
+            if "exposure.auto" in requested and type(requested["exposure.auto"]) is not bool:
+                raise ValueError("自动曝光开关必须为布尔值")
+            with self._control_lock:
+                if not self._ok:
+                    raise ValueError("摄像头未出图，不能调整曝光")
+                caps = self._exposure_caps()
+                value = requested.get("exposure.value")
+                automatic = requested.get("exposure.auto", False if value is not None else self.ae_enabled)
+                if value is not None:
+                    validate_exposure(value, caps)
+                    if automatic:
+                        raise ValueError("手动曝光值不能与开启自动曝光同时提交")
+                if not caps:
+                    raise ValueError("驱动未报告曝光控制")
+                auto_ctrl = self._find_ctrl("auto_exposure", self._v4l2_ctrls())
+                if auto_ctrl and not self._set_ctrl(auto_ctrl, _AUTO_EXPOSURE_MANUAL):
+                    raise ValueError("驱动未能切换手动模式")
+                previous = caps["value"]
+                if value is not None:
+                    if not self._set_ctrl(caps["control"], value):
+                        raise ValueError("驱动拒绝曝光值")
+                    actual = self._exposure_caps()
+                    if not actual or actual["value"] != value:
+                        self._set_ctrl(caps["control"], previous)
+                        raise ValueError("曝光读回与设置不一致，已尝试恢复")
+                    previous = value
+                self.ae_enabled = automatic
+                self._ae_current = previous
+                self.controls_cfg["exposure"] = previous
+                self._ae_buf.clear()
+                self._ae_skip = self.ae_settle_frames
+            return SetParametersResult(successful=True)
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+
+    def publish_exposure(self):
+        info = {"node": self.get_fully_qualified_name(), "device": self.device,
+                "available": False, "auto": self.ae_enabled}
+        try:
+            with self._control_lock:
+                caps = self._exposure_caps() if self._ok else None
+                if caps:
+                    info.update(caps, available=True, auto=self.ae_enabled)
+        except (OSError, subprocess.SubprocessError) as exc:
+            info["error"] = str(exc)
+        msg = String()
+        msg.data = json.dumps(info)
+        self.exposure_pub.publish(msg)
+
     def _apply_controls(self) -> None:
+        with self._control_lock:
+            self._configure_controls()
+
+    def _configure_controls(self) -> None:
         """锁定自动曝光 / 白平衡 / 增益，让图像稳定 —— 颜色标定一次就能长期有效。
 
         ⚠️ 本机实测这台相机：自动模式下 `exposure_time_absolute` 和
@@ -585,6 +666,11 @@ class CameraNode(Node):
             self._ok = True
 
     def _auto_exposure(self, frame) -> None:
+        with self._control_lock:
+            if self.ae_enabled:
+                self._adjust_auto_exposure(frame)
+
+    def _adjust_auto_exposure(self, frame) -> None:
         """按目标亮度闭环调曝光 —— 每 ae_every_n 帧走一小步，带死区防震荡。
 
         现场教训：exposure=600 是晚上调的，第二天白天 96.9% 像素过曝、整片死白，
