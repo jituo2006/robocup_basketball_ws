@@ -9,6 +9,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+_WS = Path(__file__).resolve().parents[3]
+
 import importlib.util
 import math
 import sys
@@ -142,3 +146,91 @@ def test_ball_xy_respects_heading():
     m = _load()
     x, y = m.ball_xy(0.0, 0.0, math.pi / 2, 0.0, 2.0)
     assert abs(x) < 1e-9 and abs(y - 2.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# 现场规格：找球 → 摄像头正对球 → 旋转中心停在球前 70cm → 转 180° → 后退 20cm
+# ---------------------------------------------------------------------------
+def _load():
+    import importlib.util
+    from pathlib import Path
+    ws = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location(
+        "_tpb", ws / "tools" / "test_perimeter_ball.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_median_ball_rejects_outliers():
+    """单帧离群值（把干扰物当球）不能把估计带偏 —— 用中位数。"""
+    mod = _load()
+    good = [(0.10, 0.70)] * 5
+    bad = [(1.20, 4.50)]          # 一帧离谱的
+    r = mod.median_ball(good + bad)
+    assert r is not None
+    b, d, n = r
+    assert abs(b - 0.10) < 1e-9, f"方位被离群值带偏: {b}"
+    assert abs(d - 0.70) < 1e-9, f"距离被离群值带偏: {d}"
+    assert n == 6
+
+
+def test_median_ball_needs_at_least_two():
+    mod = _load()
+    assert mod.median_ball([]) is None
+    assert mod.median_ball([(0.1, 0.7)]) is None
+
+
+def test_median_ball_drops_nan_and_tiny_distance():
+    """NaN 和过小的距离必须被丢掉，剩下的样本才参与中位数。"""
+    mod = _load()
+    r = mod.median_ball([(float("nan"), 0.7), (0.1, float("nan")),
+                         (0.1, 0.0),                       # 距离 0 非法
+                         (0.10, 0.70), (0.12, 0.72), (0.11, 0.71)])
+    assert r is not None
+    assert r[2] == 3, f"应剩 3 个合法样本，实际 {r[2]}"
+    assert abs(r[0] - 0.11) < 1e-9, f"中位数应为 0.11，实际 {r[0]}"
+    assert abs(r[1] - 0.71) < 1e-9
+
+
+def test_approach_axis_is_yaw_minus_bearing():
+    """球在场地系的方位 = yaw − bearing（bearing 右正左负）。"""
+    import math
+    mod = _load()
+    assert abs(mod.approach_axis(0.0, 0.0)) < 1e-9
+    # 球在正左（车体系 y>0）⇒ bearing 负，方位应为 +90°
+    assert abs(mod.approach_axis(0.0, -math.pi / 2) - math.pi / 2) < 1e-9
+    # 球在正右 ⇒ bearing 正，方位应为 -90°
+    assert abs(mod.approach_axis(0.0, math.pi / 2) + math.pi / 2) < 1e-9
+
+
+def test_servo_approach_math_moves_toward_ball():
+    """沿 approach_axis 走就是朝球走 —— 正对着球时（bearing≈0）应沿车头前进。"""
+    import math
+    mod = _load()
+    yaw = 0.5
+    ang = mod.approach_axis(yaw, 0.0)
+    assert abs(ang - yaw) < 1e-9, "正对球时前进方向应等于车头朝向"
+    # 从 (0,0) 沿该方向走 0.5m，终点应朝球
+    tx, ty = 0.5 * math.cos(ang), 0.5 * math.sin(ang)
+    assert abs(math.hypot(tx, ty) - 0.5) < 1e-9
+
+
+def test_shipped_defaults_match_the_site_spec():
+    """出厂默认必须就是现场要的：70cm / 180° / 20cm。"""
+    src = (_WS / "tools" / "test_perimeter_ball.py").read_text(encoding="utf-8")
+    assert '"--align-dist", type=float, default=0.70' in src, "对准距离默认应为 70cm"
+    assert '"--turn-deg", type=float, default=180.0' in src, "转身默认应为 180°"
+    assert '"--backup", type=float, default=0.20' in src, "后退默认应为 20cm"
+
+
+def test_align_tolerance_is_tight_enough_to_face_the_ball():
+    """对准容差要够紧才叫"正对球"；太松等于没对准。"""
+    src = (_WS / "tools" / "test_perimeter_ball.py").read_text(encoding="utf-8")
+    i = src.find('"--align-tol-deg"')
+    assert i > 0
+    seg = src[i:i + 160]
+    import re
+    m = re.search(r"default=([\d.]+)", seg)
+    assert m, "读不到 align-tol-deg 默认值"
+    assert float(m.group(1)) <= 3.0, f"对准容差 {m.group(1)}° 太松，谈不上正对球"
