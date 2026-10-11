@@ -121,13 +121,21 @@ def draw_texts(img_bgr, items):
     return np.array(pil)[:, :, ::-1].copy()
 
 
-def field_to_screen(wx, wy, fx0, fy0, scale, margin=28.0, w=LIDAR_W, h=LIDAR_H):
-    """场地固定视角：x 向右、y 向上（与 RViz 俯视一致）。
+def field_to_screen(wx, wy, fx0, fy0, scale, margin=28.0, w=LIDAR_W, h=LIDAR_H,
+                    mirror_x: bool = False):
+    """场地固定视角：x 向右、y 向上；mirror_x=True 时 x 向左（水平镜像）。
 
     fx0/fy0 是场地左下角在场地系里的坐标（一般 0,0）。
     标量/ndarray 都适用。
+
+    ⚠️ 为什么有 mirror：现场对着实物核对时，操作员习惯的"篮筐在左"和
+    标准俯视图（x 向右、篮筐在右）正好相反。镜像只是**显示**选择，
+    坐标本身不变 —— 页面两种都提供，按现场实物对不对得上来选。
     """
-    return margin + (np.asarray(wx) - fx0) * scale, h - margin - (np.asarray(wy) - fy0) * scale
+    px = margin + (np.asarray(wx) - fx0) * scale
+    if mirror_x:
+        px = w - px
+    return px, h - margin - (np.asarray(wy) - fy0) * scale
 
 
 def depth_to_slant(depth_m: float, bearing_rad: float, max_bearing_deg: float = 78.0):
@@ -207,12 +215,13 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
 
 
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
-                 view: str = "field") -> bytes:
+                 view: str = "field", mirror_x: bool = False) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
     img = np.zeros((LIDAR_H, LIDAR_W, 3), dtype=np.uint8)
     img[:] = (24, 22, 20)
+    texts = []          # ⚠️ 必须在任何 append 之前建（曾经放在后面 → UnboundLocalError）
 
     # 世界坐标 → 画布：以机器人为中心，朝上为 +x（车头方向固定朝上）
     cx, cy, cyaw = (pose if pose else (0.0, 0.0, 0.0))
@@ -233,22 +242,99 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         margin = 30.0
         scale = min((LIDAR_W - 2 * margin) / max(L, 1e-3),
                     (LIDAR_H - 2 * margin) / max(W, 1e-3)) * 0.94
+        _mir = (mirror_x and view == "field")
 
         def to_px(wx, wy):
-            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin)
+            px, py = field_to_screen(wx, wy, 0.0, 0.0, scale, margin, mirror_x=_mir)
             return int(px), int(py)
 
     # 场地边界（浅灰矩形）+ 中线
     pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
-    cv2.polylines(img, [pts], True, (70, 70, 70), 1, cv2.LINE_AA)
+    cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
     if view != "robot":
-        cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (48, 48, 48), 1, cv2.LINE_AA)
-        cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (48, 48, 48), 1, cv2.LINE_AA)
+        cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
+        cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
+
+    # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
+    def _poly(world_pts, color, thick=1, close=True, dash=False):
+        """世界坐标点列 → 屏幕折线。超出场地的自动裁掉（只看场内）。"""
+        ps = []
+        for (px_, py_) in world_pts:
+            sx, sy = to_px(px_, py_)
+            ps.append((sx, sy))
+        if len(ps) >= 2:
+            cv2.polylines(img, [np.array(ps, np.int32)], close, color, thick, cv2.LINE_AA)
+
+    def _arc(cxw, cyw, r, color, thick=1, a0=0.0, a1=360.0, steps=72):
+        """圆弧（世界坐标），自动裁到场内。"""
+        pts = []
+        for i in range(steps + 1):
+            a = math.radians(a0 + (a1 - a0) * i / steps)
+            wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
+            if -0.05 <= wx_ <= L + 0.05 and -0.05 <= wy_ <= W + 0.05:
+                pts.append((wx_, wy_))
+        if len(pts) >= 2:
+            _poly(pts, color, thick, close=False)
+
+    # 三分线（以 three_point_center 为心）
+    tp = field.get("three_point_center") or {}
+    r3 = float(field.get("three_point_radius_m", 0.0) or 0.0)
+    if isinstance(tp, dict) and "x" in tp and r3 > 0:
+        _arc(float(tp["x"]), float(tp["y"]), r3, (60, 110, 150), 1)
+        # 三分线在场内的两条直线段（足球场式的直线部分）
+        _poly([(float(tp["x"]), float(tp["y"]) - r3), (L, float(tp["y"]) - r3)], (60, 110, 150))
+        _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
+        tp_px = to_px(float(tp["x"]), float(tp["y"]))
+        texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
+
+    # 投篮线（以篮筐为心）
+    hoop = field.get("hoop") or {}
+    rs = float(field.get("shoot_line_radius_m", 0.0) or 0.0)
+    if isinstance(hoop, dict) and "x" in hoop and rs > 0:
+        _arc(float(hoop["x"]), float(hoop["y"]), rs, (60, 130, 100), 1)
+
+    # 传球区（多边形）
+    pz = (field.get("pass_zone") or {}).get("polygon")
+    if pz:
+        try:
+            poly = [(float(a), float(b)) for a, b in pz]
+            _poly(poly + [poly[0]], (150, 120, 60), 1, close=False)
+            # 半透明填充，便于一眼看出"我在不在区内"
+            sp = np.array([to_px(a, b) for a, b in poly], np.int32)
+            ov = img.copy()
+            cv2.fillPoly(ov, [sp], (60, 48, 24))
+            cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
+            cxp = sum(a for a, _ in poly) / len(poly)
+            cyp = sum(b for _, b in poly) / len(poly)
+            q = to_px(cxp, cyp)
+            texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
+        except (TypeError, ValueError):
+            pass
+
+    # 出发区（配置里只有 home 点；画一个 0.6m 的方块示意，实际尺寸待现场确认）
+    hm = field.get("home") or {}
+    if isinstance(hm, dict) and "x" in hm:
+        hx, hy = float(hm["x"]), float(hm["y"])
+        half = 0.30
+        _poly([(hx - half, hy - half), (hx + half, hy - half),
+               (hx + half, hy + half), (hx - half, hy + half), (hx - half, hy - half)],
+              (90, 150, 90), 1, close=False)
+        _arc(hx, hy, 0.22, (90, 150, 90), 1)
+        q = to_px(hx, hy)
+        texts.append(("出发区", (q[0] + 10, q[1] + 20), (110, 180, 110), 13))
+
+    # 篮筐符号（篮板 + 篮圈）
+    if isinstance(hoop, dict) and "x" in hoop:
+        hx, hy = float(hoop["x"]), float(hoop["y"])
+        _arc(hx, hy, 0.225, (0, 140, 255), 2)          # 篮圈 φ45cm
+        # 篮板：在篮筐靠边线那一侧，画一条短线
+        bx = min(L, hx + 0.30)
+        _poly([(bx, hy - 0.90), (bx, hy + 0.90)], (0, 140, 255), 2, close=False)
+        q = to_px(hx, hy)
+        texts.append(("篮筐", (q[0] - 14, q[1] - 16), (0, 160, 255), 13))
 
     # 得分点参考（传球区/投篮点/篮筐）
-    refs = [("传球区", field.get("pass_zone_target")), ("投篮点", field.get("shoot_zone_target")),
-            ("篮筐", field.get("hoop")), ("出发点", field.get("home"))]
-    texts = []
+    refs = [("投篮点", field.get("shoot_zone_target"))]
     for name, p in refs:
         if isinstance(p, dict) and "x" in p:
             px = to_px(p["x"], p["y"])
@@ -267,7 +353,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
             keep_near = ((np.abs(fwd) < LIDAR_RANGE_M * 1.2) &
                          (np.abs(left) < LIDAR_RANGE_M * 1.2))
         else:
-            px_f, py_f = field_to_screen(p[:, 0], p[:, 1], 0.0, 0.0, scale, 30.0)
+            px_f, py_f = field_to_screen(p[:, 0], p[:, 1], 0.0, 0.0, scale, 30.0,
+                                         mirror_x=_mir)
             keep_near = np.ones(len(p), dtype=bool)     # 场地模式不按半径裁
         px = px_f.astype(np.int32)
         py = py_f.astype(np.int32)
@@ -321,7 +408,9 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # 左上角文字状态
     lines = [
         (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°"
-         + ("   [场地固定]" if view != "robot" else "   [车头朝上]"), (215, 215, 215), 15),
+         + ("   [场地固定→右]" if view == "field" and not (mirror_x and view == "field")
+            else ("   [场地固定→左]" if view == "field" else "   [车头朝上]")),
+         (215, 215, 215), 15),
         (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
         (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}", (150, 150, 150), 15),
@@ -1060,6 +1149,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         view = (request.args.get("view") or "field").lower()
         if view not in ("field", "robot"):
             view = "field"
+        # ?mirror=1 → x 向左（篮筐在左，与现场实物核对习惯一致）
+        mirror = (request.args.get("mirror") or "0") in ("1", "true", "yes")
 
         def gen():
             while True:
@@ -1069,7 +1160,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     dets = list(bridge.state["dets"])
                     lok = bridge.state["launcher_ok"]
                     ok = bridge.state["loc_ok"]
-                jpg = render_lidar(xyz, pose, dets, field, lok, ok, view=view)
+                jpg = render_lidar(xyz, pose, dets, field, lok, ok,
+                                   view=view, mirror_x=mirror)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"

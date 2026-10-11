@@ -202,15 +202,20 @@
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
-      <div class="row" style="margin-bottom:8px">
-        <button id="vField" onclick="setView('field')" style="margin:0">🏟 场地固定</button>
-        <button id="vRobot" onclick="setView('robot')" style="margin:0">🚗 车头朝上</button>
+      <div class="row3" style="margin-bottom:8px">
+        <button id="vL" onclick="setView('field','1')" style="margin:0">🏟 场地→左</button>
+        <button id="vR" onclick="setView('field','0')" style="margin:0">🏟 场地→右</button>
+        <button id="vRobot" onclick="setView('robot','0')" style="margin:0">🚗 车头朝上</button>
       </div>
-      <img id="lidar" src="/api/lidar.mjpg?view=field" alt="雷达">
+      <img id="lidar" src="/api/lidar.mjpg?view=field&mirror=1" alt="雷达">
       <div class="hint">
-        <b>场地固定</b>（默认）= x 向右、y 向上，和 RViz 俯视一致 —— 对着实物核对位置用这个。<br>
-        <b>车头朝上</b> = 以车为中心、车头永远朝上 —— 看"球在我哪一侧"方便。<br>
-        灰框 = 场地边界；◇ = 传球点/投篮点/篮筐/出发点；彩圈 = 球检测（带距离）；红箭头 = 车。
+        <b>场地→左</b>（默认）= 场地固定、x 向左 —— 篮筐在左、出发在右，和现场手绘标注一致。<br>
+        <b>场地→右</b> = 同上但 x 向右（标准 RViz 俯视）。<br>
+        <b>车头朝上</b> = 以车为中心、车头永远朝上（看"球在我哪一侧"方便）。<br>
+        画的东西：场地边框+中线 · <span style="color:#96c8ff">三分线</span> ·
+        <span style="color:#78dca0">投篮线</span> · <span style="color:#c8a05a">传球区</span>（填充）·
+        <span style="color:#6ee08a">出发区</span> · <span style="color:#ffa000">篮筐</span>（圈+板）·
+        ◇投篮点 · 彩圈=球检测（带距离）· 红箭头=车 · <b>灰白点=雷达点云</b>。
       </div>
     </div>
   </div>
@@ -336,16 +341,19 @@ async function act(name, args){
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
 
 let LIDAR_VIEW = localStorage.getItem('lidarView') || 'field';
-function setView(v){
+let LIDAR_MIRROR = localStorage.getItem('lidarMirror') || '1';   // 默认 x 向左（对得上现场）
+function setView(v, m){
   LIDAR_VIEW = v;
+  LIDAR_MIRROR = (m === undefined) ? LIDAR_MIRROR : m;
   localStorage.setItem('lidarView', v);
+  localStorage.setItem('lidarMirror', LIDAR_MIRROR);
   const img = $('lidar');
-  if(img) img.src = '/api/lidar.mjpg?view=' + v;   // 换 src 会重连 MJPEG
-  const f = $('vField'), r = $('vRobot');
-  if(f && r){
-    f.style.borderColor = v === 'field' ? 'var(--blue)' : 'var(--line)';
-    r.style.borderColor = v === 'robot' ? 'var(--blue)' : 'var(--line)';
-  }
+  // 换 src 会重连 MJPEG（这是刷新视角最省事的做法）
+  if(img) img.src = `/api/lidar.mjpg?view=${v}&mirror=${LIDAR_MIRROR}`;
+  const on = (el, yes) => { if(el) el.style.borderColor = yes ? 'var(--blue)' : 'var(--line)'; };
+  on($('vL'), v === 'field' && LIDAR_MIRROR === '1');
+  on($('vR'), v === 'field' && LIDAR_MIRROR !== '1');
+  on($('vRobot'), v === 'robot');
 }
 
 function flowRun(){
@@ -549,7 +557,7 @@ function render(s){
 async function tick(){
   try{ render(await (await fetch('/api/state')).json()); }catch(e){}
 }
-setView(LIDAR_VIEW);
+setView(LIDAR_VIEW, LIDAR_MIRROR);
 tick();
 setInterval(tick, 1000);
 </script>

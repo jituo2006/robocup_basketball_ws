@@ -360,3 +360,25 @@ def test_field_view_start_pose_is_left_of_field_center():
     # 篮筐在场地远端 → 右半边
     hx, _ = mod.field_to_screen(12.425, 3.75, 0.0, 0.0, 50.0, 30.0)
     assert hx > W / 2, f"篮筐应在屏幕右半边，实际 px={hx}"
+
+
+def test_field_view_mirror_flips_x_only():
+    """mirror_x=True 时 x 左右翻转，y 不变。"""
+    mod = _load()
+    x1, y1 = mod.field_to_screen(2.0, 3.0, 0.0, 0.0, 40.0, 30.0, mirror_x=False)
+    x2, y2 = mod.field_to_screen(2.0, 3.0, 0.0, 0.0, 40.0, 30.0, mirror_x=True)
+    assert abs(y1 - y2) < 1e-9, "y 不该被镜像影响"
+    assert x1 != x2
+    # 镜像后整体应在画布内且左右对称
+    assert abs((x1 + x2) - W) < 1e-6, f"镜像应关于画布中线对称，{x1}+{x2}≠{W}"
+
+
+def test_field_view_mirror_puts_hoop_on_the_left():
+    """现场要求：篮筐(x 大)必须显示在【左边】—— 这是"场地→左"视角的核心。"""
+    mod = _load()
+    L, scale, margin = 14.0, 40.0, 30.0
+    x_hoop, _ = mod.field_to_screen(12.425, 3.75, 0.0, 0.0, scale, margin, mirror_x=True)
+    x_home, _ = mod.field_to_screen(1.0, 1.0, 0.0, 0.0, scale, margin, mirror_x=True)
+    assert x_hoop < W / 2, f"镜像后篮筐应在左半边，实际 px={x_hoop}"
+    assert x_home > W / 2, f"镜像后出发点应在右半边，实际 px={x_home}"
+    assert x_hoop < x_home, "篮筐必须在出发点的左边"
