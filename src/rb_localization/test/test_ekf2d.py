@@ -426,3 +426,10 @@ def test_world_vel_to_body_is_inverse_of_body_to_world():
     # predict 内部做的旋转：world = R(yaw) · body
     assert vx_b * c - vy_b * s == pytest.approx(vx_w, abs=1e-9)
     assert vx_b * s + vy_b * c == pytest.approx(vy_w, abs=1e-9)
+
+
+def test_pose_delta_retains_independent_pose_correction():
+    e=Ekf2D();e.set_pose(10.,20.,math.pi/2)
+    # Odom moves along its +x; corrected heading rotates that move to +y.
+    e.predict_pose_delta((0.,0.,0.),(1.,0.,.2),.1)
+    assert e.pose == pytest.approx((10.,21.,math.pi/2+.2))

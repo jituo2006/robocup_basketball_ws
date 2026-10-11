@@ -908,6 +908,9 @@ function render(s){
   if(s.pose){
     $('pos').textContent = `(${fmt(s.pose[0])}, ${fmt(s.pose[1])})`;
     $('yaw').textContent = fmt(s.pose[2]*57.2958,1) + '°';
+  } else {
+    $('pos').textContent = '—（位姿过期或未收到）';
+    $('yaw').textContent = '—';
   }
   const od = s.odom_delay;
   $('odom_delay').textContent = od===null ? '—' : `${(od*1000).toFixed(0)} ms${od>0.3?' ⚠':''}`;

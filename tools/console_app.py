@@ -319,6 +319,31 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
     return w / 2.0 - left * scale, h / 2.0 - fwd * scale
 
 
+def localization_display_state(state, ros_now, wall_now, max_age_s=0.5):
+    """Expire by measurement stamps AND receipt time; timer republishes cannot renew pose."""
+    out = dict(state)
+    def fresh(key):
+        stamp = float(state.get(key + "_source_stamp") or 0.0)
+        received = float(state.get(key + "_stamp") or 0.0)
+        return (stamp > 0 and 0 <= ros_now - stamp <= max_age_s
+                and received > 0 and 0 <= wall_now - received <= max_age_s)
+    out["pose_fresh"] = fresh("pose")
+    out["odom_fresh"] = fresh("odom")
+    out["cloud_fresh"] = fresh("cloud")
+    out["loc_ok"] = bool(out.get("loc_ok") and out["pose_fresh"])
+    out["odom_delay"] = (max(0.0, ros_now - state["odom_source_stamp"])
+                         if state.get("odom_source_stamp") else None)
+    if not out["pose_fresh"]:
+        out["pose"] = None
+    if not out["odom_fresh"]:
+        out["odom"] = None
+        out["odom_x"] = None
+    if not out["cloud_fresh"]:
+        out["cloud"] = None
+        out["cloud_fps"] = 0.0
+    return out
+
+
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                  view: str = "field", mirror_x: bool = False,
                  mirror_y: bool = False, odom_tf=None, lb_cands=None) -> bytes:
@@ -492,7 +517,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
             texts.append((name, (px[0] + 7, px[1] - 16), (120, 180, 120), 13))
 
     # 点云（按高度上色）
-    if cloud_xyz is not None and len(cloud_xyz):
+    if cloud_xyz is not None and len(cloud_xyz) and odom_tf is not None:
         p = cloud_xyz
         # ⚠️ 点云在 FAST-LIO 的 camera_init 系里，必须先变换到 field 系再画。
         #    不做这步点云会落在 camera_init 原点附近（现场现象："点云在 B、箭头在 A"）。
@@ -521,16 +546,18 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
 
     # 机器人（红箭头）
     rx, ry = to_px(cx, cy)
-    if view == "robot":
-        # 车头朝上视角：箭头恒朝上
-        tip = (rx, ry - 26)
-    else:
-        # ⚠️ 场地模式必须用 to_px 算车头前方的第二个世界点，
-        #    这样 mirror_x 才会一起生效。手算 (rx+30cos, …) 在镜像视角下车头会反。
-        tx, ty = to_px(cx + 0.55 * math.cos(cyaw), cy + 0.55 * math.sin(cyaw))
-        tip = (int(tx), int(ty))
-    cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
-    cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
+    if pose is not None:
+        if view == "robot":
+            # 车头朝上视角：箭头恒朝上
+            tip = (rx, ry - 26)
+        else:
+            # ⚠️ 场地模式必须用 to_px 算车头前方的第二个世界点，
+            #    这样 mirror_x 才会一起生效。手算 (rx+30cos, …) 在镜像视角下车头会反。
+            tx, ty = to_px(cx + 0.55 * math.cos(cyaw), cy + 0.55 * math.sin(cyaw))
+            tip = (int(tx), int(ty))
+        cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
+        cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
+
 
     # 视野半径标尺（只在车头朝上模式有意义）
     if view == "robot":
@@ -543,7 +570,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # ⚠️ 只画【球】：rack_ring / hoop / pillar 是静态场地物，已作为场地区域画出来，
     #    再当"检测到的球"画一遍既重复又误导（现场明确要求去掉 rack_ring）。
     now = time.time()
-    for d in dets or []:
+    for d in (dets or []) if pose is not None else []:
         label0 = getattr(d, "label", "")
         if not str(label0).startswith("ball"):
             continue
@@ -570,7 +597,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
 
     # 左上角文字状态
     lines = [
-        (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°"
+        ((f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°" if pose is not None
+          else "位姿过期或未收到：暂停显示机器人")
          + ("" if view == "robot"
             else f"   [x→{'左' if mirror_x else '右'} y→{'下' if mirror_y else '上'}]"),
          (215, 215, 215), 15),
@@ -779,6 +807,8 @@ class Bridge:
             yaw = p.z
         with self.lock:
             self.state["pose"] = (float(p.x), float(p.y), float(yaw))
+            self.state["pose_stamp"] = time.time()
+            self.state["pose_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_ok(self, m):
         with self.lock:
@@ -792,6 +822,8 @@ class Bridge:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         with self.lock:
+            self.state["odom_stamp"] = time.time()
+            self.state["odom_source_stamp"] = st
             self.state["odom_delay"] = now - st
             self.state["odom_x"] = float(pp.position.x)
             # ⚠️ 雷达找球要把 camera_init 系的点云按【里程计】转到车体系，
@@ -872,6 +904,9 @@ class Bridge:
             fps = (len(self._cloud_times) - 1) / dt if dt > 0.05 else 0.0
         with self.lock:
             self.state["cloud"] = xyz
+            self.state["cloud_stamp"] = time.time()
+            self.state["cloud_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
+            self.state["cloud_frame"] = m.header.frame_id
             self.state["cloud_fps"] = fps
 
     def _on_log(self, m):
@@ -1014,8 +1049,10 @@ class Bridge:
         with self.lock:
             cfg = dict(self.state["lb_cfg"])
             enabled = bool(self.state["lb_enabled"])
-            cloud = None if self.state["cloud"] is None else self.state["cloud"]
-            odom = self.state["odom"]
+            current = localization_display_state(self.state,
+                self.node.get_clock().now().nanoseconds * 1e-9, time.time())
+            cloud = current["cloud"]
+            odom = current["odom"]
         if not enabled or cloud is None or odom is None:
             return [], 0.0
         t0 = time.time()
@@ -1027,7 +1064,7 @@ class Bridge:
             return [], 0.0
         return cands, (time.time() - t0) * 1000.0
 
-    def odom_to_field_tf(self):
+    def odom_to_field_tf(self, stamp=None, frame=None):
         """返回 (tx, ty, theta)：camera_init 原点在 field 下的位置与相对朝向。
 
         点云乘这个变换才能和 /localization/pose 对上。查不到返回 None。
@@ -1037,7 +1074,8 @@ class Bridge:
         try:
             import rclpy.time
             tr = self._tf_buffer.lookup_transform(
-                self.field_frame_name, self.odom_frame_name, rclpy.time.Time())
+                self.field_frame_name, frame or self.odom_frame_name,
+                rclpy.time.Time(seconds=stamp) if stamp else rclpy.time.Time())
             q = tr.transform.rotation
             th = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -1052,12 +1090,11 @@ class Bridge:
         用当前位姿：p_field = p_robot + R(yaw)·(bx, by)，+y 是左（ROS 标准）。
         """
         with self.lock:
-            pose = self.state["pose"] or {}
+            pose = self.state["pose"]
         try:
-            cx, cy = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
-            yaw = float(pose.get("yaw", 0.0))
+            cx, cy, yaw = map(float, pose)
         except Exception:  # noqa: BLE001
-            return [bx, by]
+            return None
         c, s = math.cos(yaw), math.sin(yaw)
         return [cx + c * bx - s * by, cy + s * bx + c * by]
 
@@ -1071,15 +1108,14 @@ class Bridge:
             if cands is None:
                 cands = list(self.state["lb_cands"]) if self.state.get("lb_cands") else []
             dets = list(self.state["dets"])
-            pose = self.state["pose"] or {}
+            pose = self.state["pose"]
             match_d = float(self.state["lb_cfg"].get("match_distance_m", 0.7))
         if not cands:
             return {}
         try:
-            yaw = float(pose.get("yaw", 0.0))
-            cx0, cy0 = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
+            cx0, cy0, yaw = map(float, pose)
         except Exception:  # noqa: BLE001
-            yaw, cx0, cy0 = 0.0, 0.0, 0.0
+            return {}
         balls = [d for d in dets if str(getattr(d, "label", "")).startswith("ball")]
         matched = 0
         for d in balls:
@@ -1151,7 +1187,8 @@ class Bridge:
           cam   = 原始 JPEG 字节；cloud = ndarray；dets = 消息对象
         """
         with self.lock:
-            s = dict(self.state)
+            s = localization_display_state(self.state,
+                self.node.get_clock().now().nanoseconds * 1e-9, time.time())
             s["camera_overlay"] = dict(self._overlay_options)
             s["logs"] = [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                          for (tt, lv, src, ms) in list(self.logs)[-120:]]
@@ -1795,7 +1832,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["tool_name"] = tool.name
         s["chassis"] = chassis.snapshot()
         s["mission_node"] = mission.snapshot()
-        s["odom_tf_ok"] = bridge.odom_to_field_tf() is not None
+        s["odom_tf_ok"] = bool(s["pose_fresh"] and bridge.odom_to_field_tf() is not None)
         # 雷达找球：算一次，地图和面板共用；候选在【车体系】，
         # 这里顺手转成场地系供地图直接画
         # ⚠️ 这几个调用内部都会拿 bridge.lock —— 绝不能放在 `with bridge.lock` 里面，
@@ -1870,12 +1907,15 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         def gen():
             while True:
                 with bridge.lock:
-                    xyz = None if bridge.state["cloud"] is None else bridge.state["cloud"].copy()
-                    pose = bridge.state["pose"]
-                    dets = list(bridge.state["dets"])
-                    lok = bridge.state["launcher_ok"]
-                    ok = bridge.state["loc_ok"]
-                odom_tf = bridge.odom_to_field_tf()
+                    current = localization_display_state(bridge.state,
+                        bridge.node.get_clock().now().nanoseconds * 1e-9, time.time())
+                    xyz = None if current["cloud"] is None else current["cloud"].copy()
+                    pose = current["pose"]
+                    dets = list(current["dets"]) if pose is not None else []
+                    lok = current["launcher_ok"]
+                    ok = current["loc_ok"]
+                odom_tf = (bridge.odom_to_field_tf(current.get("cloud_source_stamp"),
+                            current.get("cloud_frame")) if xyz is not None else None)
                 _lc, _ = bridge.lidar_ball_candidates()
                 lb_cands = [dict(c, **{k: v for k, v in candidate_to_repr(c).items()},
                                  field=bridge.body_to_field_xy(c["x"], c["y"]))
