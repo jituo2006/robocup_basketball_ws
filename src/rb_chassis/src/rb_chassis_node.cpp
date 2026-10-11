@@ -13,6 +13,9 @@
 #include <csignal>
 #include <chrono>
 #include <memory>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
@@ -55,40 +58,39 @@ int main(int argc, char **argv) {
   const auto period_ms = param_node->declare_parameter<int>("control_period_ms", 10);
   const auto dry_run = param_node->declare_parameter<bool>("dry_run", false);
   const auto angular_z_sign = param_node->declare_parameter<double>("angular_z_sign", 1.0);
-
-  // ⚠️ 注意：这里**必须**始终传一个真实的 Can 对象，即使是 dry_run。
-  //
-  // 原因（MotorLib-For-Linux 的一个 bug）：
-  //   DJIBoard::DJIBoard(boardId, can_handle) 里写着
-  //       if (can_handle == nullptr) {
-  //           this->can_handle = std::make_shared<Can>("can0");
-  //           can_handle->can_start();     // ← 用的是参数（nullptr），不是成员！
-  //       }
-  //   所以传 nullptr 会直接解引用空指针段错误。
-  //   这里传真实对象即可绕开该分支；dry_run 下不调用 can_start()，
-  //   且 execute() 里对 VelCtrl 有 dry_run 守卫，所以不会真的发 CAN。
-  //
-  // TODO 上游修复：把 `can_handle->can_start()` 改成 `this->can_handle->can_start()`。
-  //
-  // ⚠️ 另一个上游 bug：Can::~Can() 无条件执行
-  //        send_thread_->join();  recv_thread_->join();
-  //    而这两个线程只在 can_start() 里才创建。dry_run 下从不调用 can_start()，
-  //    于是析构时空指针解引用 → 进程退出时段错误（exit code 139）。
-  //    这里在 dry_run 下**故意不释放**该对象（进程退出前一直持有），
-  //    以绕开该 bug；正式运行时 Can 会正常析构。
-  //
-  // TODO 上游修复：析构里加判空
-  //        if (send_thread_ && send_thread_->joinable()) send_thread_->join();
-  //        if (recv_thread_ && recv_thread_->joinable()) recv_thread_->join();
-  std::shared_ptr<Can> can_handle;
-  if (dry_run) {
-    // 用"空删除器"让这个对象**永不析构**（注意：static 局部变量在进程退出时
-    // 仍会析构，所以必须用空删除器，不能靠 static 延长寿命）。
-    static Can *leaked = new Can(can_interface);
-    can_handle = std::shared_ptr<Can>(leaked, [](Can *) { /* 故意不释放 */ });
-  } else {
-    can_handle = std::make_shared<Can>(can_interface);
+  const auto config_file = param_node->declare_parameter<std::string>("config_file", "");
+  if (!config_file.empty()) {
+    RCLCPP_ERROR(param_node->get_logger(),
+      "底盘不读取 config_file；请用 --params-file %s 或 chassis.launch.py", config_file.c_str());
+    rclcpp::shutdown();
+    return 2;
   }
+  if (period_ms <= 0 || timeout_ms <= 0 || can_interface.empty() ||
+      can_interface.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != std::string::npos) {
+    RCLCPP_ERROR(param_node->get_logger(), "CAN 接口名或控制周期/超时参数无效");
+    rclcpp::shutdown();
+    return 2;
+  }
+  // 每个真实 CAN 接口只允许一个底盘进程；干跑不占用硬件锁。
+  // 进程退出后内核释放 flock，锁文件保留以免删除/重建导致两个 inode。
+  int owner_fd = -1;
+  if (!dry_run) {
+    const auto lock_path = "/tmp/rb_chassis-" + std::to_string(getuid()) + "-" + can_interface + ".lock";
+    owner_fd = open(lock_path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (owner_fd < 0 || flock(owner_fd, LOCK_EX | LOCK_NB) != 0) {
+      RCLCPP_ERROR(param_node->get_logger(), "无法独占 %s；已有底盘实例或锁文件不可用", can_interface.c_str());
+      if (owner_fd >= 0) close(owner_fd);
+      rclcpp::shutdown();
+      return 2;
+    }
+  }
+  // 全局 __node 重映射也作用于参数探测节点，读完即释放，避免同名 ROS 节点。
+  param_node.reset();
+
+  // DJIBoard 必须拿到非空 Can；干跑只构造，不打开 SocketCAN。
+  // 修复版 Can 可在未启动或接口掉线时正常析构，无需泄漏对象。
+  std::shared_ptr<Can> can_handle;
+  can_handle = std::make_shared<Can>(can_interface);
 
   auto node = std::make_shared<OmniChassis>("rb_chassis", odom_topic, cmd_vel_topic,
                                             static_cast<uint32_t>(board_id), can_handle);
@@ -102,7 +104,14 @@ int main(int argc, char **argv) {
   auto wheel_pub = node->create_publisher<std_msgs::msg::Int16MultiArray>("/chassis/wheel_speed", 10);
 
   if (!dry_run) {
-    can_handle->can_start();
+    try {
+      can_handle->can_start();
+    } catch (const std::exception &e) {
+      node->setDryRun(true);
+      RCLCPP_ERROR(node->get_logger(), "CAN 启动失败: %s", e.what());
+      rclcpp::shutdown();
+      return 2;
+    }
     RCLCPP_INFO(node->get_logger(), "CAN 已启动: %s", can_interface.c_str());
   }
   node->initialize();
@@ -112,7 +121,13 @@ int main(int argc, char **argv) {
   std::signal(SIGTERM, signal_shutdown);
 
   rclcpp::Rate rate(1000.0 / static_cast<double>(period_ms));
+  bool can_failed = false;
   while (rclcpp::ok()) {
+    if (!dry_run && !can_handle->isStarted()) {
+      can_failed = true;
+      RCLCPP_ERROR(node->get_logger(), "CAN 发送失败，底盘停止接收运动指令；通信恢复后需重新启动，不能确认停车报文已送达");
+      break;
+    }
     node->execute();
 
     std_msgs::msg::Int16MultiArray msg;
@@ -126,5 +141,8 @@ int main(int argc, char **argv) {
 
   node->sendZeroVelocity();
   rclcpp::shutdown();
-  return 0;
+  node.reset();
+  can_handle.reset();
+  if (owner_fd >= 0) close(owner_fd);
+  return can_failed ? 2 : 0;
 }

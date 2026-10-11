@@ -57,6 +57,13 @@ if(BUILD_TESTING)
   add_executable(test_omni_kinematics test/test_omni_kinematics.cpp)
   target_include_directories(test_omni_kinematics PRIVATE include)
   add_test(NAME omni_kinematics COMMAND test_omni_kinematics)
+  add_executable(test_can_lifecycle test/test_can_lifecycle.cpp)
+  target_link_libraries(test_can_lifecycle rb_can)
+  target_link_options(test_can_lifecycle PRIVATE
+    -Wl,--wrap=socket -Wl,--wrap=ioctl -Wl,--wrap=bind
+    -Wl,--wrap=setsockopt -Wl,--wrap=send -Wl,--wrap=poll -Wl,--wrap=close)
+  add_test(NAME can_lifecycle COMMAND test_can_lifecycle)
+  set_tests_properties(can_lifecycle PROPERTIES TIMEOUT 3)
 endif()
 
 ament_package()

@@ -17,6 +17,7 @@ OmniChassis::OmniChassis(const std::string &node_name, const std::string &odom_t
 
   // 退出时确保零速（原实现只在析构里 MotorOff，节点被 kill -9 时来不及执行）
   rclcpp::on_shutdown([this]() {
+    if (dry_run_) return;
     for (int i = 1; i <= 4; ++i) {
       dji_board->VelCtrl(i, 0);
     }
@@ -42,7 +43,7 @@ void OmniChassis::initialize() {
     dji_board->MotorOn(i);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  RCLCPP_INFO(get_logger(), "底盘已使能 4 个电机（board_id=%u）", board_id_);
+  RCLCPP_INFO(get_logger(), "底盘使能指令已入队（4 个电机，board_id=%u；不代表电机板确认）", board_id_);
 }
 
 void OmniChassis::sendZeroVelocity() {

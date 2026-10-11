@@ -1565,7 +1565,16 @@ class ChassisManager:
 
     @property
     def running(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
+        return (self.proc is not None and self.proc.poll() is None) or self._external_running()
+
+    @staticmethod
+    def _external_running() -> bool:
+        try:
+            out = subprocess.run(["ps", "-eo", "comm"], capture_output=True,
+                                 text=True, timeout=4).stdout
+            return any(line.strip() == "rb_chassis_node" for line in out.splitlines())
+        except Exception:
+            return False
 
     def _pump(self, proc):
         for raw in iter(proc.stdout.readline, b""):
@@ -1576,8 +1585,11 @@ class ChassisManager:
             with self.lock:
                 if "CAN 已启动" in line:
                     self.can_line = line.split("]", 1)[-1].strip()
-                if "底盘已使能" in line:
+                if "底盘使能指令已入队" in line:
                     self.enabled_line = line.split("]", 1)[-1].strip()
+                if "CAN TX failed:" in line or "CAN 启动失败" in line:
+                    self.enabled_line = ""
+                    self.state.update(flow="failed", step=line.split("]", 1)[-1].strip())
             self.log.append((time.time(), "CHASSIS", "rb_chassis", line))
         self.log.append((time.time(), "CHASSIS", "rb_chassis",
                          f"— 底盘节点退出 code={proc.poll()} —"))
@@ -1585,9 +1597,11 @@ class ChassisManager:
     def start(self, wait_s: float = 25.0):
         """起底盘并等"已使能"。返回 (ok, msg)。"""
         with self.lock:
+            if self.state["flow"] == "running":
+                return False, "底盘启动流程正在执行，请等待"
             if self.running:
                 return bool(self.enabled_line), (
-                    self.enabled_line or "底盘节点已在跑，但还没看到使能日志")
+                    self.enabled_line or "底盘节点已在运行（可能由外部启动），通信未验证；不会重复启动")
             self.can_line = ""
             self.enabled_line = ""
             self.state.update(flow="running", step="检查 CAN")
@@ -1631,6 +1645,8 @@ class ChassisManager:
         deadline = time.time() + wait_s
         while time.time() < deadline:
             with self.lock:
+                if self.state["flow"] == "failed":
+                    return False, self.state["step"]
                 if self.enabled_line:
                     self.state.update(flow="done", step=self.enabled_line)
                     return True, self.enabled_line
@@ -1640,12 +1656,13 @@ class ChassisManager:
             time.sleep(0.4)
         with self.lock:
             self.state.update(flow="failed", step="等使能日志超时")
-        return False, (f"{wait_s:.0f}s 内没看到「底盘已使能」—— "
-                       "多半是 CAN 通了但电机板没响应（板子锁了？断电 10 秒重上电）")
+        return False, f"{wait_s:.0f}s 内没有使能指令入队日志，请检查节点和 CAN 日志"
 
     def stop(self):
         if not self.running:
             return False, "底盘节点没在跑"
+        if self.proc is None or self.proc.poll() is not None:
+            return False, "底盘由外部启动，请在原终端停止该实例"
         with self.lock:
             try:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
