@@ -197,3 +197,130 @@ def test_parse_check_ready_empty_is_not_ok():
         r = mod.parse_check_ready(bad)
         assert r["ok"] is False, f"输入 {bad!r} 不该判成 ok"
         assert r["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# world_to_screen：雷达俯视图的坐标变换
+# ⚠️ 这里曾经前后反了（现场实测："地图显示前后反了"）—— 车正前方的点被画到了
+#    图像下方。原因是多转了一个 −90° 且符号用错。几何断言必须锁住。
+# ---------------------------------------------------------------------------
+W, H, SCALE = 900, 560, 20.0
+
+
+def _px(wx, wy, cx=0.0, cy=0.0, yaw=0.0):
+    mod = _load()
+    return mod.world_to_screen(wx, wy, cx, cy, yaw, SCALE)
+
+
+def test_point_ahead_is_above_center():
+    """车头方向上的点必须画在【上方】（车头朝上）。"""
+    px, py = _px(5.0, 0.0, yaw=0.0)
+    assert abs(px - W / 2) < 1e-6, f"正前方不该有横向偏移，实际 px={px}"
+    assert py < H / 2, f"正前方应在图像上方（py<{H/2}），实际 py={py}"
+
+
+def test_point_behind_is_below_center():
+    px, py = _px(-5.0, 0.0, yaw=0.0)
+    assert py > H / 2, f"正后方应在图像下方，实际 py={py}"
+
+
+def test_left_of_robot_is_left_on_screen():
+    """车的左边（车体系 +y）应画在屏幕左边。"""
+    px, py = _px(0.0, 5.0, yaw=0.0)
+    assert px < W / 2, f"车的左边应在屏幕左半，实际 px={px}"
+    assert abs(py - H / 2) < 1e-6
+
+
+def test_right_of_robot_is_right_on_screen():
+    px, py = _px(0.0, -5.0, yaw=0.0)
+    assert px > W / 2, f"车的右边应在屏幕右半，实际 px={px}"
+
+
+def test_heading_rotates_the_view():
+    """车头朝 +y（yaw=90°）时，场地 +y 方向上的点应在图像上方。"""
+    px, py = _px(0.0, 5.0, yaw=math.pi / 2)
+    assert abs(px - W / 2) < 1e-6, f"朝 +y 时正前方不该有横向偏移，实际 {px}"
+    assert py < H / 2, "场地 +y 应是车头方向 → 图像上方"
+
+
+def test_left_point_with_rotated_heading():
+    """车头朝 +y 时，车的左边是场地 −x 方向 → 应画在屏幕左边。"""
+    px, py = _px(-5.0, 5.0, yaw=math.pi / 2)
+    assert px < W / 2, f"车的左边应在屏幕左半，实际 px={px}"
+
+
+def test_works_with_numpy_arrays():
+    """点云走的是数组路径，结果必须和标量路径一致。"""
+    import numpy as np
+    mod = _load()
+    xs = np.array([1.0, 2.0, 3.0])
+    ys = np.array([0.5, 1.5, -2.5])
+    px, py = mod.world_to_screen(xs, ys, 0.0, 0.0, 0.3, SCALE)
+    for i in range(3):
+        sx, sy = mod.world_to_screen(xs[i], ys[i], 0.0, 0.0, 0.3, SCALE)
+        assert abs(px[i] - sx) < 1e-9 and abs(py[i] - sy) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# depth_to_slant：单目【光轴深度】→ 斜距
+# ⚠️ distance_m 是沿光轴的深度 Z，不是斜距。直接当斜距用会让球越偏离画面中心
+#    位置越错（偏 45° 少算 29%）—— 现场实测"雷达显示球的位置不对"就是这个。
+# ---------------------------------------------------------------------------
+def test_depth_to_slant_center_is_identity():
+    mod = _load()
+    assert mod.depth_to_slant(2.0, 0.0) == pytest.approx(2.0)
+
+
+def test_depth_to_slant_off_axis_grows():
+    mod = _load()
+    assert mod.depth_to_slant(2.0, math.radians(30)) == pytest.approx(2.0 / math.cos(math.radians(30)))
+    assert mod.depth_to_slant(2.0, math.radians(45)) == pytest.approx(2.0 * math.sqrt(2))
+
+
+def test_depth_to_slant_rejects_near_horizon():
+    """b 接近 ±90° 时斜距发散 → 必须判不可信，而不是给个巨大的数。"""
+    mod = _load()
+    assert math.isnan(mod.depth_to_slant(2.0, math.radians(89)))
+    assert math.isnan(mod.depth_to_slant(2.0, math.radians(-85)))
+
+
+def test_depth_to_slant_rejects_bad_input():
+    mod = _load()
+    for d, b in ((float("nan"), 0.0), (0.0, 0.0), (-1.0, 0.0), (2.0, float("nan"))):
+        assert math.isnan(mod.depth_to_slant(d, b)), f"({d},{b}) 应判不可信"
+
+
+# ---------------------------------------------------------------------------
+# BallSmoother：显示层的滑动中位数（治"球一直在跳动"）
+# ---------------------------------------------------------------------------
+def test_smoother_resists_single_outlier():
+    mod = _load()
+    s = mod.BallSmoother()
+    out = None
+    for v in (1.0, 1.1, 0.9, 5.0):          # 最后一个是大跳变
+        out = s.update("ball_basketball", 100.0, v, 0.0, v)
+    assert out is not None
+    assert 0.9 <= out[0] <= 1.1, f"中位数不该被 5.0 带跑，实际 {out[0]}"
+    assert out[3] == 4
+
+
+def test_smoother_drops_old_samples():
+    mod = _load()
+    s = mod.BallSmoother(window_s=1.0)
+    s.update("x", 0.0, 9.0, 9.0, 9.0)       # 会被窗口丢弃
+    out = s.update("x", 2.0, 1.0, 1.0, 1.0)
+    assert out[0] == pytest.approx(1.0), "超出时间窗的旧样本必须丢掉"
+
+
+def test_smoother_caps_sample_count():
+    mod = _load()
+    s = mod.BallSmoother(window_s=1e9, samples=3)
+    for i in range(10):
+        out = s.update("y", float(i), float(i), 0.0, 1.0)
+    assert out[3] == 3, f"样本数应被截到 3，实际 {out[3]}"
+
+
+def test_smoother_ignores_nan():
+    mod = _load()
+    s = mod.BallSmoother()
+    assert s.update("z", 1.0, float("nan"), 0.0, 1.0) is None

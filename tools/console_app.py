@@ -121,6 +121,82 @@ def draw_texts(img_bgr, items):
     return np.array(pil)[:, :, ::-1].copy()
 
 
+def depth_to_slant(depth_m: float, bearing_rad: float, max_bearing_deg: float = 78.0):
+    """单目【光轴深度】→ 斜距。
+
+    感知给的 distance_m = fx·real_size/pixel_size，是**沿相机光轴的深度 Z**，
+    不是直线距离（docs/13 明确"按光轴深度处理"）。水平偏移 = Z·tan(b)，
+    所以斜距 r = √(Z² + (Z·tan b)²) = Z / cos(b)。
+
+    ⚠️ 曾经直接拿 Z 当斜距 —— 球越偏离画面中心位置越错（偏 45° 少算 29%）。
+    b 接近 ±90° 时 cos→0 斜距发散，超过 max_bearing_deg 判不可信，返回 nan。
+    """
+    if not (depth_m == depth_m) or depth_m <= 0:
+        return float("nan")
+    if not (bearing_rad == bearing_rad):
+        return float("nan")
+    if abs(math.degrees(bearing_rad)) > max_bearing_deg:
+        return float("nan")
+    c = math.cos(bearing_rad)
+    if c < 1e-3:
+        return float("nan")
+    return depth_m / c
+
+
+class BallSmoother:
+    """按标签维护球的场地坐标历史，返回中位数 —— **仅供显示**。
+
+    为什么需要：单目测距逐帧抖 + 机器人 yaw 微抖，标记会到处跳，看不出球在哪。
+    取最近 window_s 内若干样本的中位数：对偶发跳变更稳，又不会太滞后。
+    不把平滑结果下发给任务 —— 任务侧有自己的新鲜度/一致性检查，显示层不该干扰它。
+    """
+
+    def __init__(self, window_s: float = 1.2, samples: int = 9):
+        self.window_s = window_s
+        self.samples = samples
+        self._hist: dict = {}
+        self._lock = threading.Lock()
+
+    def update(self, label: str, t: float, wx: float, wy: float, dist: float):
+        """喂一个观测，返回平滑后的 (wx, wy, dist, 样本数)；NaN 输入返回 None。"""
+        if not all(v == v for v in (wx, wy, dist)):
+            return None
+        with self._lock:
+            h = self._hist.setdefault(label, [])
+            h.append((t, wx, wy, dist))
+            cutoff = t - self.window_s
+            while h and h[0][0] < cutoff:
+                h.pop(0)
+            if len(h) > self.samples:
+                del h[:-self.samples]
+            n = len(h)
+            xs = sorted(s[1] for s in h)
+            ys = sorted(s[2] for s in h)
+            ds = sorted(s[3] for s in h)
+            return xs[n // 2], ys[n // 2], ds[n // 2], n
+
+    def age(self, label: str, now: float):
+        with self._lock:
+            h = self._hist.get(label)
+            return None if not h else now - h[-1][0]
+
+
+_smoother = BallSmoother()
+
+
+def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
+    """场地系 (wx,wy) → 俯视图像素。**车头朝上，车的左边在屏幕左边。**
+
+    对标量/ndarray 都适用（雷达点云用数组形式一次算完）。
+    返回 (px, py)。
+    """
+    dx = np.asarray(wx) - cx
+    dy = np.asarray(wy) - cy
+    fwd = dx * math.cos(cyaw) + dy * math.sin(cyaw)      # 车体系前向分量
+    left = -dx * math.sin(cyaw) + dy * math.cos(cyaw)    # 车体系左向分量
+    return w / 2.0 - left * scale, h / 2.0 - fwd * scale
+
+
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
@@ -131,14 +207,10 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
     # 世界坐标 → 画布：以机器人为中心，朝上为 +x（车头方向固定朝上）
     cx, cy, cyaw = (pose if pose else (0.0, 0.0, 0.0))
     scale = min(LIDAR_W, LIDAR_H) / (2.0 * LIDAR_RANGE_M)
-    c, s = math.cos(-cyaw - math.pi / 2), math.sin(-cyaw - math.pi / 2)
 
     def to_px(wx, wy):
-        dx, dy = wx - cx, wy - cy
-        # 先按 -yaw 转到车体系，再旋转 90° 让车头朝上
-        bx = c * dx - s * dy
-        by = s * dx + c * dy
-        return int(LIDAR_W / 2 + bx * scale), int(LIDAR_H / 2 - by * scale)
+        px, py = world_to_screen(wx, wy, cx, cy, cyaw, scale)
+        return int(px), int(py)
 
     # 场地边界（浅灰矩形）
     L = float(field.get("length_m", 14.0))
@@ -159,13 +231,16 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
     # 点云（按高度上色）
     if cloud_xyz is not None and len(cloud_xyz):
         p = cloud_xyz
-        bx = c * (p[:, 0] - cx) - s * (p[:, 1] - cy)
-        by = s * (p[:, 0] - cx) + c * (p[:, 1] - cy)
-        px = (LIDAR_W / 2 + bx * scale).astype(np.int32)
-        py = (LIDAR_H / 2 - by * scale).astype(np.int32)
-        # 只画视野内的（±1.5 倍范围，画布外丢弃）
+        px_f, py_f = world_to_screen(p[:, 0], p[:, 1], cx, cy, cyaw, scale)
+        px = px_f.astype(np.int32)
+        py = py_f.astype(np.int32)
+        # 只画视野内的（±1.2 倍范围，画布外丢弃）
+        dx = p[:, 0] - cx
+        dy = p[:, 1] - cy
+        fwd = dx * math.cos(cyaw) + dy * math.sin(cyaw)
+        left = -dx * math.sin(cyaw) + dy * math.cos(cyaw)
         m = ((px >= 0) & (px < LIDAR_W) & (py >= 0) & (py < LIDAR_H)
-             & (np.abs(bx) < LIDAR_RANGE_M * 1.2) & (np.abs(by) < LIDAR_RANGE_M * 1.2))
+             & (np.abs(fwd) < LIDAR_RANGE_M * 1.2) & (np.abs(left) < LIDAR_RANGE_M * 1.2))
         z = p[m, 2]
         zn = np.clip((z + 0.3) / 2.0, 0, 1)
         cols = np.stack([(60 + 195 * zn), (200 - 120 * zn), (255 - 200 * zn)], axis=1)
@@ -183,21 +258,29 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok) -> bytes:
     texts.append((f"{LIDAR_RANGE_M:.0f} m", (LIDAR_W // 2 + 6, LIDAR_H // 2 - r + 2),
                   (110, 110, 110), 13))
 
-    # 球检测（相机方位角 → 场地方向）
+    # 球检测（相机方位角 + 光轴深度 → 场地坐标）
+    now = time.time()
     for d in dets or []:
-        dist = getattr(d, "distance_m", float("nan"))
-        if not (dist == dist and dist > 0):
+        bearing = getattr(d, "bearing_rad", float("nan"))
+        depth = getattr(d, "distance_m", float("nan"))
+        # ⚠️ distance_m 是【光轴深度】不是斜距，必须先换算（曾经直接用 → 位置偏）
+        r = depth_to_slant(depth, bearing)
+        if not (r == r):
             continue
-        bearing = getattr(d, "bearing_rad", 0.0)
         # bearing 右正左负；场地系 y 朝左 → 世界方位 = yaw - bearing
         ang = cyaw - bearing
-        wx, wy = cx + dist * math.cos(ang), cy + dist * math.sin(ang)
-        px, py = to_px(wx, wy)
+        wx, wy = cx + r * math.cos(ang), cy + r * math.sin(ang)
         label = getattr(d, "label", "?")
+        # 显示层时间平滑（治"一直在跳动"）—— 只影响画面，不下发给任务
+        sm = _smoother.update(label, now, wx, wy, r)
+        if sm is None:
+            continue
+        wx, wy, r, _n = sm
+        px, py = to_px(wx, wy)
         col = (0, 200, 255) if "basket" in label else (255, 180, 60)
         cv2.circle(img, (px, py), 9, col, 2, cv2.LINE_AA)
         cv2.line(img, (LIDAR_W // 2, LIDAR_H // 2), (px, py), col, 1, cv2.LINE_AA)
-        texts.append((f"{label} {dist:.2f}m", (px + 12, py - 8), col, 13))
+        texts.append((f"{label} {r:.2f}m", (px + 12, py - 8), col, 13))
 
     # 左上角文字状态
     lines = [

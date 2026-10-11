@@ -30,9 +30,29 @@ echo "${B}[1/3] CAN 接口${N}"
 
 need_up=0
 if ! ip link show "$IFACE" >/dev/null 2>&1; then
-  echo "  ${R}✗${N} $IFACE 不存在 —— 适配器没插好？"
-  echo "      ${D}lsusb 应看到 PEAK System PCAN-USB (0c72:000c)${N}"
-  echo "      ${D}插好后重新跑本脚本${N}"
+  echo "  ${R}✗${N} $IFACE 不存在"
+  # 分辨"没插"和"插了但在反复掉线" —— 后者用户常误判成软件问题
+  # 取内核日志：dmesg 无 sudo 常被禁（kernel.dmesg_restrict），退回 kern.log
+  _klog() {
+    if [ -r /var/log/kern.log ]; then cat /var/log/kern.log
+    elif sudo -n dmesg >/dev/null 2>&1; then sudo -n dmesg
+    else dmesg 2>/dev/null; fi
+  }
+  # grep -c 无匹配时输出 0 但退出码为 1，不能再接 `|| echo 0`（会变成两行）
+  drops=$(_klog | grep -c "USB disconnect"); drops=${drops:-0}
+  usb_seen=$(lsusb 2>/dev/null | grep -c "0c72:000c"); usb_seen=${usb_seen:-0}
+  if [ "${usb_seen:-0}" -gt 0 ]; then
+    echo "      ${Y}! USB 上能看到 CAN 适配器（lsusb 0c72:000c），但 /sys 里没有接口${N}"
+    echo "      ${D}→ 它在枚举/掉线循环中，稍等几秒再跑，或换 USB 口/换线${N}"
+  else
+    echo "      ${D}lsusb 里看不到 0c72:000c —— 适配器没插好（换线/换口试试）${N}"
+  fi
+  if [ "${drops:-0}" -gt 3 ]; then
+    echo "      ${Y}⚠ 本次开机已记录 $drops 次 USB 掉线 —— 适配器/线在飘！${N}"
+    echo "      ${D}建议：换一根 USB 线、换 USB 口；已加 udev 规则关掉自动挂起${N}"
+    echo "      ${D}查看：sudo dmesg -T | grep -E '3-|peak|can0' | tail -20${N}"
+  fi
+  echo "      ${D}插好/稳定后重新跑本脚本${N}"
   exit 1
 fi
 

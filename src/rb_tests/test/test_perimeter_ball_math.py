@@ -99,10 +99,42 @@ def test_ball_xy_dead_ahead():
 
 
 def test_ball_xy_on_the_right_is_minus_y():
+    """右前方 45°、光轴深度 2m → 斜距 2/cos45° ≈ 2.828，落在右前方。
+
+    ⚠️ 这里以前按"distance 就是斜距"写（用 90° 直接给 y=-2），是错的：
+    Detection.distance_m 是【光轴深度 Z】，90° 时斜距发散、不可信。
+    """
     m = _load()
-    x, y = m.ball_xy(0.0, 0.0, 0.0, math.pi / 2, 2.0)   # 正右方 2m
-    assert abs(x) < 1e-9
-    assert abs(y - (-2.0)) < 1e-9, f"右方的球 y 应为 -2，实际 {y}"
+    b = math.radians(45)
+    x, y = m.ball_xy(0.0, 0.0, 0.0, b, 2.0)
+    r = 2.0 / math.cos(b)
+    assert x == pytest.approx(r * math.cos(b))
+    assert y == pytest.approx(-r * math.sin(b))
+    assert y < 0, "右前方 → 场地系 y 应为负"
+
+
+def test_ball_xy_uses_slant_not_optical_depth():
+    """关键回归：偏轴时不能用光轴深度当斜距（否则球位置偏近）。"""
+    m = _load()
+    b = math.radians(45)
+    x, y = m.ball_xy(0.0, 0.0, 0.0, b, 2.0)
+    r_depth_only = math.hypot(x, y)
+    assert r_depth_only > 2.0 + 0.5, (
+        f"斜距应明显大于光轴深度 2.0（45° 时约 2.83），实际 {r_depth_only}")
+
+
+def test_ball_xy_rejects_near_horizon_bearing():
+    """方位角接近 ±90° 时斜距不可信，应报错而不是给个巨大的坐标。"""
+    m = _load()
+    with pytest.raises(ValueError):
+        m.ball_xy(0.0, 0.0, 0.0, math.radians(89), 2.0)
+
+
+def test_ball_xy_dead_ahead_is_unchanged_by_slant():
+    """正前方时 cos=1，斜距 = 光轴深度 —— 结果应与旧实现一致。"""
+    m = _load()
+    x, y = m.ball_xy(1.0, 2.0, 0.0, 0.0, 3.0)
+    assert abs(x - 4.0) < 1e-9 and abs(y - 2.0) < 1e-9
 
 
 def test_ball_xy_respects_heading():

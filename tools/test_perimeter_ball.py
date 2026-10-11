@@ -66,11 +66,37 @@ def yaw_to_put_ball_behind(yaw: float, bearing_rad: float,
     return wrap_pi(bearing_to_world(yaw, bearing_rad, cam_yaw_offset) + math.pi)
 
 
+def depth_to_slant(depth_m: float, bearing_rad: float,
+                   max_bearing_deg: float = 78.0) -> float:
+    """单目【光轴深度】→ 斜距；不可信时返回 nan。
+
+    ⚠️ Detection.distance_m 是**沿相机光轴的深度 Z**（感知 = fx·real_size/pixel_size，
+    docs/13 明确"按光轴深度处理"），不是直线斜距。水平偏移 = Z·tan(b)，
+    所以 r = √(Z²+(Z·tan b)²) = Z/cos(b)。直接拿 Z 当斜距会让球越偏离画面中心
+    位置越错（偏 45° 少算 29%）。b 接近 ±90° 时斜距发散，判不可信。
+    """
+    if not (depth_m == depth_m) or depth_m <= 0:
+        return float("nan")
+    if not (bearing_rad == bearing_rad):
+        return float("nan")
+    if abs(math.degrees(bearing_rad)) > max_bearing_deg:
+        return float("nan")
+    c = math.cos(bearing_rad)
+    return depth_m / c if c > 1e-3 else float("nan")
+
+
 def ball_xy(x: float, y: float, yaw: float, bearing_rad: float, distance: float,
             cam_yaw_offset: float = 0.0) -> tuple[float, float]:
-    """用「自车位置 + 方位角 + 距离」反算球在场地系下的坐标。"""
+    """用「自车位置 + 方位角 + 光轴深度」反算球在场地系下的坐标。
+
+    `distance` 是光轴深度，先换算成斜距（见 depth_to_slant）；不可信时抛 ValueError。
+    """
+    slant = depth_to_slant(distance, bearing_rad)
+    if not (slant == slant):
+        raise ValueError(
+            f"方位角 {math.degrees(bearing_rad):.0f}° 或深度 {distance} 不可信，无法定位")
     ang = bearing_to_world(yaw, bearing_rad, cam_yaw_offset)
-    return x + distance * math.cos(ang), y + distance * math.sin(ang)
+    return x + slant * math.cos(ang), y + slant * math.sin(ang)
 
 
 def log(tag: str, msg: str, color: str = "") -> None:
