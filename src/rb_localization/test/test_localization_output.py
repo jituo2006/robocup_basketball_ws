@@ -31,8 +31,8 @@ def node():
     n.ekf=NS(pose=(0,0,0),std=(.1,.1,.1),update_pose=lambda *a:None)
     n.pose_messages=[];n.ok_messages=[]
     n.pose_pub=NS(publish=n.pose_messages.append);n.ok_pub=NS(publish=n.ok_messages.append)
-    n.relative_mode=False;n.tf_broadcaster=None;n.field_frame='field';n.ok_std_threshold=.6
-    n.last_odom_field_pose=None;n.last_odom_time=None;n.use_odom_pose_as_abs=True;n.odom_count=0;n.abs_count=0
+    n.tf_broadcaster=None;n.field_frame='field';n.ok_std_threshold=.6
+    n.last_odom_time=None;n.use_odom_pose_as_abs=True;n.odom_count=0;n.abs_count=0
     # 合并后 on_odom 会用 s2b_yaw 把 FAST-LIO 的世界系 twist 转成车体系
     n.s2b_x=-0.30;n.s2b_y=0.0;n.s2b_yaw=0.0
     n.odom_to_field=lambda x,y,yaw:(x,y,yaw)
@@ -69,10 +69,3 @@ def test_rejected_parameters_do_not_change_runtime_or_source_state():
     assert not n.on_tuning_parameters([NS(name='source_timeout_s',value=-1)]).successful
     assert n.on_tuning_parameters([NS(name='source_timeout_s',value=1.0)]).successful
     assert n.source_timeout_s==.5  # validation only; applied from accepted ROS values later
-
-
-def test_relative_mode_never_advertises_field_localization_health():
-    n=node();n.relative_mode=True;n.field_frame='lidar_local'
-    n.on_odom(odom());n.publish_state(None)
-    assert n.pose_messages[-1].header.frame_id=='lidar_local'
-    assert not n.ok_messages[-1].data

@@ -52,78 +52,6 @@ except Exception:                     # noqa: BLE001
 
 WS = Path("/home/user/robocup_basketball_ws")
 
-BALL_BOX_STYLES = {
-    "ball_basketball": ("篮球", (0, 165, 255)),
-    "ball_volleyball": ("排球", (255, 190, 0)),
-}
-
-
-def overlay_options(options=None):
-    options = options or {}
-    result = {"front": True, "rear": True, "min_confidence": 0.25,
-              "max_age_s": 0.5, "max_frame_delta_s": 0.5, "jpeg_quality": 85}
-    if not isinstance(options, dict) or set(options) - set(result):
-        raise ValueError("画框配置字段无效")
-    result.update(options)
-    for slot in ("front", "rear"):
-        if type(result[slot]) is not bool:
-            raise ValueError("画框开关须为布尔值")
-    for name in ("min_confidence", "max_age_s", "max_frame_delta_s"):
-        value = result[name]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-            raise ValueError(f"{name} 须为有限数值")
-    if not 0 <= result["min_confidence"] <= 1:
-        raise ValueError("置信度须在0–1之间")
-    if not 0 < result["max_age_s"] <= 5 or not 0 < result["max_frame_delta_s"] <= 5:
-        raise ValueError("检测时限须在0–5秒之间")
-    if type(result["jpeg_quality"]) is not int or not 1 <= result["jpeg_quality"] <= 100:
-        raise ValueError("JPEG质量须为1–100的整数")
-    return result
-
-
-def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
-    """Annotate camera-space boxes only; LiDAR candidates have no image box."""
-    import cv2
-    boxes = []
-    for detection in detections:
-        label = getattr(detection, "label", "")
-        if label not in BALL_BOX_STYLES or getattr(detection, "source", "camera") == "lidar":
-            continue
-        try:
-            confidence = float(detection.confidence)
-            coords = [float(getattr(detection, name))
-                      for name in ("x_min", "y_min", "x_max", "y_max")]
-            if not all(math.isfinite(v) for v in [confidence] + coords) or not min_confidence <= confidence <= 1:
-                continue
-            x1, y1, x2, y2 = [max(0, min(1, v)) for v in coords]
-            if x2 <= x1 or y2 <= y1:
-                continue
-            boxes.append((label, confidence, (x1, y1, x2, y2)))
-        except (AttributeError, TypeError, ValueError):
-            continue
-    if not boxes:
-        return jpeg
-    try:
-        frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if frame is None:
-            return jpeg
-        height, width = frame.shape[:2]
-        text = []
-        for label, confidence, coords in boxes:
-            x1, y1, x2, y2 = coords
-            p1 = (int(x1 * (width - 1)), int(y1 * (height - 1)))
-            p2 = (int(x2 * (width - 1)), int(y2 * (height - 1)))
-            name, color = BALL_BOX_STYLES[label]
-            cv2.rectangle(frame, p1, p2, color, 2)
-            tx, ty = min(p1[0], max(0, width - 140)), max(0, p1[1] - 24)
-            cv2.rectangle(frame, (tx, ty), (min(width - 1, tx + 140), min(height - 1, ty + 24)), (20, 20, 20), -1)
-            text.append((f"{name} {confidence:.0%}", (tx + 3, ty + 2), color, 18))
-        frame = draw_texts(frame, text)
-        ok, output = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
-        return output.tobytes() if ok else jpeg
-    except (cv2.error, ValueError, TypeError):
-        return jpeg
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 画图（雷达俯视图）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,16 +60,24 @@ LIDAR_RANGE_M = 16.0                  # 视野半径（米）—— 场地 14×7
 
 
 def pc2_xyz(msg):
-    """PointCloud2 -> (N,3) float32。
-
-    ⚠️ 实现在 rb_perception.lidar_ball（唯一定义处）—— 找球脚本也用同一份，
-    复制两份迟早漂移。这里只为兼容旧调用点保留这个名字。
-    """
-    try:
-        from rb_perception.lidar_ball import pointcloud2_to_xyz
-        return pointcloud2_to_xyz(msg)
-    except Exception:  # noqa: BLE001
+    """PointCloud2 -> (N,3) float32。只取 x/y/z，按 fields 里的 offset 解析。"""
+    names = {f.name: f.offset for f in msg.fields}
+    if not {"x", "y", "z"} <= set(names):
         return None
+    n = msg.width * msg.height
+    if n == 0:
+        return None
+    buf = np.frombuffer(msg.data, dtype=np.uint8)
+    step = msg.point_step
+    if step <= 0 or buf.size < n * step:
+        return None
+    buf = buf[: n * step].reshape(n, step)
+    out = np.empty((n, 3), dtype=np.float32)
+    for i, k in enumerate(("x", "y", "z")):
+        off = names[k]
+        out[:, i] = buf[:, off : off + 4].copy().view(np.float32).ravel()
+    m = np.isfinite(out).all(axis=1)
+    return out[m]
 
 
 # ⚠️ cv2.putText 只支持 ASCII（Hershey 字体），中文会全变成 "?????"。
@@ -319,43 +255,12 @@ def world_to_screen(wx, wy, cx, cy, cyaw, scale, w=LIDAR_W, h=LIDAR_H):
     return w / 2.0 - left * scale, h / 2.0 - fwd * scale
 
 
-def localization_display_state(state, ros_now, wall_now, max_age_s=0.5):
-    """Expire by measurement stamps AND receipt time; timer republishes cannot renew pose."""
-    out = dict(state)
-    def fresh(key):
-        stamp = float(state.get(key + "_source_stamp") or 0.0)
-        received = float(state.get(key + "_stamp") or 0.0)
-        return (stamp > 0 and 0 <= ros_now - stamp <= max_age_s
-                and received > 0 and 0 <= wall_now - received <= max_age_s)
-    out["pose_fresh"] = fresh("pose")
-    out["odom_fresh"] = fresh("odom")
-    out["cloud_fresh"] = fresh("cloud")
-    out["localization_mode"] = ("relative" if state.get("pose_frame") == "lidar_local" else "field")
-    out["relative_ready"] = bool(out["localization_mode"] == "relative" and out["pose_fresh"]
-                                 and out["odom_fresh"])
-    out["loc_ok"] = bool(out.get("loc_ok") and out["pose_fresh"]
-                         and out["localization_mode"] == "field")
-    out["odom_delay"] = (max(0.0, ros_now - state["odom_source_stamp"])
-                         if state.get("odom_source_stamp") else None)
-    if not out["pose_fresh"]:
-        out["pose"] = None
-    if not out["odom_fresh"]:
-        out["odom"] = None
-        out["odom_x"] = None
-    if not out["cloud_fresh"]:
-        out["cloud"] = None
-        out["cloud_fps"] = 0.0
-    return out
-
-
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                  view: str = "field", mirror_x: bool = False,
-                 mirror_y: bool = False, odom_tf=None, lb_cands=None, relative=False) -> bytes:
+                 mirror_y: bool = False, odom_tf=None, lb_cands=None) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
-    if relative:
-        view = "robot"
     img = np.zeros((LIDAR_H, LIDAR_W, 3), dtype=np.uint8)
     img[:] = (24, 22, 20)
     texts = []          # ⚠️ 必须在任何 append 之前建（曾经放在后面 → UnboundLocalError）
@@ -410,121 +315,120 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         texts.append((f"雷达球 {cd.get('slant_m', 0):.1f}m", (qx + r_px + 3, qy - 4),
                       (255, 220, 60), 12))
 
-    if not relative:
-        # 场地边界（浅灰矩形）+ 中线
-        pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
-        cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
-        if view != "robot":
-            cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
-            cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
+    # 场地边界（浅灰矩形）+ 中线
+    pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
+    cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
+    if view != "robot":
+        cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
+        cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
 
-        # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
-        def _poly(world_pts, color, thick=1, close=True, dash=False):
-            """世界坐标点列 → 屏幕折线。超出场地的自动裁掉（只看场内）。"""
-            ps = []
-            for (px_, py_) in world_pts:
-                sx, sy = to_px(px_, py_)
-                ps.append((sx, sy))
-            if len(ps) >= 2:
-                cv2.polylines(img, [np.array(ps, np.int32)], close, color, thick, cv2.LINE_AA)
+    # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
+    def _poly(world_pts, color, thick=1, close=True, dash=False):
+        """世界坐标点列 → 屏幕折线。超出场地的自动裁掉（只看场内）。"""
+        ps = []
+        for (px_, py_) in world_pts:
+            sx, sy = to_px(px_, py_)
+            ps.append((sx, sy))
+        if len(ps) >= 2:
+            cv2.polylines(img, [np.array(ps, np.int32)], close, color, thick, cv2.LINE_AA)
 
-        def _arc(cxw, cyw, r, color, thick=1, a0=0.0, a1=360.0, steps=72):
-            """圆弧（世界坐标），自动裁到场内。"""
-            pts = []
-            for i in range(steps + 1):
-                a = math.radians(a0 + (a1 - a0) * i / steps)
-                wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
-                # 严格裁到场内：官方图上三分线也是被边线裁掉的，不该画到场外
-                if 0.0 <= wx_ <= L and 0.0 <= wy_ <= W:
-                    pts.append((wx_, wy_))
-            if len(pts) >= 2:
-                _poly(pts, color, thick, close=False)
+    def _arc(cxw, cyw, r, color, thick=1, a0=0.0, a1=360.0, steps=72):
+        """圆弧（世界坐标），自动裁到场内。"""
+        pts = []
+        for i in range(steps + 1):
+            a = math.radians(a0 + (a1 - a0) * i / steps)
+            wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
+            # 严格裁到场内：官方图上三分线也是被边线裁掉的，不该画到场外
+            if 0.0 <= wx_ <= L and 0.0 <= wy_ <= W:
+                pts.append((wx_, wy_))
+        if len(pts) >= 2:
+            _poly(pts, color, thick, close=False)
 
-        # 三分线（以 three_point_center 为心）
-        tp = field.get("three_point_center") or {}
-        r3 = float(field.get("three_point_radius_m", 0.0) or 0.0)
-        if isinstance(tp, dict) and "x" in tp and r3 > 0:
-            _arc(float(tp["x"]), float(tp["y"]), r3, (60, 110, 150), 1)
-            # 三分线在场内的两条直线段（足球场式的直线部分）
-            _poly([(float(tp["x"]), float(tp["y"]) - r3), (L, float(tp["y"]) - r3)], (60, 110, 150))
-            _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
-            tp_px = to_px(float(tp["x"]), float(tp["y"]))
-            texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
+    # 三分线（以 three_point_center 为心）
+    tp = field.get("three_point_center") or {}
+    r3 = float(field.get("three_point_radius_m", 0.0) or 0.0)
+    if isinstance(tp, dict) and "x" in tp and r3 > 0:
+        _arc(float(tp["x"]), float(tp["y"]), r3, (60, 110, 150), 1)
+        # 三分线在场内的两条直线段（足球场式的直线部分）
+        _poly([(float(tp["x"]), float(tp["y"]) - r3), (L, float(tp["y"]) - r3)], (60, 110, 150))
+        _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
+        tp_px = to_px(float(tp["x"]), float(tp["y"]))
+        texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
 
-        # 中线置球区（官方图左侧那个大圆：R2500，圆心距左边线 2500mm → (2.5, 3.75)）
-        fz = field.get("front_zone_circle") or {}
-        if isinstance(fz, dict) and "x" in fz and float(fz.get("radius_m", 0) or 0) > 0:
-            _arc(float(fz["x"]), float(fz["y"]), float(fz["radius_m"]), (110, 90, 140), 1)
-            q = to_px(float(fz["x"]), float(fz["y"]))
-            texts.append((str(fz.get("name", "中线置球区")), (q[0] - 30, q[1] + 4),
-                          (140, 115, 175), 12))
+    # 中线置球区（官方图左侧那个大圆：R2500，圆心距左边线 2500mm → (2.5, 3.75)）
+    fz = field.get("front_zone_circle") or {}
+    if isinstance(fz, dict) and "x" in fz and float(fz.get("radius_m", 0) or 0) > 0:
+        _arc(float(fz["x"]), float(fz["y"]), float(fz["radius_m"]), (110, 90, 140), 1)
+        q = to_px(float(fz["x"]), float(fz["y"]))
+        texts.append((str(fz.get("name", "中线置球区")), (q[0] - 30, q[1] + 4),
+                      (140, 115, 175), 12))
 
-        # 投篮线（以篮筐为心）
-        hoop = field.get("hoop") or {}
-        rs = float(field.get("shoot_line_radius_m", 0.0) or 0.0)
-        if isinstance(hoop, dict) and "x" in hoop and rs > 0:
-            _arc(float(hoop["x"]), float(hoop["y"]), rs, (60, 130, 100), 1)
+    # 投篮线（以篮筐为心）
+    hoop = field.get("hoop") or {}
+    rs = float(field.get("shoot_line_radius_m", 0.0) or 0.0)
+    if isinstance(hoop, dict) and "x" in hoop and rs > 0:
+        _arc(float(hoop["x"]), float(hoop["y"]), rs, (60, 130, 100), 1)
 
-        # 传球区（多边形）
-        pz = (field.get("pass_zone") or {}).get("polygon")
-        if pz:
-            try:
-                poly = [(float(a), float(b)) for a, b in pz]
-                _poly(poly + [poly[0]], (150, 120, 60), 1, close=False)
-                # 半透明填充，便于一眼看出"我在不在区内"
-                sp = np.array([to_px(a, b) for a, b in poly], np.int32)
-                ov = img.copy()
-                cv2.fillPoly(ov, [sp], (60, 48, 24))
-                cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
-                cxp = sum(a for a, _ in poly) / len(poly)
-                cyp = sum(b for _, b in poly) / len(poly)
-                q = to_px(cxp, cyp)
-                texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
-            except (TypeError, ValueError):
-                pass
+    # 传球区（多边形）
+    pz = (field.get("pass_zone") or {}).get("polygon")
+    if pz:
+        try:
+            poly = [(float(a), float(b)) for a, b in pz]
+            _poly(poly + [poly[0]], (150, 120, 60), 1, close=False)
+            # 半透明填充，便于一眼看出"我在不在区内"
+            sp = np.array([to_px(a, b) for a, b in poly], np.int32)
+            ov = img.copy()
+            cv2.fillPoly(ov, [sp], (60, 48, 24))
+            cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
+            cxp = sum(a for a, _ in poly) / len(poly)
+            cyp = sum(b for _, b in poly) / len(poly)
+            q = to_px(cxp, cyp)
+            texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
+        except (TypeError, ValueError):
+            pass
 
-        # 出发区：官方图里 A/B 是**突出在场地左边线之外**的方块。
-        # 尺寸与中心都从配置读（现场量完改 start_zone_size_m / start_zones 即可）。
-        sz = float(field.get("start_zone_size_m", 1.0) or 1.0)
-        zones = field.get("start_zones") or {}
-        home = field.get("home") or {}
-        if not zones and isinstance(home, dict) and "x" in home:
-            zones = {"A": home}                      # 兜底：只配了 home 就画一个
-        for zname, zc in zones.items():
-            if not (isinstance(zc, dict) and "x" in zc):
-                continue
-            zx, zy = float(zc["x"]), float(zc["y"])
-            h2 = sz / 2.0
-            _poly([(zx - h2, zy - h2), (zx + h2, zy - h2), (zx + h2, zy + h2),
-                   (zx - h2, zy + h2), (zx - h2, zy - h2)],
-                  (90, 150, 90), 2, close=False)
-            q = to_px(zx, zy)
-            is_home = (isinstance(home, dict) and abs(zx - float(home.get("x", 1e9))) < 1e-6
-                       and abs(zy - float(home.get("y", 1e9))) < 1e-6)
-            col = (140, 220, 140) if is_home else (80, 110, 80)
-            texts.append((f"出发区{zname}" + ("（当前）" if is_home else ""),
-                          (q[0] - 22, q[1] + 4), col, 13))
+    # 出发区：官方图里 A/B 是**突出在场地左边线之外**的方块。
+    # 尺寸与中心都从配置读（现场量完改 start_zone_size_m / start_zones 即可）。
+    sz = float(field.get("start_zone_size_m", 1.0) or 1.0)
+    zones = field.get("start_zones") or {}
+    home = field.get("home") or {}
+    if not zones and isinstance(home, dict) and "x" in home:
+        zones = {"A": home}                      # 兜底：只配了 home 就画一个
+    for zname, zc in zones.items():
+        if not (isinstance(zc, dict) and "x" in zc):
+            continue
+        zx, zy = float(zc["x"]), float(zc["y"])
+        h2 = sz / 2.0
+        _poly([(zx - h2, zy - h2), (zx + h2, zy - h2), (zx + h2, zy + h2),
+               (zx - h2, zy + h2), (zx - h2, zy - h2)],
+              (90, 150, 90), 2, close=False)
+        q = to_px(zx, zy)
+        is_home = (isinstance(home, dict) and abs(zx - float(home.get("x", 1e9))) < 1e-6
+                   and abs(zy - float(home.get("y", 1e9))) < 1e-6)
+        col = (140, 220, 140) if is_home else (80, 110, 80)
+        texts.append((f"出发区{zname}" + ("（当前）" if is_home else ""),
+                      (q[0] - 22, q[1] + 4), col, 13))
 
-        # 篮筐符号（篮板 + 篮圈）
-        if isinstance(hoop, dict) and "x" in hoop:
-            hx, hy = float(hoop["x"]), float(hoop["y"])
-            _arc(hx, hy, 0.225, (0, 140, 255), 2)          # 篮圈 φ45cm
-            # 篮板：在篮筐靠边线那一侧，画一条短线
-            bx = min(L, hx + 0.30)
-            _poly([(bx, hy - 0.90), (bx, hy + 0.90)], (0, 140, 255), 2, close=False)
-            q = to_px(hx, hy)
-            texts.append(("篮筐", (q[0] - 14, q[1] - 16), (0, 160, 255), 13))
+    # 篮筐符号（篮板 + 篮圈）
+    if isinstance(hoop, dict) and "x" in hoop:
+        hx, hy = float(hoop["x"]), float(hoop["y"])
+        _arc(hx, hy, 0.225, (0, 140, 255), 2)          # 篮圈 φ45cm
+        # 篮板：在篮筐靠边线那一侧，画一条短线
+        bx = min(L, hx + 0.30)
+        _poly([(bx, hy - 0.90), (bx, hy + 0.90)], (0, 140, 255), 2, close=False)
+        q = to_px(hx, hy)
+        texts.append(("篮筐", (q[0] - 14, q[1] - 16), (0, 160, 255), 13))
 
-        # 得分点参考（传球区/投篮点/篮筐）
-        refs = [("投篮点", field.get("shoot_zone_target"))]
-        for name, p in refs:
-            if isinstance(p, dict) and "x" in p:
-                px = to_px(p["x"], p["y"])
-                cv2.drawMarker(img, px, (90, 160, 90), cv2.MARKER_DIAMOND, 8, 1)
-                texts.append((name, (px[0] + 7, px[1] - 16), (120, 180, 120), 13))
+    # 得分点参考（传球区/投篮点/篮筐）
+    refs = [("投篮点", field.get("shoot_zone_target"))]
+    for name, p in refs:
+        if isinstance(p, dict) and "x" in p:
+            px = to_px(p["x"], p["y"])
+            cv2.drawMarker(img, px, (90, 160, 90), cv2.MARKER_DIAMOND, 8, 1)
+            texts.append((name, (px[0] + 7, px[1] - 16), (120, 180, 120), 13))
 
     # 点云（按高度上色）
-    if cloud_xyz is not None and len(cloud_xyz) and odom_tf is not None:
+    if cloud_xyz is not None and len(cloud_xyz):
         p = cloud_xyz
         # ⚠️ 点云在 FAST-LIO 的 camera_init 系里，必须先变换到 field 系再画。
         #    不做这步点云会落在 camera_init 原点附近（现场现象："点云在 B、箭头在 A"）。
@@ -553,18 +457,16 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
 
     # 机器人（红箭头）
     rx, ry = to_px(cx, cy)
-    if pose is not None:
-        if view == "robot":
-            # 车头朝上视角：箭头恒朝上
-            tip = (rx, ry - 26)
-        else:
-            # ⚠️ 场地模式必须用 to_px 算车头前方的第二个世界点，
-            #    这样 mirror_x 才会一起生效。手算 (rx+30cos, …) 在镜像视角下车头会反。
-            tx, ty = to_px(cx + 0.55 * math.cos(cyaw), cy + 0.55 * math.sin(cyaw))
-            tip = (int(tx), int(ty))
-        cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
-        cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
-
+    if view == "robot":
+        # 车头朝上视角：箭头恒朝上
+        tip = (rx, ry - 26)
+    else:
+        # ⚠️ 场地模式必须用 to_px 算车头前方的第二个世界点，
+        #    这样 mirror_x 才会一起生效。手算 (rx+30cos, …) 在镜像视角下车头会反。
+        tx, ty = to_px(cx + 0.55 * math.cos(cyaw), cy + 0.55 * math.sin(cyaw))
+        tip = (int(tx), int(ty))
+    cv2.arrowedLine(img, (rx, ry), tip, (60, 60, 255), 3, cv2.LINE_AA, tipLength=0.35)
+    cv2.circle(img, (rx, ry), 13, (60, 60, 255), 1, cv2.LINE_AA)
 
     # 视野半径标尺（只在车头朝上模式有意义）
     if view == "robot":
@@ -577,7 +479,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     # ⚠️ 只画【球】：rack_ring / hoop / pillar 是静态场地物，已作为场地区域画出来，
     #    再当"检测到的球"画一遍既重复又误导（现场明确要求去掉 rack_ring）。
     now = time.time()
-    for d in (dets or []) if pose is not None else []:
+    for d in dets or []:
         label0 = getattr(d, "label", "")
         if not str(label0).startswith("ball"):
             continue
@@ -604,17 +506,16 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
 
     # 左上角文字状态
     lines = [
-        ((f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°" if pose is not None
-          else "位姿过期或未收到：暂停显示机器人")
+        (f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°"
          + ("" if view == "robot"
             else f"   [x→{'左' if mirror_x else '右'} y→{'下' if mirror_y else '上'}]"),
          (215, 215, 215), 15),
-        (("局部相对定位（非场地坐标）" if relative else f"定位 {'正常' if loc_ok else '不可用'}"), (120, 220, 120) if loc_ok or relative and pose is not None else (120, 120, 240), 15),
+        (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
         (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}"
          + ("" if view == "robot" else
-            (("　✓已变换到局部系" if relative else "　✓已变换到场地系") if odom_tf is not None
-             else "　⚠️未变换(缺坐标TF)")), (150, 150, 150), 15),
+            ("　✓已变换到场地系" if odom_tf is not None
+             else "　⚠️未变换(缺 field←camera_init TF)")), (150, 150, 150), 15),
     ]
     for i, (txt, col, size) in enumerate(lines):
         texts.append((txt, (12, 8 + i * 20), col, size))
@@ -645,9 +546,6 @@ class Bridge:
         self.rclpy = rclpy
         self.cfg = cfg
         self.lock = threading.Lock()
-        self._overlay_lock = threading.Lock()
-        self._overlay_options = overlay_options(cfg.get("camera_overlay"))
-        self._overlay_cache = {}
         self.logs: deque = deque(maxlen=400)
         self.launch_logs: deque = deque(maxlen=400)
         # 阶段变迁时间线：方便一眼看出"跑到哪一步、卡在哪一步"
@@ -671,9 +569,6 @@ class Bridge:
             "launcher_ok": False, "perception_ok": False,
             "launcher_status": "", "odom_delay": None, "odom_x": None,
             "dets": [], "dets_stamp": 0.0,
-            "cam_rear": None, "cam_rear_stamp": 0.0, "cam_rear_fps": 0.0,
-            "dets_rear": [], "dets_rear_stamp": 0.0,
-            "exposure": {},
             # 雷达找球（界面可调；默认关，保持与改动前一致）
             "odom": None,
             "lb_enabled": False, "lb_mode": "fuse", "lb_cands": [],
@@ -688,11 +583,6 @@ class Bridge:
         self._sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                                       history=HistoryPolicy.KEEP_LAST)
 
-        # FAST-LIO's registered cloud publisher is RELIABLE. Request reliable
-        # delivery for fragmented clouds; KEEP_LAST(1) still bounds backlog.
-        self._cloud_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                                    history=HistoryPolicy.KEEP_LAST)
-
         def sub1(cls, topic, cb, qos=1):
             self.node.create_subscription(cls, topic, cb, qos)
 
@@ -704,24 +594,13 @@ class Bridge:
         sub1(Bool, "/rb_launcher/ok", self._on_lok, 10)
         sub1(StringMsg, "/rb_launcher/status", self._on_lstatus, 10)
         sub1(DetectionArray, t.get("dets", "/perception/detections"), self._on_dets, 10)
-        # ── 后摄像头（车正后方）──
-        # ⚠️ 后摄的 bearing 左右是反的（画面右侧 = 车的左侧），
-        #    所以单独订阅、单独存，不跟前摄混在一个列表里。
-        sub1(CompressedImage, t.get("image_rear", "/camera_rear/image_raw/compressed"),
-             self._on_image_rear, self._sensor_qos)
-        sub1(DetectionArray, t.get("dets_rear", "/perception/detections_rear"),
-             self._on_dets_rear, 10)
         sub1(CompressedImage, t.get("image", "/camera/image_raw/compressed"),
              self._on_image, self._sensor_qos)
         # 原图兜底：离线仿真的 publish_test_image 发的是未压缩 /camera/image_raw，
         # 真机 camera_node 发 compressed。两个都订，谁先到用谁。
         sub1(Image, t.get("image_raw", "/camera/image_raw"), self._on_raw_image, self._sensor_qos)
-        sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._cloud_qos)
+        sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._sensor_qos)
         sub1(Log, "/rosout", self._on_log, 50)
-        for slot, topic in (("front", "/camera/exposure"), ("rear", "/camera_rear/exposure")):
-            sub1(StringMsg, t.get("exposure_" + slot, topic),
-                 lambda msg, slot=slot: self._on_exposure(slot, msg), 1)
-        self._exposure_clients = {}
 
         from rb_msgs.srv import SerialText
         self.cli_text = self.node.create_client(
@@ -729,9 +608,7 @@ class Bridge:
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
-        self._cmd_vel_topic = t.get("cmd_vel", "/cmd_vel")
-        self._pub_cmd_lock = threading.Lock()
-        self.pub_cmd = self.node.create_publisher(Twist, self._cmd_vel_topic, 10)
+        self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
 
         # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
@@ -821,11 +698,6 @@ class Bridge:
             yaw = p.z
         with self.lock:
             self.state["pose"] = (float(p.x), float(p.y), float(yaw))
-            self.state["pose_frame"] = m.header.frame_id
-            # The pose header is authoritative: relative diagnostics use lidar_local.
-            self.field_frame_name = m.header.frame_id
-            self.state["pose_stamp"] = time.time()
-            self.state["pose_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_ok(self, m):
         with self.lock:
@@ -839,8 +711,6 @@ class Bridge:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         with self.lock:
-            self.state["odom_stamp"] = time.time()
-            self.state["odom_source_stamp"] = st
             self.state["odom_delay"] = now - st
             self.state["odom_x"] = float(pp.position.x)
             # ⚠️ 雷达找球要把 camera_init 系的点云按【里程计】转到车体系，
@@ -859,19 +729,6 @@ class Bridge:
         with self.lock:
             self.state["dets"] = list(m.detections)
             self.state["dets_stamp"] = time.time()
-            self.state["dets_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def _on_image_rear(self, m):
-        with self.lock:
-            self.state["cam_rear"] = bytes(m.data)
-            self.state["cam_rear_stamp"] = time.time()
-            self.state["cam_rear_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def _on_dets_rear(self, m):
-        with self.lock:
-            self.state["dets_rear"] = list(m.detections)
-            self.state["dets_rear_stamp"] = time.time()
-            self.state["dets_rear_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_image(self, m):
         now = time.time()
@@ -879,7 +736,6 @@ class Bridge:
         with self.lock:
             self.state["cam"] = bytes(m.data)
             self.state["cam_stamp"] = now
-            self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
             if len(self._cam_times) > 1:
                 dt = self._cam_times[-1] - self._cam_times[0]
                 self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -905,7 +761,6 @@ class Bridge:
                 if self.state["cam"] is None or now - self.state["cam_stamp"] > 1.0:
                     self.state["cam"] = jpg.tobytes()
                     self.state["cam_stamp"] = now
-                    self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
                 if len(self._cam_times) > 1:
                     dt = self._cam_times[-1] - self._cam_times[0]
                     self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -921,9 +776,6 @@ class Bridge:
             fps = (len(self._cloud_times) - 1) / dt if dt > 0.05 else 0.0
         with self.lock:
             self.state["cloud"] = xyz
-            self.state["cloud_stamp"] = time.time()
-            self.state["cloud_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-            self.state["cloud_frame"] = m.header.frame_id
             self.state["cloud_fps"] = fps
 
     def _on_log(self, m):
@@ -932,38 +784,10 @@ class Bridge:
             self.logs.append((time.time(), lvl, m.name, m.msg))
 
     def _spin(self):
-        """ROS 执行器线程。
-
-        ⚠️ 这里原来写的是 `try: rclpy.spin(self.node) except Exception: pass` ——
-        回调里一旦抛异常，执行器线程【静默死掉】，之后所有话题都收不到，
-        而日志里一条报错都没有。现场现象就是"雷达没连上"：
-        订阅在 ROS 图里明明都在（创建于 spin 之前），却一条数据都收不到，
-        连相机也一起没了。排查时极难定位，因为它伪装成"外部设备没连"。
-        现在：打印异常 + 自动重启执行器（带退避，避免疯狂刷屏）。
-        """
-        while not getattr(self, "_stop_spin", False):
-            try:
-                self.rclpy.spin(self.node)
-                return                      # 正常返回 = 已 shutdown
-            except Exception as e:  # noqa: BLE001
-                import traceback
-                tb = traceback.format_exc()
-                try:
-                    with self.lock:
-                        self.state["ros_error"] = f"{type(e).__name__}: {e}"
-                        self.state["ros_error_count"] = \
-                            int(self.state.get("ros_error_count", 0)) + 1
-                    # 直接写进界面日志（这个类没有 log_line，用的是 self.logs）
-                    self.logs.append((time.time(), "ERROR", "ros",
-                                      f"ROS 执行器异常（第 "
-                                      f"{self.state.get('ros_error_count')} 次），"
-                                      f"正在重启：{e}"))
-                    for ln in tb.strip().splitlines()[-12:]:
-                        self.logs.append((time.time(), "ERROR", "ros", "  " + ln))
-                except Exception:  # noqa: BLE001
-                    pass
-                print("ROS executor crashed, restarting:\n" + tb, flush=True)
-                time.sleep(1.0)             # 退避，别刷屏也别死循环
+        try:
+            self.rclpy.spin(self.node)
+        except Exception:  # noqa: BLE001
+            pass
 
     # -- 动作 ---------------------------------------------------------------
     def _call(self, cli, req, timeout=3.0):
@@ -978,59 +802,6 @@ class Bridge:
             return False, "无响应"
         return bool(getattr(r, "accepted", getattr(r, "success", True))), \
             str(getattr(r, "message", ""))
-
-    def _on_exposure(self, slot, msg):
-        try:
-            info = json.loads(msg.data)
-            if not isinstance(info, dict):
-                return
-            with self.lock:
-                self.state["exposure"][slot] = dict(info, received=time.time())
-        except (ValueError, TypeError):
-            pass
-
-    def camera_exposure(self, slot, value=None, automatic=None):
-        from rclpy.parameter import Parameter
-        from rcl_interfaces.srv import SetParametersAtomically
-        if slot not in ("front", "rear"):
-            return False, "摄像头须为 front 或 rear"
-        if value is None and automatic is None:
-            return False, "缺少曝光设置"
-        if value is not None and (type(value) is not int):
-            return False, "曝光值必须为整数"
-        if automatic is not None and type(automatic) is not bool:
-            return False, "自动曝光开关必须为布尔值"
-        with self.lock:
-            info = dict(self.state.get("exposure", {}).get(slot, {}))
-        if not info.get("available") or time.time() - info.get("received", 0) > 3:
-            return False, "摄像头曝光状态不可用或过期"
-        node = info.get("node")
-        if not isinstance(node, str) or not node.startswith("/"):
-            return False, "摄像头节点信息不可用"
-        if value is not None and automatic is True:
-            return False, "请分别设置手动值或开启自动曝光"
-        cli = self._exposure_clients.get(node)
-        if cli is None:
-            cli = self.node.create_client(SetParametersAtomically, node + "/set_parameters_atomically")
-            self._exposure_clients[node] = cli
-        if not cli.wait_for_service(timeout_sec=1):
-            return False, "摄像头参数服务不可用"
-        req = SetParametersAtomically.Request()
-        settings = [Parameter("exposure.auto", value=bool(automatic) if value is None else False)]
-        if value is not None:
-            settings.append(Parameter("exposure.value", value=value))
-        req.parameters = [p.to_parameter_msg() for p in settings]
-        future = cli.call_async(req)
-        deadline = time.monotonic() + 5
-        while not future.done() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        if not future.done():
-            return False, "曝光设置响应超时，请查看当前读回值"
-        response = future.result()
-        if response is None or not response.result.successful:
-            return False, response.result.reason if response else "曝光设置无响应"
-        return True, ("自动曝光已开启" if value is None and automatic else
-                      f"手动曝光已设置为 {value}" if value is not None else "自动曝光已关闭")
 
     def set_mission(self, name: str):
         from rb_msgs.srv import SetMission
@@ -1057,37 +828,9 @@ class Bridge:
         req.action, req.speed, req.angle = int(action), int(speed), int(angle)
         return self._call(self.cli_launch, req)
 
-    def refresh_cmd_publisher(self) -> None:
-        """重建 /cmd_vel 发布者。
-
-        ⚠️ 为什么需要：FastRTPS 有个坑 —— 如果控制台先起、底盘后起，
-        控制台那个【更早创建的 writer】有时不会被底盘的 reader 发现，
-        于是 /cmd_vel 话题上明明有数据（ros2 topic hz 能测到 ✓）、
-        QoS 也完全匹配 ✓，但底盘【就是收不到】✗，输出永远是 0。
-        现象极具误导性：看起来像电机/底盘坏了。
-
-        实测：手动 ros2 topic pub 立刻能到电机 ✓，控制台发就不到 ✗；
-        把控制台重启一次（在底盘之后）立刻就好 ✓。
-
-        所以在每次下发运动指令前重建一次发布者 —— 新的 writer 一定能被发现。
-        开销可忽略（点动本来就要等 0.4s）。
-        """
-        try:
-            with self._pub_cmd_lock:
-                if getattr(self, "pub_cmd", None) is not None:
-                    try:
-                        self.node.destroy_publisher(self.pub_cmd)
-                    except Exception:  # noqa: BLE001
-                        pass
-                self.pub_cmd = self.node.create_publisher(
-                    self._Twist, getattr(self, "_cmd_vel_topic", "/cmd_vel"), 10)
-        except Exception:  # noqa: BLE001
-            pass
-
     def jog(self, vx: float, vy: float, wz: float, seconds: float = 0.4):
         """点动：先发速度，再自动归零（不依赖前端松手）。"""
         def run():
-            self.refresh_cmd_publisher()
             t0 = time.time()
             while time.time() - t0 < seconds:
                 t = self._Twist()
@@ -1122,10 +865,8 @@ class Bridge:
         with self.lock:
             cfg = dict(self.state["lb_cfg"])
             enabled = bool(self.state["lb_enabled"])
-            current = localization_display_state(self.state,
-                self.node.get_clock().now().nanoseconds * 1e-9, time.time())
-            cloud = current["cloud"]
-            odom = current["odom"]
+            cloud = None if self.state["cloud"] is None else self.state["cloud"]
+            odom = self.state["odom"]
         if not enabled or cloud is None or odom is None:
             return [], 0.0
         t0 = time.time()
@@ -1137,7 +878,7 @@ class Bridge:
             return [], 0.0
         return cands, (time.time() - t0) * 1000.0
 
-    def odom_to_field_tf(self, stamp=None, frame=None):
+    def odom_to_field_tf(self):
         """返回 (tx, ty, theta)：camera_init 原点在 field 下的位置与相对朝向。
 
         点云乘这个变换才能和 /localization/pose 对上。查不到返回 None。
@@ -1147,8 +888,7 @@ class Bridge:
         try:
             import rclpy.time
             tr = self._tf_buffer.lookup_transform(
-                self.field_frame_name, frame or self.odom_frame_name,
-                rclpy.time.Time(seconds=stamp) if stamp else rclpy.time.Time())
+                self.field_frame_name, self.odom_frame_name, rclpy.time.Time())
             q = tr.transform.rotation
             th = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -1163,11 +903,12 @@ class Bridge:
         用当前位姿：p_field = p_robot + R(yaw)·(bx, by)，+y 是左（ROS 标准）。
         """
         with self.lock:
-            pose = self.state["pose"]
+            pose = self.state["pose"] or {}
         try:
-            cx, cy, yaw = map(float, pose)
+            cx, cy = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
+            yaw = float(pose.get("yaw", 0.0))
         except Exception:  # noqa: BLE001
-            return None
+            return [bx, by]
         c, s = math.cos(yaw), math.sin(yaw)
         return [cx + c * bx - s * by, cy + s * bx + c * by]
 
@@ -1181,14 +922,15 @@ class Bridge:
             if cands is None:
                 cands = list(self.state["lb_cands"]) if self.state.get("lb_cands") else []
             dets = list(self.state["dets"])
-            pose = self.state["pose"]
+            pose = self.state["pose"] or {}
             match_d = float(self.state["lb_cfg"].get("match_distance_m", 0.7))
         if not cands:
             return {}
         try:
-            cx0, cy0, yaw = map(float, pose)
+            yaw = float(pose.get("yaw", 0.0))
+            cx0, cy0 = float(pose.get("x", 0.0)), float(pose.get("y", 0.0))
         except Exception:  # noqa: BLE001
-            return {}
+            yaw, cx0, cy0 = 0.0, 0.0, 0.0
         balls = [d for d in dets if str(getattr(d, "label", "")).startswith("ball")]
         matched = 0
         for d in balls:
@@ -1209,50 +951,6 @@ class Bridge:
                 "matched": matched, "lidar_only": len(cands) - matched,
                 "camera_only": len(balls) - matched}
 
-    def camera_overlay_settings(self, updates=None):
-        with self.lock:
-            if updates is not None:
-                if not isinstance(updates, dict):
-                    raise ValueError("请求须为JSON对象")
-                self._overlay_options = overlay_options(dict(self._overlay_options, **updates))
-            return dict(self._overlay_options)
-
-    def camera_frame(self, slot):
-        """Cache a rendered frame across viewers; never hold the ROS state lock while encoding."""
-        if slot not in ("front", "rear"):
-            raise ValueError("摄像头须为front或rear")
-        image_key, detections_key = (("cam", "dets") if slot == "front"
-                                      else ("cam_rear", "dets_rear"))
-        with self.lock:
-            image = self.state.get(image_key)
-            image_received = self.state.get(image_key + "_stamp", 0)
-            detection_received = self.state.get(detections_key + "_stamp", 0)
-            image_source = self.state.get(image_key + "_source_stamp", 0)
-            detection_source = self.state.get(detections_key + "_source_stamp", 0)
-            detections = list(self.state.get(detections_key, []))
-            options = dict(self._overlay_options)
-        now = time.time()
-        if image is None or not 0 <= now - image_received <= 1.5:
-            return None
-        # Disabled is a byte-for-byte pass-through: no decode, draw, or re-encode.
-        if not options[slot]:
-            return image
-        ros_now = self.node.get_clock().now().nanoseconds * 1e-9
-        fresh = (0 <= now - detection_received <= options["max_age_s"]
-                 and image_source > 0 and detection_source > 0
-                 and 0 <= ros_now - detection_source <= options["max_age_s"]
-                 and abs(image_source - detection_source) <= options["max_frame_delta_s"])
-        if not fresh or not detections:
-            return image
-        key = (id(image), detection_received, options["min_confidence"], options["jpeg_quality"])
-        with self._overlay_lock:
-            cached = self._overlay_cache.get(slot)
-            if cached and cached[0] == key:
-                return cached[2]
-            output = draw_ball_boxes(image, detections, options["min_confidence"], options["jpeg_quality"])
-            self._overlay_cache[slot] = (key, image, output)
-            return output
-
     def snapshot(self):
         """返回可 JSON 化的快照。
 
@@ -1260,9 +958,7 @@ class Bridge:
           cam   = 原始 JPEG 字节；cloud = ndarray；dets = 消息对象
         """
         with self.lock:
-            s = localization_display_state(self.state,
-                self.node.get_clock().now().nanoseconds * 1e-9, time.time())
-            s["camera_overlay"] = dict(self._overlay_options)
+            s = dict(self.state)
             s["logs"] = [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                          for (tt, lv, src, ms) in list(self.logs)[-120:]]
             s["timeline"] = list(self.timeline)
@@ -1273,12 +969,7 @@ class Bridge:
             s["round_stages"] = list(self.ROUND_STAGES)
             s["has_cam"] = s.get("cam") is not None
             s["cam"] = None
-            s["cam_rear"] = None      # ⚠️ 同样是原始 JPEG 字节，不能进 JSON
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
-            if time.time() - float(s.get("cam_rear_stamp") or 0.0) > 1.0:
-                s["cam_rear"] = None
-            if time.time() - float(s.get("dets_rear_stamp") or 0.0) > 1.5:
-                s["dets_rear"] = []
             # 检测过期就清空 —— 否则感知停了之后旧列表一直挂在页面上
             # （现场现象："雷达没开怎么还有 rack_ring"）
             if time.time() - float(s.get("dets_stamp") or 0.0) > 1.5:
@@ -1287,164 +978,7 @@ class Bridge:
                           "bearing_deg": math.degrees(d.bearing_rad),
                           "dist": (None if d.distance_m != d.distance_m else float(d.distance_m))}
                          for d in s["dets"][:12]]
-            # 后摄检测：单独一份，因为它 bearing 的左右是反的
-            s["dets_rear"] = [{"label": d.label, "conf": float(d.confidence),
-                               "bearing_deg": math.degrees(d.bearing_rad),
-                               "dist": (None if d.distance_m != d.distance_m
-                                        else float(d.distance_m))}
-                              for d in s.get("dets_rear", []) if hasattr(d, "label")]
             return s
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 下发守卫：防重复、防冲突
-# ─────────────────────────────────────────────────────────────────────────────
-class ActionGuard:
-    """控制台动作的重复/冲突保护。
-
-    为什么需要：控制台有 22 种动作，原先【没有任何保护】——
-    已经真实发生过：点两次「底盘使能」得到两个底盘节点抢 CAN
-    （报"无法独占 can0"）；重复点「启动整套」起了两套 boot.sh 导致节点重复；
-    寻球脚本和任务节点同时发 /cmd_vel 互相抵消。
-
-    规则：
-      * 每个动作属于一个【冲突类】，同类同一时刻只允许一个在跑
-      * 同一条动作还有冷却时间，防手抖连点
-      * 跨类硬冲突直接拒绝（跑着寻球就不许起整套/使能底盘）
-      * PANIC / TOOL_STOP 永不拦截 —— 急停不能被守卫挡住
-      * 长动作有"在跑"标记，超时自动释放（避免卡死把界面锁住）
-      * 被拒绝必须给出原因，绝不静默失败
-    """
-
-    # 动作 → 冲突类
-    CLASSES = {
-        # 会驱动底盘的（脚本会接管 /cmd_vel）
-        "TEST_BALL": "motion", "TEST_PERIMETER": "motion",
-        "TEST_GRAB_PLACE": "motion", "TEST_CHASSIS_DRY": "motion",
-        "GRAB_PLACE": "motion", "GOTO": "motion", "JOG": "motion",
-        # 机构串口（文本协议必须串行，连发会叠指令）
-        "LAUNCH": "mech", "LAUNCH_TEXT": "mech", "LAUNCH_INIT": "mech",
-        "LAUNCH_GRAB": "mech", "LAUNCH_PLACE": "mech",
-        # 整栈起停
-        "STACK_START": "stack", "STACK_STOP": "stack", "STARTUP_FLOW": "stack",
-        # 底盘 CAN
-        "CHASSIS_ENABLE": "chassis", "CHASSIS_STOP": "chassis",
-        "CAN_RECOVER": "chassis",
-        # 任务
-        "MISSION_START": "mission", "MISSION_STOP": "mission",
-        "MISSION_RESTART": "mission", "PASS": "mission", "SHOOT": "mission",
-        "IDLE": "mission",
-    }
-
-    # 跑着某一类时，还有哪些类不许动（含自身）
-    BLOCKS = {
-        "motion":  {"motion", "stack", "chassis", "mission"},
-        "stack":   {"motion", "stack", "chassis"},
-        "chassis": {"motion", "chassis"},
-        "mission": {"motion", "mission"},
-        "mech":    {"mech"},
-    }
-
-    # 冷却时间（秒）——重动作给长一点
-    COOLDOWN = {
-        "STACK_START": 30.0, "STACK_STOP": 20.0, "STARTUP_FLOW": 30.0,
-        "CAN_RECOVER": 20.0, "CHASSIS_ENABLE": 10.0, "CHASSIS_STOP": 10.0,
-        "MISSION_RESTART": 10.0, "GRAB_PLACE": 10.0, "TEST_BALL": 10.0,
-        "TEST_PERIMETER": 10.0, "TEST_GRAB_PLACE": 10.0,
-        "CAN_RECOVER": 20.0,
-    }
-    # ⚠️ 点动(JOG)/传球/停止任务这些是【要连按】的，绝不能加冷却：
-    #    冷却会把 UI 的点动按钮废掉（按一下要等 2 秒）✗。
-    #    它们只需要"不许并发"（前端 _inflight + 后端 busy 已经在管）。
-    NO_COOLDOWN = {"JOG", "IDLE", "PASS", "SHOOT", "LAUNCH_TEXT",
-                   "LAUNCH_GRAB", "LAUNCH_PLACE", "LAUNCH_INIT"}
-    DEFAULT_COOLDOWN = 2.0
-    # 长动作的"在跑"最长挂多久（超时自动释放，别把界面锁死）
-    BUSY_TIMEOUT = 180.0
-
-    # 永不拦截
-    ALWAYS = {"PANIC", "TOOL_STOP"}
-
-    def __init__(self):
-        import threading
-        self.lock = threading.Lock()
-        self.last: dict[str, float] = {}       # 动作 → 上次下发时间
-        self.busy: dict[str, float] = {}       # 冲突类 → 开始时间
-        self.rejects: list[tuple[float, str]] = []
-
-    def check(self, name: str) -> tuple[bool, str]:
-        """能不能下发。返回 (ok, msg)。"""
-        if not name or name in self.ALWAYS:
-            return True, ""
-        now = time.time()
-        cls = self.CLASSES.get(name)
-        with self.lock:
-            # 清理超时的 busy
-            for c, t0 in list(self.busy.items()):
-                if now - t0 > self.BUSY_TIMEOUT:
-                    del self.busy[c]
-            # 同类/跨类冲突
-            if cls:
-                blocked_by = self.BLOCKS.get(cls, {cls})
-                for c, t0 in self.busy.items():
-                    if c in blocked_by:
-                        who = self.WHO.get(c, c)
-                        msg = (f"拒绝下发【{name}】：{who} 正在执行"
-                               f"（已 {now - t0:.0f}s），先等它结束")
-                        self._reject(now, msg)
-                        return False, msg
-            # 同动作冷却
-            cd = 0.0 if name in self.NO_COOLDOWN else \
-                float(self.COOLDOWN.get(name, self.DEFAULT_COOLDOWN))
-            prev = self.last.get(name, 0.0)
-            if now - prev < cd:
-                msg = (f"拒绝重复下发【{name}】：{cd:.0f}s 内已经下过一次"
-                       f"（还剩 {cd - (now - prev):.1f}s）")
-                self._reject(now, msg)
-                return False, msg
-        return True, ""
-
-    WHO = {   # 人类可读的类名
-        "motion": "一个会驱动底盘的脚本", "mech": "一条机构串口指令",
-        "stack": "整套软件的起停", "chassis": "底盘 CAN 操作",
-        "mission": "任务流程",
-    }
-
-    def begin(self, name: str) -> None:
-        cls = self.CLASSES.get(name)
-        with self.lock:
-            now = time.time()
-            self.last[name] = now
-            if cls:
-                self.busy[cls] = now
-
-    def end(self, name: str) -> None:
-        """动作结束就释放（长动作在 finally 里调）。"""
-        cls = self.CLASSES.get(name)
-        with self.lock:
-            if cls and cls in self.busy:
-                # 只有确实是自己开的才释放
-                del self.busy[cls]
-
-    def snapshot(self) -> dict:
-        now = time.time()
-        with self.lock:
-            busy = {c: round(now - t0, 1) for c, t0 in self.busy.items()
-                    if now - t0 <= self.BUSY_TIMEOUT}
-            return {"busy": busy,
-                    "classes": dict(self.CLASSES),
-                    "blocks": {k: sorted(v) for k, v in self.BLOCKS.items()},
-                    "always": sorted(self.ALWAYS),
-                    "recent_rejects": [m for _, m in self.rejects[-5:]]}
-
-    def _reject(self, now: float, msg: str) -> None:
-        self.rejects.append((now, msg))
-        del self.rejects[:-20]
-
-    def conflict_hint(self, name: str) -> str:
-        """给前端用：这个动作为什么现在不能点（空串 = 能点）。"""
-        ok, msg = self.check(name)
-        return "" if ok else msg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1774,16 +1308,7 @@ class ChassisManager:
 
     @property
     def running(self) -> bool:
-        return (self.proc is not None and self.proc.poll() is None) or self._external_running()
-
-    @staticmethod
-    def _external_running() -> bool:
-        try:
-            out = subprocess.run(["ps", "-eo", "comm"], capture_output=True,
-                                 text=True, timeout=4).stdout
-            return any(line.strip() == "rb_chassis_node" for line in out.splitlines())
-        except Exception:
-            return False
+        return self.proc is not None and self.proc.poll() is None
 
     def _pump(self, proc):
         for raw in iter(proc.stdout.readline, b""):
@@ -1794,11 +1319,8 @@ class ChassisManager:
             with self.lock:
                 if "CAN 已启动" in line:
                     self.can_line = line.split("]", 1)[-1].strip()
-                if "底盘使能指令已入队" in line:
+                if "底盘已使能" in line:
                     self.enabled_line = line.split("]", 1)[-1].strip()
-                if "CAN TX failed:" in line or "CAN 启动失败" in line:
-                    self.enabled_line = ""
-                    self.state.update(flow="failed", step=line.split("]", 1)[-1].strip())
             self.log.append((time.time(), "CHASSIS", "rb_chassis", line))
         self.log.append((time.time(), "CHASSIS", "rb_chassis",
                          f"— 底盘节点退出 code={proc.poll()} —"))
@@ -1806,11 +1328,9 @@ class ChassisManager:
     def start(self, wait_s: float = 25.0):
         """起底盘并等"已使能"。返回 (ok, msg)。"""
         with self.lock:
-            if self.state["flow"] == "running":
-                return False, "底盘启动流程正在执行，请等待"
             if self.running:
                 return bool(self.enabled_line), (
-                    self.enabled_line or "底盘节点已在运行（可能由外部启动），通信未验证；不会重复启动")
+                    self.enabled_line or "底盘节点已在跑，但还没看到使能日志")
             self.can_line = ""
             self.enabled_line = ""
             self.state.update(flow="running", step="检查 CAN")
@@ -1854,8 +1374,6 @@ class ChassisManager:
         deadline = time.time() + wait_s
         while time.time() < deadline:
             with self.lock:
-                if self.state["flow"] == "failed":
-                    return False, self.state["step"]
                 if self.enabled_line:
                     self.state.update(flow="done", step=self.enabled_line)
                     return True, self.enabled_line
@@ -1865,13 +1383,12 @@ class ChassisManager:
             time.sleep(0.4)
         with self.lock:
             self.state.update(flow="failed", step="等使能日志超时")
-        return False, f"{wait_s:.0f}s 内没有使能指令入队日志，请检查节点和 CAN 日志"
+        return False, (f"{wait_s:.0f}s 内没看到「底盘已使能」—— "
+                       "多半是 CAN 通了但电机板没响应（板子锁了？断电 10 秒重上电）")
 
     def stop(self):
         if not self.running:
             return False, "底盘节点没在跑"
-        if self.proc is None or self.proc.poll() is not None:
-            return False, "底盘由外部启动，请在原终端停止该实例"
         with self.lock:
             try:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
@@ -2063,9 +1580,6 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     def index():
         return send_file(str(Path(__file__).with_name("console_ui.html")))
 
-    # 下发守卫（防重复/防冲突）—— 见 ActionGuard 的注释
-    guard = ActionGuard()
-
     @app.route("/api/state")
     def api_state():
         s = bridge.snapshot()
@@ -2076,7 +1590,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["tool_name"] = tool.name
         s["chassis"] = chassis.snapshot()
         s["mission_node"] = mission.snapshot()
-        s["odom_tf_ok"] = bool(s["pose_fresh"] and bridge.odom_to_field_tf() is not None)
+        s["odom_tf_ok"] = bridge.odom_to_field_tf() is not None
         # 雷达找球：算一次，地图和面板共用；候选在【车体系】，
         # 这里顺手转成场地系供地图直接画
         # ⚠️ 这几个调用内部都会拿 bridge.lock —— 绝不能放在 `with bridge.lock` 里面，
@@ -2106,40 +1620,32 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["logs"] += [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                       for (tt, lv, src, ms) in list(stack.log)[-40:]]
         s["logs"] = sorted(s["logs"], key=lambda x: x["t"])[-140:]
-        # 下发守卫状态：前端据此把冲突按钮变灰（必须在这里注入 ——
-        # Bridge.snapshot() 里没有 guard 这个名字，插那儿会 NameError）
-        s["guard"] = guard.snapshot()
         return jsonify(s)
-
-    @app.route("/api/camera_overlay", methods=["GET", "POST"])
-    def api_camera_overlay():
-        try:
-            updates = request.get_json(silent=True) if request.method == "POST" else None
-            if request.method == "POST" and not isinstance(updates, dict):
-                raise ValueError("请求须为JSON对象")
-            return jsonify({"ok": True, "settings": bridge.camera_overlay_settings(updates)})
-        except ValueError as exc:
-            return jsonify({"ok": False, "msg": str(exc)}), 400
-
-    def camera_response(slot):
-        def gen():
-            while True:
-                jpg = bridge.camera_frame(slot)
-                if jpg:
-                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
-                           b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
-                           + jpg + b"\r\n")
-                time.sleep(0.05 if slot == "front" else 0.1)
-        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame",
-                        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
-    @app.route("/api/camera_rear.mjpg")
-    def api_camera_rear_mjpg():
-        return camera_response("rear")
 
     @app.route("/api/camera.mjpg")
     def api_camera():
-        return camera_response("front")
+        def gen():
+            # ⚠️ 必须直接读 bridge.state["cam"]：snapshot() 为了 JSON 序列化
+            # 会把 cam 置成 None，用 snapshot 拿画面会永远拿到空。
+            last = None
+            idle = 0
+            while True:
+                with bridge.lock:
+                    img = bridge.state["cam"]
+                if img is not None and img is not last:
+                    last = img
+                    idle = 0
+                elif last is not None:
+                    idle += 1
+                if last is not None:
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                           b"Content-Length: " + str(len(last)).encode() + b"\r\n\r\n"
+                           + last + b"\r\n")
+                # 长时间没有新帧就停下（避免无相机时空转刷屏）
+                if last is None and idle > 200:
+                    break
+                time.sleep(0.05)
+        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
     @app.route("/api/lidar.mjpg")
     def api_lidar():
@@ -2154,23 +1660,19 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         def gen():
             while True:
                 with bridge.lock:
-                    current = localization_display_state(bridge.state,
-                        bridge.node.get_clock().now().nanoseconds * 1e-9, time.time())
-                    xyz = None if current["cloud"] is None else current["cloud"].copy()
-                    pose = current["pose"]
-                    dets = list(current["dets"]) if pose is not None else []
-                    lok = current["launcher_ok"]
-                    ok = current["loc_ok"]
-                odom_tf = (bridge.odom_to_field_tf(current.get("cloud_source_stamp"),
-                            current.get("cloud_frame")) if xyz is not None else None)
+                    xyz = None if bridge.state["cloud"] is None else bridge.state["cloud"].copy()
+                    pose = bridge.state["pose"]
+                    dets = list(bridge.state["dets"])
+                    lok = bridge.state["launcher_ok"]
+                    ok = bridge.state["loc_ok"]
+                odom_tf = bridge.odom_to_field_tf()
                 _lc, _ = bridge.lidar_ball_candidates()
                 lb_cands = [dict(c, **{k: v for k, v in candidate_to_repr(c).items()},
                                  field=bridge.body_to_field_xy(c["x"], c["y"]))
                             for c in _lc]
                 jpg = render_lidar(xyz, pose, dets, field, lok, ok,
                                    view=view, mirror_x=mirror, mirror_y=mirror_y,
-                                   odom_tf=odom_tf, lb_cands=lb_cands,
-                                   relative=current["localization_mode"] == "relative")
+                                   odom_tf=odom_tf, lb_cands=lb_cands)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
@@ -2184,16 +1686,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         d = request.get_json(force=True, silent=True) or {}
         name = (d.get("name") or "").strip()
         args = d.get("args") or {}
-        # ── 下发守卫：拒绝重复/冲突，但绝不拦 PANIC ──
-        ok, why = guard.check(name)
-        if not ok:
-            bridge.log_line("WARN", "guard", why)
-            return jsonify({"ok": False, "msg": why, "rejected": True})
-        guard.begin(name)
         try:
-            if name == "CAMERA_EXPOSURE":
-                return jsonify(dict(zip(("ok", "msg"), bridge.camera_exposure(
-                    args.get("slot"), args.get("value"), args.get("auto")))))
             if name in ("PASS", "SHOOT", "IDLE"):
                 return jsonify(dict(zip(("ok", "msg"), bridge.set_mission(name))))
             # ⚠️ 起任务：后端一直有 set_mission 接口和客户端，但分发里没接分支 ——
@@ -2320,10 +1813,6 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001
             return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"})
-        finally:
-            # 动作真正结束后才释放冲突类 —— 长动作（起整套/跑脚本/恢复 CAN）
-            # 会在 Flask 这个请求里阻塞到结束，所以这里释放正好等于"跑完了"
-            guard.end(name)
 
     return app
 
@@ -2335,17 +1824,7 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--no-stack-control", action="store_true",
                     help="禁用页面上的「启动/停止整套」按钮")
-    ap.add_argument("--overlay-config", default=str(Path(__file__).with_name("console_overlay.yaml")),
-                    help="摄像头画框后端配置文件")
-    ap.add_argument("--no-ball-boxes", action="store_true", help="关闭两路视频画框，输出原始画面")
     args = ap.parse_args(argv)
-    try:
-        options = yaml.safe_load(Path(args.overlay_config).read_text(encoding="utf-8")) or {}
-        options = overlay_options(options)
-        if args.no_ball_boxes:
-            options.update(front=False, rear=False)
-    except (OSError, ValueError, yaml.YAMLError) as exc:
-        ap.error(f"画框配置无效：{exc}")
 
     mission_cfg = yaml.safe_load(
         (WS / "src/rb_mission/config/mission.yaml").read_text(encoding="utf-8")) or {}
@@ -2365,7 +1844,7 @@ def main(argv=None):
         loc_out = loc_cfg.get("output") or {}
     except Exception:  # noqa: BLE001
         loc_conv, loc_out = {}, {}
-    bridge = Bridge({"topics": topics, "camera_overlay": options, "localization": {
+    bridge = Bridge({"topics": topics, "localization": {
         # ⚠️ 名字要和定位节点实际用的完全一致，否则 TF 查不到（静默不变换）
         "odom_frame": loc_conv.get("odom_frame") or "camera_init",
         "field_frame": loc_out.get("field_frame") or "field",

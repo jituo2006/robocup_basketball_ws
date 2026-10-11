@@ -99,64 +99,6 @@ def ball_xy(x: float, y: float, yaw: float, bearing_rad: float, distance: float,
     return x + slant * math.cos(ang), y + slant * math.sin(ang)
 
 
-def median_ball(samples):
-    """把若干 (bearing, distance) 采样合成一个稳健估计。
-
-    为什么用中位数：单目检测偶尔会把干扰物/局部特征当球，给出离谱的距离或方位；
-    中位数对这类离群值免疫，平均会被带偏（现场"找球非常不精准"的一部分原因）。
-
-    返回 (bearing, distance, n) 或 None（样本不足/全非法）。
-    """
-    ok = [(float(b), float(d)) for b, d in (samples or [])
-          if float(b) == float(b) and float(d) == float(d) and float(d) > 0.05]
-    if len(ok) < 2:
-        return None
-    bs = sorted(x[0] for x in ok)
-    ds = sorted(x[1] for x in ok)
-    mid = len(ok) // 2
-    return (bs[mid], ds[mid], len(ok))
-
-
-def approach_axis(yaw: float, bearing_rad: float) -> float:
-    """球在场地系的方位角。
-
-    bearing 是【右正左负】（相机约定），场地系是逆时针为正 ⇒ 方位 = yaw − bearing。
-    沿这个角的单位向量 (cos, sin) 就是从车指向球的水平方向。
-    """
-    return wrap_pi(yaw - bearing_rad)
-
-
-def ball_body_from_rear(rear_offset_x: float, bearing_rad: float, distance_m: float):
-    """后摄检测 → 球在【车体坐标】的位置（旋转中心为原点，+x 前、+y 左）。
-
-    ⚠️ 后摄朝 -x、顶朝上 ⇒ 图像右侧对应车的【左侧(+y)】
-       ⇒ 球相对车体的方向 = (-cos b, +sin b)（b 是右正左负的 bearing）
-    ⚠️ distance_m 是【光轴深度】，要 /cos(b) 才是斜距（和任务侧同一套换算）。
-    """
-    b = float(bearing_rad)
-    d = float(distance_m)
-    if not (b == b and d == d) or d <= 0.0:
-        return None
-    slant = d / max(math.cos(b), 1e-3)
-    return (-float(rear_offset_x) - slant * math.cos(b), slant * math.sin(b))
-
-
-def ball_world_from_rear(x: float, y: float, yaw: float, rear_offset_x: float,
-                         bearing_rad: float, distance_m: float):
-    """后摄检测 → 球在【场地坐标】的位置。"""
-    pb = ball_body_from_rear(rear_offset_x, bearing_rad, distance_m)
-    if pb is None:
-        return None
-    bx, by = pb
-    c, s = math.cos(yaw), math.sin(yaw)
-    return (x + c * bx - s * by, y + s * bx + c * by)
-
-
-def rear_world_angle(yaw: float, bearing_rad: float) -> float:
-    """后摄：球在场地系的方位角 = yaw + bearing（前摄是 yaw − bearing，符号相反）。"""
-    return wrap_pi(yaw + bearing_rad)
-
-
 def log(tag: str, msg: str, color: str = "") -> None:
     print(f"  {C_DIM}{time.strftime('%H:%M:%S')}{C_OFF} "
           f"{color}{tag:10}{C_OFF} {msg}", flush=True)
@@ -169,8 +111,6 @@ class Runner:
         import rclpy
         from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
         from rb_msgs.msg import DetectionArray
-        from nav_msgs.msg import Odometry
-        from sensor_msgs.msg import PointCloud2
 
         self.args = args
         self.rclpy = rclpy
@@ -181,26 +121,11 @@ class Runner:
         self.pose: tuple[float, float, float] | None = None
         self.dets: list = []
         self.last_det_time = 0.0
-        self.pose_stamp = self.odom_stamp = 0.0
-        self.det_stamp = self.rear_det_stamp = 0.0
-        self.motion_guard = False
 
         self.node.create_subscription(PoseWithCovarianceStamped, "/localization/pose",
                                       self._on_pose, 10)
         self.node.create_subscription(DetectionArray, "/perception/detections",
                                       self._on_dets, 10)
-        # 雷达兜底找球：需要点云 + camera_init 位姿（把点云转到车体系）
-        self.cloud = None          # Nx3 numpy（camera_init 系）
-        self.odom_cam = None       # (x, y, yaw) in camera_init
-        self.node.create_subscription(PointCloud2, self.args.lidar_cloud,
-                                      self._on_cloud, 5)
-        self.node.create_subscription(Odometry, self.args.lidar_odom,
-                                      self._on_odom_cam, 10)
-
-        # 后摄像头（车正后方）：转 180° 之后靠它做精准定位
-        self.dets_rear = []
-        self.node.create_subscription(
-            DetectionArray, self.args.rear_topic, self._on_dets_rear, 10)
 
         # 延迟导入任务侧的运动学（与任务用同一份，避免公式两套）
         sys.path.insert(0, f"{WS}/build/rb_mission")
@@ -217,148 +142,15 @@ class Runner:
         else:
             yaw = p.z
         self.pose = (p.x, p.y, yaw)
-        self.pose_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def _load_lidar_cfg(self) -> dict:
-        """从 perception.yaml 读 lidar_ball 参数（读不到就用模块默认值）。"""
-        cfg = {"enabled": True}
-        try:
-            import yaml
-            from pathlib import Path as _P
-            ws = _P(__file__).resolve().parents[1]
-            f = ws / "install/rb_perception/share/rb_perception/config/perception.yaml"
-            if not f.is_file():
-                f = ws / "src/rb_perception/config/perception.yaml"
-            d = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-            cfg.update(((d.get("perception") or {}).get("lidar_ball") or {}))
-        except Exception:  # noqa: BLE001
-            pass
-        cfg["enabled"] = True     # 兜底用，强制打开
-        return cfg
-
-    def _on_cloud(self, m) -> None:
-        try:
-            from rb_perception.lidar_ball import pointcloud2_to_xyz
-            pts = pointcloud2_to_xyz(m)
-            self.cloud = pts
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _on_odom_cam(self, m) -> None:
-        p = m.pose.pose
-        q = p.orientation
-        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        self.odom_cam = (p.position.x, p.position.y, yaw)
-        self.odom_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def lidar_find_ball(self, seconds: float | None = None):
-        """雷达兜底找球：返回场地系候选列表 [(fx, fy, bearing_deg, dist), ...]。
-
-        为什么值得先跑这步：雷达约 360° 覆盖、6m 范围，**不用转圈**就知道球
-        的大致方位；前摄只有约 ±40° 视野，必须转着找。所以合理顺序是
-        "雷达给大致位置 → 摄像头凑近确认"，而不是让摄像头盲转。
-
-        返回的 bearing_deg 是【车体系】方位（右正左负，和相机一致）。
-        """
-        if self.args.no_lidar_fallback:
-            return []
-        secs = float(seconds if seconds is not None else self.args.lidar_seconds)
-        log("雷达找球", f"等点云/位姿（{secs:.0f}s）…")
-        t0 = time.time()
-        best = []
-        while time.time() - t0 < secs:
-            self.spin(0.1)
-            if self.cloud is None or self.odom_cam is None or self.pose is None:
-                continue
-            try:
-                from rb_perception.lidar_ball import body_frame_cloud, find_ball_candidates
-                body = body_frame_cloud(self.cloud, self.odom_cam)
-                cands = find_ball_candidates(body, self.args.lidar_cfg)
-            except Exception as e:  # noqa: BLE001
-                log("雷达找球", f"失败: {e}", C_WARN)
-                return []
-            if cands:
-                best = cands
-                break
-        if not best:
-            log("雷达找球", "附近没找到球形候选（地面杂点/球太远/球在盲区）", C_WARN)
-            return []
-        # 车体系 → 场地系（用当前场地位姿；+y 是左）
-        px, py, pyaw = self.pose
-        out = []
-        for c in best:
-            bx, by = float(c["x"]), float(c["y"])
-            c_, s_ = math.cos(pyaw), math.sin(pyaw)
-            fx = px + c_ * bx - s_ * by
-            fy = py + s_ * bx + c_ * by
-            dist = math.hypot(bx, by)
-            # 车体系方位：右正左负（和相机 bearing 约定一致）
-            b = -math.degrees(math.atan2(by, bx))
-            out.append((fx, fy, b, dist))
-        out.sort(key=lambda o: o[3])
-        for fx, fy, b, d in out[:3]:
-            log("雷达候选", f"场地({fx:.2f},{fy:.2f}) 车体系方位{b:+.1f}° 距离{d:.2f}m", C_OK)
-        return out
-
-    def _on_dets_rear(self, m) -> None:
-        # ⚠️ 这个 Runner 不用锁 —— 回调就是直接赋值（和 _on_dets 一样）。
-        #    我第一版写了 `with self.lock:`，而类里根本没有 lock 属性 →
-        #    回调抛 AttributeError，直接打断 ros2 执行器（现象是"找球"刚开始就崩）。
-        self.dets_rear = list(m.detections)
-        self.rear_det_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def best_ball_rear(self):
-        """后摄里置信度最高的目标球检测。"""
-        if not self.detection_fresh(self.rear_det_stamp):
-            return None
-        best = None
-        for d in list(getattr(self, "dets_rear", []) or []):
-            if d.label != self.args.ball_label:
-                continue
-            if best is None or d.confidence > best.confidence:
-                best = d
-        return best
-
-    def measure_rear_stable(self, timeout: float = 6.0, n: int | None = None):
-        """后摄多帧取中位数（同前摄的稳健做法）。"""
-        want = int(n or self.args.stable_frames)
-        got = []
-        last_stamp = None
-        t0 = time.time()
-        while len(got) < want and time.time() - t0 < timeout:
-            d = self.best_ball_rear()
-            if d is not None and self.rear_det_stamp != last_stamp:
-                got.append((float(d.bearing_rad), float(d.distance_m)))
-                last_stamp = self.rear_det_stamp
-            self.spin(0.05)
-        return median_ball(got)
 
     def _on_dets(self, m) -> None:
         self.dets = list(m.detections)
         self.last_det_time = time.time()
-        self.det_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
-
-    def detection_fresh(self, stamp: float) -> bool:
-        now = self.node.get_clock().now().nanoseconds * 1e-9
-        return math.isfinite(stamp) and stamp > 0 and -0.05 <= now - stamp <= 1.0
 
     def spin(self, sec: float) -> None:
         t0 = time.time()
         while time.time() - t0 < sec:
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
-        if self.motion_guard:
-            self.require_fresh_pose()
-
-    def require_fresh_pose(self) -> None:
-        now = self.node.get_clock().now().nanoseconds * 1e-9
-        if self.pose is None or not all(math.isfinite(v) for v in self.pose):
-            self.stop()
-            raise RuntimeError("位姿缺失或非有限数，已请求停车")
-        for name, stamp in (("定位", self.pose_stamp), ("雷达里程计", self.odom_stamp)):
-            if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now - stamp <= self.args.pose_timeout:
-                self.stop()
-                raise RuntimeError(f"{name}源时间戳过期，已请求停车")
 
     def stop(self) -> None:
         for _ in range(5):
@@ -370,17 +162,6 @@ class Runner:
         while time.time() - t0 < timeout and self.pose is None:
             self.rclpy.spin_once(self.node, timeout_sec=0.05)
         return self.pose is not None
-
-    def wait_motion_ready(self, timeout: float = 8.0) -> None:
-        deadline = time.monotonic() + timeout
-        while True:
-            self.spin(0.05)
-            try:
-                self.require_fresh_pose()
-                return
-            except RuntimeError:
-                if time.monotonic() >= deadline:
-                    raise
 
     # -- 基本动作 -----------------------------------------------------------
     def goto(self, tx: float, ty: float, timeout: float) -> bool:
@@ -437,7 +218,7 @@ class Runner:
     # -- 视觉 ---------------------------------------------------------------
     def best_ball(self):
         """当前最好的目标球检测（有有效距离的优先，再按置信度）。"""
-        if time.time() - self.last_det_time > 1.0 or not self.detection_fresh(self.det_stamp):
+        if time.time() - self.last_det_time > 1.0:
             return None
         cands = [d for d in self.dets if d.label == self.args.ball_label]
         if not cands:
@@ -460,174 +241,24 @@ class Runner:
         return ball_xy(self.pose[0], self.pose[1], self.pose[2],
                        det.bearing_rad, det.distance_m, self.args.cam_yaw_offset)
 
-    def measure_ball_stable(self, timeout: float = 6.0, n: int | None = None):
-        """连续采几帧取【中位数】。
-
-        为什么要中位数不要平均：单帧偶尔会把干扰物当成球（距离/方位离谱），
-        平均会被它带偏；中位数对离群值免疫。
-        """
-        want = int(n or self.args.stable_frames)
-        got = []
-        last_stamp = None
+    def find_ball(self, timeout: float):
+        """原地慢转搜索。找到返回检测，超时返回 None。"""
+        log("找球", f"原地搜索 {self.args.ball_label} …")
         t0 = time.time()
-        while len(got) < want and time.time() - t0 < timeout:
-            d = self.best_ball()
-            if d is not None and self.det_stamp != last_stamp:
-                b = float(d.bearing_rad)
-                dm = float(d.distance_m)
-                if b == b and dm == dm and dm > 0.05:
-                    got.append((b, dm))
-                    last_stamp = self.det_stamp
-            self.spin(0.05)
-        return median_ball(got)
-
-    def servo_to_ball(self, target_d: float, tol_b_deg: float, tol_d: float,
-                      steps: int, max_move: float, max_turn_deg: float):
-        """闭环把车摆到"正对球、且旋转中心距球 target_d"。
-
-        每一步都重新量，不靠一次性解算 —— 单目测距在近距离本来就有几个百分点
-        误差，只有闭环才能收敛到"正对着"。
-        返回 (ok, 最后一次测量)
-        """
-        last = None
-        for i in range(1, steps + 1):
-            m = self.measure_ball_stable()
-            if m is None:
-                log("丢球", f"第 {i}/{steps} 步：看不到球了，先找", C_WARN)
-                if self.find_ball(timeout=12.0) is None:
-                    return False, last
-                continue
-            bearing, dist, nf = m
-            last = m
-            db = math.degrees(bearing)
-            dd = dist - target_d
-            log("伺服", f"第 {i}/{steps} 步：方位 {db:+.2f}°（容差 ±{tol_b_deg:.1f}°）、"
-                        f"距离 {dist:.3f}m（目标 {target_d:.2f}±{tol_d:.2f}，"
-                        f"差 {dd:+.3f}） [{nf} 帧中位数]")
-            if abs(db) <= tol_b_deg and abs(dd) <= tol_d:
-                log("对准完成", f"方位 {db:+.2f}°，距离 {dist:.3f}m —— 摄像头正对球", C_OK)
-                return True, m
-
-            # 先转：把球拉到画面正中（bearing → 0）
-            # bearing 右正左负，ROS yaw 逆时针为正，右转必须减小 yaw。
-            turn = max(-math.radians(max_turn_deg),
-                       min(math.radians(max_turn_deg), -bearing))
-            if abs(math.degrees(turn)) > 0.3:
-                if self.pose is not None:
-                    if not self.rotate_to(wrap_pi(self.pose[2] + turn), timeout=15.0):
-                        return False, last
-                    # 转动后重新测量，不能再按旧方位角平移。
-                    continue
-
-            # 再走：朝球方向把距离补上（正数=还远，前进；负数=太近，后退）
-            move = max(-max_move, min(max_move, dd))
-            if abs(move) > 0.01 and self.pose is not None:
-                yaw = self.pose[2]
-                # 球在世界系的方位 = yaw - bearing（右正左负）
-                ang = wrap_pi(yaw - bearing)
-                x, y, _ = self.pose
-                if not self.goto(x + move * math.cos(ang), y + move * math.sin(ang),
-                                 timeout=20.0):
-                    return False, last
-        log("未收敛", f"伺服 {steps} 步没进容差，以最后一次为准", C_WARN)
-        return False, last
-
-    def backup_along(self, dist: float, timeout: float = 25.0) -> bool:
-        """沿【车头方向】平移 dist（正=前进；负=后退）。用里程计闭环。"""
-        if self.pose is None:
-            return False
-        x0, y0, yaw = self.pose
-        tx = x0 + dist * math.cos(yaw)
-        ty = y0 + dist * math.sin(yaw)
-        log("平移", f"{'前进' if dist > 0 else '后退'} {abs(dist):.2f}m "
-                    f"→ ({tx:.2f},{ty:.2f})")
-        return self.goto(tx, ty, timeout=timeout)
-
-    def _scan_for_ball(self, seconds: float, wz: float, tag: str):
-        """原地按给定角速度转，边转边看摄像头。找到返回检测。"""
-        t0 = time.time()
-        while time.time() - t0 < seconds:
+        while time.time() - t0 < timeout:
             self.spin(0.05)
             det = self.best_ball()
             if det is not None:
                 self.stop()
-                log("找到球", f"[{tag}] {det.label} conf={det.confidence:.2f} "
-                              f"bearing={math.degrees(det.bearing_rad):+.1f}° "
-                              f"dist={det.distance_m:.2f}m", C_OK)
+                log("找到球", f"{det.label} conf={det.confidence:.2f} "
+                             f"bearing={math.degrees(det.bearing_rad):+.1f}° "
+                             f"dist={det.distance_m:.2f}m", C_OK)
                 return det
-            tw = self._Twist()
-            tw.angular.z = wz
-            self.cmd_pub.publish(tw)
+            t = self._Twist()
+            t.angular.z = self.args.search_wz
+            self.cmd_pub.publish(t)
         self.stop()
-        return None
-
-    def move_into_field(self, dist: float, timeout: float = 30.0) -> bool:
-        """朝【场地中心】方向走 dist 米（三级都找不到时，往场内挪一点换个视角）。"""
-        if dist <= 0.0:
-            return True
-        if self.pose is None:
-            return False
-        cx, cy = self.field_l / 2.0, self.field_w / 2.0
-        px, py, _ = self.pose
-        vx, vy = cx - px, cy - py
-        n = math.hypot(vx, vy)
-        if n < 1e-6:
-            return False
-        tx, ty = px + vx / n * dist, py + vy / n * dist
-        m = 0.35                                    # 别跑出场
-        tx = min(max(tx, m), self.field_l - m)
-        ty = min(max(ty, m), self.field_w - m)
-        log("进场", f"朝场地中心挪 {dist:.2f}m → ({tx:.2f},{ty:.2f})")
-        return self.goto(tx, ty, timeout=timeout)
-
-    def find_ball(self, timeout: float):
-        """三级找球：① 前摄转圈 → ② 雷达 360° 粗定位 → ③ 进场 + 顺时针旋转。
-
-        为什么不让摄像头一直盲转：
-          前摄视野只有约 ±40°，必须转着找；雷达约 360°、6m 范围，
-          【不用转】就能给出球的大致方位。所以合理顺序是
-          "雷达先给大致位置 → 摄像头转过去精确确认"，比盲转快得多。
-        雷达只做粗定位（地面上一个小点簇，容易有杂点），
-        最终对准仍然靠摄像头 —— 两者各司其职。
-        """
-        # ── ① 前摄原地转圈找 ──
-        log("找球①", f"前摄原地搜索 {self.args.ball_label}（{timeout:.0f}s）")
-        det = self._scan_for_ball(timeout, self.args.search_wz, "前摄")
-        if det is not None:
-            return det
-
-        # ── ② 雷达兜底：不用转圈就知道球的大致方位 ──
-        if not self.args.no_lidar_fallback:
-            log("找球②", "前摄没看到 → 用雷达找大致位置（360°，不用转圈）")
-            for fx, fy, bdeg, dist in self.lidar_find_ball()[:3]:
-                if self.pose is None:
-                    break
-                # 车体系方位右正左负 ⇒ 世界角 = yaw − bearing
-                want = wrap_pi(self.pose[2] - math.radians(bdeg))
-                log("转向候选", f"车体系方位 {bdeg:+.1f}° → 世界角 "
-                                f"{math.degrees(want):+.1f}°（场地 {fx:.2f},{fy:.2f}）")
-                if not self.rotate_to(want, timeout=20.0):
-                    log("转向候选", "转向失败，试下一个", C_WARN)
-                    continue
-                # 转过去后用摄像头确认（雷达是粗定位，必须摄像头复核）
-                det = self._scan_for_ball(3.0, 0.0, f"雷达候选{dist:.1f}m")
-                if det is not None:
-                    return det
-                log("雷达候选", "转过去后摄像头没确认到球（可能是地面杂点）", C_WARN)
-        else:
-            log("找球②", "雷达兜底已关闭", C_DIM)
-
-        # ── ③ 都没有：先向场内挪，再顺时针旋转找 ──
-        log("找球③", f"雷达也没找到 → 向场内移动 {self.args.into_field:.2f}m，"
-                     f"再顺时针旋转找球 {self.args.cw_scan_sec:.0f}s")
-        self.move_into_field(self.args.into_field)
-        self.spin(0.3)
-        det = self._scan_for_ball(self.args.cw_scan_sec, self.args.cw_wz, "顺时针")
-        if det is not None:
-            return det
-
-        self.stop()
-        log("找球失败", "三级都试过：前摄转圈 / 雷达 360° / 进场顺时针 —— 都没找到球", C_BAD)
+        log("找球失败", f"{timeout:.0f}s 内没看到 {self.args.ball_label}", C_BAD)
         return None
 
     def close(self) -> None:
@@ -668,8 +299,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-perimeter", action="store_true", help="跳过绕场，直接找球")
     ap.add_argument("--ball-label", default="ball_basketball", help="目标球标签")
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
-    ap.add_argument("--pose-timeout", type=float, default=0.5,
-                    help="定位及雷达源时间戳最大年龄 s，过期即停车")
     ap.add_argument("--kp", type=float, default=1.5)
     ap.add_argument("--kp-yaw", type=float, default=2.0)
     ap.add_argument("--max-ang", type=float, default=0.8, help="角速度上限 rad/s")
@@ -681,44 +310,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--search-wz", type=float, default=0.4, help="找球自转角速度 rad/s")
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
                     help="相机光轴相对车头的偏置 rad")
-    # ── 现场规格：对准 → 停在球前 70cm → 转 180° → 后退 20cm ──
-    # ── 三级找球 ──
-    ap.add_argument("--no-lidar-fallback", action="store_true",
-                    help="关掉雷达兜底找球（默认开）")
-    ap.add_argument("--lidar-cloud", default="/cloud_registered",
-                    help="雷达点云话题（车体系变换用）")
-    ap.add_argument("--lidar-odom", default="/Odometry",
-                    help="camera_init 系位姿（把点云转到车体系用）")
-    ap.add_argument("--lidar-seconds", type=float, default=4.0,
-                    help="雷达找球累计时长")
-    ap.add_argument("--into-field", type=float, default=1.0,
-                    help="三级都找不到时，先朝场内走多少米（默认 1.0）")
-    ap.add_argument("--cw-scan-sec", type=float, default=40.0,
-                    help="进场后顺时针旋转找球时长")
-    ap.add_argument("--cw-wz", type=float, default=-0.35,
-                    help="顺时针旋转角速度 rad/s（【负】= 顺时针）")
-    ap.add_argument("--rear-offset", type=float, default=0.25,
-                    help="后摄到旋转中心的距离 m（装完量一下；后摄在车后填正数）")
-    ap.add_argument("--rear-topic", default="/perception/detections_rear",
-                    help="后摄检测话题")
-    ap.add_argument("--align-dist", type=float, default=0.70,
-                    help="对准到位时【车旋转中心】到球的距离 m（现场要求 70cm）")
-    ap.add_argument("--align-tol-deg", type=float, default=1.5,
-                    help="摄像头对准球的方位角容差（度）。越小越正对，但更难收敛")
-    ap.add_argument("--align-dist-tol", type=float, default=0.05,
-                    help="距离容差 m")
-    ap.add_argument("--servo-steps", type=int, default=14,
-                    help="视觉伺服最多迭代几步")
-    ap.add_argument("--servo-move", type=float, default=0.12,
-                    help="每步最大平移 m（小步逼近，避免冲过）")
-    ap.add_argument("--servo-turn-deg", type=float, default=12.0,
-                    help="每步最大转角（度）")
-    ap.add_argument("--stable-frames", type=int, default=5,
-                    help="取几帧做中位数（抗抖动/漏检）")
-    ap.add_argument("--turn-deg", type=float, default=180.0,
-                    help="对准后原地转多少度（现场要求 180）")
-    ap.add_argument("--backup", type=float, default=0.20,
-                    help="转身后退多少 m（现场要求 20cm；朝球方向退）")
     ap.add_argument("--stop-distance", type=float, default=0.60,
                     help="走到离球多远停下 m")
     ap.add_argument("--max-approaches", type=int, default=3, help="接近球最多试几次")
@@ -770,17 +361,12 @@ def main(argv: list[str] | None = None) -> int:
                                    encoding="utf-8")) or {}).get("field", {}) or {}
         L = float(fld.get("length_m", 14.0))
         W = float(fld.get("width_m", 7.5))
-        # 交给 Runner：三级找球的"向场内移动"要用场地中心
-        run.field_l, run.field_w = L, W
         log("位姿", f"出发点 ({sx:+.2f}, {sy:+.2f}, {math.degrees(syaw):+.1f}°)")
         log("场地", f"{L:.1f} × {W:.1f} m，绕场 inset={args.inset:.2f}m")
 
         if args.dry:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
             return 0
-
-        run.wait_motion_ready()
-        run.motion_guard = True
 
         if not args.yes:
             print(f"\n  {C_WARN}接下来车会真的动。急停准备好（另开终端 bash tools/panic.sh）{C_OFF}")
@@ -802,100 +388,79 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
             log("绕场完成", "已回到出发点", C_OK)
 
-        # ── [5/5] 找球 → 精密对准（70cm）→ 转 180° → 后退 20cm ─────────────
-        print("\n[5/5] 找球 → 摄像头正对球 → 旋转中心停在球前 "
-              f"{args.align_dist:.2f}m → 转 {args.turn_deg:.0f}° → "
-              f"后退 {args.backup:.2f}m")
+        # ── [5/5] 找球 → 走到球前 → 背对球 ──────────────────────────────
+        print("\n[5/5] 找球 → 走到球前 → 转身背对球")
         det = run.find_ball(timeout=45.0)
         if det is None:
             return 1
 
-        # ① 闭环视觉伺服：摄像头正对球，且旋转中心距球 align_dist
-        ok_align, last = run.servo_to_ball(
-            target_d=args.align_dist,
-            tol_b_deg=args.align_tol_deg,
-            tol_d=args.align_dist_tol,
-            steps=args.servo_steps,
-            max_move=args.servo_move,
-            max_turn_deg=args.servo_turn_deg)
-        if not ok_align:
-            log("对准失败", "视觉伺服没收敛 —— 不盲目转身（宁可不做也别做错）", C_WARN)
-            return 1
+        arrived = False
+        for attempt in range(1, args.max_approaches + 1):
+            det = run.best_ball() or det
+            goal = run.ball_field_xy(det)
+            if goal is None:
+                # 没有距离估计：按方位角盲走近一点，再重看
+                log("无测距", "distance_m 无效，按方位角靠近后重看", C_WARN)
+                x, y, _ = run.pose
+                ang = run.ball_bearing_world(det)
+                step = 0.5
+                run.goto(x + step * math.cos(ang), y + step * math.sin(ang), timeout=25.0)
+                det = run.find_ball(timeout=15.0)
+                if det is None:
+                    break
+                continue
 
-        # ② 原地转 turn_deg（默认 180°），用里程计 yaw 精确转，不靠视野反推
-        if run.pose is None:
-            log("失败", "位姿丢了，无法转身", C_BAD)
-            return 1
-        yaw0 = run.pose[2]
-        target_yaw = wrap_pi(yaw0 + math.radians(args.turn_deg))
-        log("转身", f"车头 {math.degrees(yaw0):+.1f}° → {math.degrees(target_yaw):+.1f}°"
-                    f"（转 {args.turn_deg:.0f}°）")
-        ok_turn = run.rotate_to(target_yaw, timeout=45.0)
-        if not ok_turn:
-            log("转身未到位", "角度没到，停车退出", C_WARN)
-            return 1
+            bx, by = goal
+            x, y, _ = run.pose
+            d = math.hypot(bx - x, by - y)
+            # 停在球前 stop_distance 处：从当前位置朝球走，但少走那一段
+            if d > args.stop_distance:
+                f = (d - args.stop_distance) / d
+                tx, ty = x + (bx - x) * f, y + (by - y) * f
+            else:
+                tx, ty = x, y
+            log("走向球", f"第 {attempt}/{args.max_approaches} 次：球≈({bx:.2f},{by:.2f})，"
+                          f"目标点 ({tx:.2f},{ty:.2f})，剩余 {d:.2f}m")
+            if not run.goto(tx, ty, timeout=45.0):
+                log("中止", "走到球前失败", C_BAD)
+                return 1
 
-        # ③ 转身后【用后摄】做精准定位 —— 这正是后摄存在的意义
-        #    前摄此时背对球看不到，后摄正对着球（装得低、水平，近距离更清楚）
-        run.spin(0.4)
-        rear = run.measure_rear_stable(timeout=6.0)
-        front_after = run.measure_ball_stable(timeout=3.0, n=3)
-        if rear is not None:
-            rb, rd, rn = rear
-            wa = math.degrees(rear_world_angle(run.pose[2] if run.pose else 0.0, rb))
-            log("后摄定位", f"方位 {math.degrees(rb):+.2f}°（世界 {wa:+.1f}°）、"
-                            f"深度 {rd:.3f}m  [{rn} 帧中位数]", C_OK)
-            bw = ball_world_from_rear(
-                run.pose[0], run.pose[1], run.pose[2],
-                args.rear_offset, rb, rd) if run.pose else None
-            if bw:
-                log("球位置", f"据后摄推算球在场地 ({bw[0]:.2f}, {bw[1]:.2f})")
-                # 旋转中心到球的距离 = |球位 - 车心|
-                cd = math.hypot(bw[0] - run.pose[0], bw[1] - run.pose[1])
-                log("距离核对", f"旋转中心距球 {cd:.3f}m（对准时目标 {args.align_dist:.2f}m）")
-        else:
-            log("后摄无检测", "后摄没看到球 —— 检查话题 /perception/detections_rear、"
-                              "内参是否标定、球是否在视野里", C_WARN)
-        if front_after is not None:
-            log("注意", f"转身前摄还能看到球（方位 {math.degrees(front_after[0]):+.1f}°）"
-                        f" —— 球可能在侧面，核对一下", C_WARN)
+            det2 = run.find_ball(timeout=12.0)
+            if det2 is not None:
+                det = det2
+                dm = det.distance_m
+                if dm == dm and dm <= args.stop_distance + 0.30:
+                    log("已到位", f"离球 {dm:.2f}m（目标 {args.stop_distance:.2f}m）", C_OK)
+                    arrived = True
+                    break
+            log("重试", "还没到球前，再修正一次", C_WARN)
 
-        # ④ 朝球方向退 backup（现场要 20cm）
-        #    ⚠️ 转完 180° 后车头【背对】球，"朝球方向"= 车头反方向
-        before = run.pose
-        ok_back = run.backup_along(-abs(args.backup), timeout=30.0) \
-            if args.turn_deg >= 90 else run.backup_along(abs(args.backup), timeout=30.0)
-
-        # ⑤ 退完再用后摄确认（闭环的最后一眼）
+        # ── 转身：让背面对着球 ──────────────────────────────────────────
+        det = run.best_ball() or det
         run.spin(0.3)
-        after_rear = run.measure_rear_stable(timeout=5.0, n=3)
-        final_d = None
-        if after_rear is not None:
-            ab, ad, an = after_rear
-            log("后摄复核", f"退完后：方位 {math.degrees(ab):+.2f}°、深度 {ad:.3f}m  [{an} 帧]",
-                C_OK)
-            if run.pose:
-                bw2 = ball_world_from_rear(run.pose[0], run.pose[1], run.pose[2],
-                                           args.rear_offset, ab, ad)
-                if bw2:
-                    final_d = math.hypot(bw2[0] - run.pose[0], bw2[1] - run.pose[1])
-        if before and run.pose:
-            moved = math.hypot(run.pose[0] - before[0], run.pose[1] - before[1])
-            log("位移核对", f"后退实际走了 {moved:.3f}m（指令 {args.backup:.2f}m）")
+        if run.pose is None:
+            log("失败", "位姿丢了", C_BAD)
+            return 1
+        if det is None:
+            log("丢球", "转身前看不到球，无法确定方向 → 停", C_WARN)
+            return 1
+
+        ball_ang = run.ball_bearing_world(det)
+        target_yaw = yaw_to_put_ball_behind(run.pose[2], det.bearing_rad,
+                                            args.cam_yaw_offset)
+        log("转身", f"球在场地系方位 {math.degrees(ball_ang):+.1f}° → "
+                    f"车头转到 {math.degrees(target_yaw):+.1f}°（背面朝球）")
+        ok = run.rotate_to(target_yaw, timeout=40.0)
 
         print()
-        if ok_turn and ok_back:
-            log("完成", f"找球 ✓  对准(方位容差±{args.align_tol_deg:.1f}°) ✓  "
-                        f"旋转中心距球 {args.align_dist:.2f}m ✓  "
-                        f"转 {args.turn_deg:.0f}° ✓  后退 {args.backup:.2f}m ✓", C_OK)
-            if final_d:
-                log("终点", f"后摄确认：旋转中心距球约 {final_d:.2f}m，背面朝球", C_OK)
-        elif ok_turn:
-            log("部分完成", "对准 ✓  转身 ✓  但后退没完成", C_WARN)
+        if ok and arrived:
+            log("完成", "绕场 ✓  找球 ✓  走到球前 ✓  背面朝球 ✓", C_OK)
+        elif ok:
+            log("部分完成", "绕场 ✓  找球 ✓  转身 ✓（但没确认走到球前）", C_WARN)
         else:
-            log("部分完成", "对准 ✓  转身没到位", C_WARN)
+            log("部分完成", "转身没到位", C_WARN)
         log("注意", "车已停。恢复任务：重启 boot.sh，或直接 set_mission")
-        return 0 if ok_turn and ok_back else 1
+        return 0 if ok else 1
 
     except KeyboardInterrupt:
         print(f"\n  {C_WARN}Ctrl-C —— 发零速停车{C_OFF}")
@@ -906,8 +471,6 @@ def main(argv: list[str] | None = None) -> int:
         run.stop()
         return 1
     finally:
-        if not args.dry:
-            run.stop()
         run.close()
 
 

@@ -87,6 +87,7 @@ class LocalizationNode(Node):
             raise ValueError("source_timeout_s 必须为有限正数")
         self.source_freshness = SourceFreshness()
         self.last_source_stamp = None
+        self.add_on_set_parameters_callback(self.on_tuning_parameters)
         self.use_odom_pose_as_abs = bool(src.get("use_odom_pose_as_abs", True))
         self.camera_yaw_offset = float(src.get("camera_yaw_offset_rad", 0.0))
 
@@ -114,11 +115,6 @@ class LocalizationNode(Node):
         # 而这里要补上 `field → camera_init`，否则 RViz 无法把点云画到 field 下
         # （症状：地图一片黑，明明 /cloud_registered 有数据）。
         self.odom_frame_name = str(lc.get("odom_frame", "camera_init"))
-        self.relative_mode = bool(self.declare_parameter("relative_mode", False).value)
-        if self.relative_mode:
-            self.odom_conv_enabled = True
-            self.odom_zero_on_first = True
-            self.start_pose = (0.0, 0.0, 0.0)
         self.odom_origin: tuple[float, float, float] | None = None
         self.theta = 0.0          # odom → field 的旋转量，首帧确定
         self.conv_ready = False
@@ -128,8 +124,6 @@ class LocalizationNode(Node):
         self.ok_topic = str(out.get("ok_topic", "/localization/ok"))
         self.publish_tf = bool(out.get("publish_tf", True))
         self.field_frame = str(out.get("field_frame", "field"))
-        if self.relative_mode:
-            self.field_frame = "lidar_local"
         self.base_frame = str(out.get("base_frame", "base_link"))
         self.ok_std_threshold = float(out.get("ok_std_threshold_m", 0.60))
         # 发布频率。原来"每 50 条 odom 发一次"，在 50Hz odom 下只有 1Hz，
@@ -137,14 +131,11 @@ class LocalizationNode(Node):
         self.publish_rate_hz = float(out.get("publish_rate_hz", 20.0))
 
         start = self.cfg.get("initial_pose", {}) or {}
-        if self.relative_mode:
-            self.ekf.set_pose(0.0, 0.0, 0.0)
-        else:
-            self.ekf.set_pose(float(start.get("x", 0.0)), float(start.get("y", 0.0)),
-                              float(start.get("yaw", 0.0)))
+        self.ekf.set_pose(float(start.get("x", 0.0)), float(start.get("y", 0.0)),
+                          float(start.get("yaw", 0.0)))
 
         self.landmarks: list[tuple[float, float]] = []
-        for item in ([] if self.relative_mode else self.cfg.get("landmarks", []) or []):
+        for item in self.cfg.get("landmarks", []) or []:
             if "x" in item and "y" in item:
                 self.landmarks.append((float(item["x"]), float(item["y"])))
 
@@ -159,12 +150,10 @@ class LocalizationNode(Node):
 
         self.publish_timer = self.create_timer(1.0 / max(self.publish_rate_hz, 1.0),
                                                lambda: self.publish_state(None))
-        self.last_odom_field_pose = None
         self.last_odom_time: Time | None = None
         self.odom_count = 0
         self.abs_count = 0
         self.pillar_updates = 0
-        self.add_on_set_parameters_callback(self.on_tuning_parameters)
 
         self.get_logger().info(
             f"定位就绪: odom={self.odom_topic} abs={self.abs_pose_topic or '(未启用)'} "
@@ -289,26 +278,36 @@ class LocalizationNode(Node):
         if self.last_odom_time is not None:
             dt = (now - self.last_odom_time).nanoseconds * 1e-9
         self.last_odom_time = now
+        if dt <= 0.0 or dt > 0.5:
+            dt = 0.0
+
+        # yaw 的取法（⚠️ 这里曾有个真 BUG）：
+        #   FAST-LIO 的 `position.z` 是【高度】（实测 -0.007 m），**不是 yaw**。
+        #   "yaw 塞在 z 里" 是本队自家消息的老约定，只对自家发的话题成立。
+        #   原判据是 `hypot(q.x,q.y,q.z) < 1e-6` —— 机器人朝向≈0° 时四元数的
+        #   x,y,z 恰好都是 0，于是走进分支把**高度当成了朝向**；高度一漂，
+        #   朝向就跟着漂 → 车体系速度方向错 → 表现为过冲/往回走。
+        #   正确做法：四元数模长≈1（有效旋转）就用它；只有四元数全零才退回 z。
+        #   实现见 _message_yaw（队友独立修了同一处，结论一致）。
         pos = msg.pose.pose.position
         yaw = self._message_yaw(msg)
 
-        if self.use_odom_pose_as_abs:
-            current = self.odom_to_field(pos.x, pos.y, yaw)
-            # FAST-LIO publish_odometry() fills pose only. Its /Odometry twist
-            # remains zero; velocities on the separate IMU-propagated topic
-            # cannot be assumed to be present here. Predict from pose changes
-            # before the absolute update, rather than low-pass filtering motion.
-            if self.last_odom_field_pose is not None and dt > 0.0:
-                self.ekf.predict_pose_delta(self.last_odom_field_pose, current, dt)
-            self.last_odom_field_pose = current
-            self.ekf.update_pose(*current)
-            self.abs_count += 1
-        elif 0.0 < dt <= 0.5:
-            # Velocity-only sources retain the existing world-frame convention.
-            tw = msg.twist.twist
-            byaw = wrap_pi(yaw + self.s2b_yaw)
+        # 车体在里程计系下的朝向（= 雷达 yaw + 安装偏航）
+        byaw = wrap_pi(yaw + self.s2b_yaw)
+
+        tw = msg.twist.twist
+        if dt > 0.0:
+            # ⚠️ FAST-LIO 的 twist 是【world(camera_init)系】速度，而 Ekf2D.predict()
+            #    要的是**车体系**（它内部会再按 yaw 旋转）。直接喂 = 多转一次 yaw，
+            #    预测方向全错。转换细节见 ekf2d.world_vel_to_body（有单测锁住）。
             vx_b, vy_b = world_vel_to_body(tw.linear.x, tw.linear.y, byaw)
             self.ekf.predict(vx_b, vy_b, tw.angular.z, dt)
+
+        # 若这路里程计本身带绝对位姿（雷达 FAST-LIO / 全场定位板），做一次观测更新
+        if self.use_odom_pose_as_abs:
+            fx, fy, fyaw = self.odom_to_field(pos.x, pos.y, yaw)
+            self.ekf.update_pose(fx, fy, fyaw)
+            self.abs_count += 1
 
         self.odom_count += 1
 
@@ -395,8 +394,7 @@ class LocalizationNode(Node):
         ok = Bool()
         source_ok = self.source_freshness.valid(
             self.get_clock().now().nanoseconds * 1e-9, self.source_timeout_s)
-        ok.data = bool(not self.relative_mode and source_ok
-                       and math.hypot(sx, sy) <= self.ok_std_threshold)
+        ok.data = bool(source_ok and math.hypot(sx, sy) <= self.ok_std_threshold)
         self.ok_pub.publish(ok)
 
         if self.tf_broadcaster is not None and source_ok:

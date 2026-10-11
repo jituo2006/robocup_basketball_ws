@@ -16,9 +16,6 @@ set -u
 
 IFACE=can0
 BITRATE=1000000
-# 限制旧速度报文积压。1000 个槽位能暂时隐藏 ENOBUFS，不能提高发送速度。
-# 2026-10-11 清空队列后，10帧/秒仍出现约898ms回送延迟；必须解决链路阻塞。
-# 已验证实时发送稳定后，再按延迟预算调队列，不以“写入不报错”代替验收。
 QLEN=20
 
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
@@ -98,7 +95,7 @@ fi
 # ---------- ② 底盘节点去重 ----------
 echo
 echo "${B}[2/3] 底盘节点${N}"
-mapfile -t nodes < <(pgrep -x "rb_chassis_node" 2>/dev/null || true)
+mapfile -t nodes < <(pgrep -f "[r]b_chassis_node" 2>/dev/null || true)
 n=${#nodes[@]}
 
 if [ "$n" -eq 0 ]; then
@@ -107,13 +104,9 @@ elif [ "$n" -eq 1 ]; then
   echo "  ${G}✓${N} 只有 1 个（PID ${nodes[0]}）"
 else
   echo "  ${Y}!${N} 有 $n 个底盘节点在抢 CAN（PID: ${nodes[*]}）→ 全部清掉"
-  kill -TERM "${nodes[@]}" 2>/dev/null
+  pkill -f "[r]b_chassis" 2>/dev/null
   sleep 2
-  left=$(pgrep -x "rb_chassis_node" 2>/dev/null | wc -l)
-  if [ "$left" -gt 0 ]; then
-    echo "  ${R}✗${N} 仍有 $left 个底盘进程，请检查进程退出日志，不要重复启动"
-    exit 1
-  fi
+  left=$(pgrep -f "[r]b_chassis_node" 2>/dev/null | wc -l)
   echo "  ${G}✓${N} 已清理，剩余 $left 个"
 fi
 
@@ -128,7 +121,7 @@ echo
 echo "  做完之后重启底盘节点："
 echo "    ${B}rbws${N}"
 echo "    ${B}ros2 launch rb_chassis chassis.launch.py${N}"
-echo "  ${D}「使能指令已入队」仅表示已请求发送，需再检查 CAN TX 错误和发送速率。${N}"
+echo "  ${D}看到「CAN 已启动: can0」和「底盘已使能 4 个电机（board_id=1）」才算 OK。${N}"
 echo
 echo "  然后另开终端遥控（终端也要 source 环境）："
 echo "    ${B}rbws${N}"

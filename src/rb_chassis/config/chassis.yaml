@@ -14,7 +14,6 @@ rb_chassis:
     can_interface: "can0"
     odom_topic: "/odom"
     cmd_vel_topic: "/cmd_vel"
-    # 自定义 DJI v2 控制板编号；CAN2 使用速度协议，并非 C620 原生电流协议。
     board_id: 1
 
     limit_vel: 1.0          # 速度上限 (m/s, rad/s)。比赛建议先设小值
