@@ -314,10 +314,14 @@ def test_camera_and_perception_cap_opencv_threads():
     """
     from pathlib import Path
     ws = Path(__file__).resolve().parents[3]
-    for rel in ("src/rb_camera/rb_camera/camera_node.py",
-                "src/rb_perception/rb_perception/perception_node.py"):
-        src = (ws / rel).read_text(encoding="utf-8")
-        assert "setNumThreads(1)" in src, f"{rel} 应限制 OpenCV 线程"
+    # 相机节点：单线程（图小，主要开销是 JPEG 编码，单线程够）
+    cam = (ws / "src/rb_camera/rb_camera/camera_node.py").read_text(encoding="utf-8")
+    assert "setNumThreads(1)" in cam, "相机节点应把 OpenCV 限制为 1 线程"
+    # 感知节点：必须 2 线程（实测三档：1 → 999ms/帧太慢；默认用满核 → 650%+372%
+    # 抢核；2 → 218ms/帧且 CPU 少一半，是又快又省的折中）
+    per = (ws / "src/rb_perception/rb_perception/perception_node.py").read_text(encoding="utf-8")
+    assert "setNumThreads(2)" in per, \
+        "感知节点应把 OpenCV 限制为 2 线程（1 太慢、默认抢核）"
 
 
 def test_perception_configs_use_single_infer_thread():
@@ -334,4 +338,6 @@ def test_perception_configs_use_single_infer_thread():
         assert onnx, f"{name} 里没有 onnx 检测器"
         for x in onnx:
             n = int(x.get("intra_op_threads", 2))
-            assert n == 1, f"{name} 的 intra_op_threads 应为 1（现在 {n}）"
+            # 实测 1 vs 2 对每帧耗时【没有影响】（瓶颈在 OpenCV 的 resize/色彩转换），
+            # 但 4 以上会明显抢核，所以只约束上界。
+            assert 1 <= n <= 2, f"{name} 的 intra_op_threads 应在 1~2（现在 {n}）"

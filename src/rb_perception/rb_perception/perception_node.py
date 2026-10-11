@@ -63,13 +63,15 @@ class PerceptionNode(Node):
         default_cfg = os.path.join(
             get_package_share_directory("rb_perception"), "config", "perception.yaml"
         )
-        # ⚠️ 限制 OpenCV 线程：它默认用满所有核做 resize/颜色变换。
-        #    两个感知实例各自再开 ONNX 的 2 线程 → 实测 8 个核全在推理上，
-        #    负载超过核数，相机采集被饿到 4~5fps（画面卡）。
-        #    这两个实例只需要 5~8 fps，单线程完全够。
+        # ⚠️ 感知这里的 OpenCV 线程数必须折中，实测三档：
+        #      setNumThreads(1) → 999 ms/帧 ✗（单线程做 1280x720 的 resize/色彩
+        #                              转换太慢，比多线程慢 3 倍）
+        #      不设（默认用满核）→ 330 ms/帧，但两个实例合计 650%+372% CPU ✗
+        #      setNumThreads(2)  → 见下方实测
+        #    这两个实例只需 5~8 fps，2 线程是"够快又不抢核"的折中。
         try:
             import cv2 as _cv2
-            _cv2.setNumThreads(1)
+            _cv2.setNumThreads(2)
         except Exception:  # noqa: BLE001
             pass
         self.config_file = self.declare_parameter("config_file", default_cfg).value
