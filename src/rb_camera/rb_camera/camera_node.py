@@ -338,7 +338,7 @@ class CameraNode(Node):
         self.status_timer = self.create_timer(1.0, self.publish_status)
 
         self.get_logger().info(
-            f"camera 就绪: {self.device} {self.width}x{self.height}@{self.fps:.0f} {self.fourcc} "
+            f"camera 配置(device 可能被 device_name 覆盖，实际看「相机已打开」): {self.device} {self.width}x{self.height}@{self.fps:.0f} {self.fourcc} "
             f"-> {self.image_topic}"
             + (f" (发布限速 {self.publish_rate_hz:.1f}Hz)" if self.publish_rate_hz > 0 else "")
         )
