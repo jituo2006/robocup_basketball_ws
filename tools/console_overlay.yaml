@@ -1,0 +1,8 @@
+# 前后摄像头视频流的篮球/排球检测框。只控制显示，关闭后YOLO仍继续发布检测。
+# 启动时读取；运行时可 POST /api/camera_overlay 更新，不需要改前端。
+front: true
+rear: true
+min_confidence: 0.25
+max_age_s: 0.5
+max_frame_delta_s: 0.5
+jpeg_quality: 85

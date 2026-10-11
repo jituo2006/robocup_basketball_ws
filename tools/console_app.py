@@ -52,6 +52,78 @@ except Exception:                     # noqa: BLE001
 
 WS = Path("/home/user/robocup_basketball_ws")
 
+BALL_BOX_STYLES = {
+    "ball_basketball": ("篮球", (0, 165, 255)),
+    "ball_volleyball": ("排球", (255, 190, 0)),
+}
+
+
+def overlay_options(options=None):
+    options = options or {}
+    result = {"front": True, "rear": True, "min_confidence": 0.25,
+              "max_age_s": 0.5, "max_frame_delta_s": 0.5, "jpeg_quality": 85}
+    if not isinstance(options, dict) or set(options) - set(result):
+        raise ValueError("画框配置字段无效")
+    result.update(options)
+    for slot in ("front", "rear"):
+        if type(result[slot]) is not bool:
+            raise ValueError("画框开关须为布尔值")
+    for name in ("min_confidence", "max_age_s", "max_frame_delta_s"):
+        value = result[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{name} 须为有限数值")
+    if not 0 <= result["min_confidence"] <= 1:
+        raise ValueError("置信度须在0–1之间")
+    if not 0 < result["max_age_s"] <= 5 or not 0 < result["max_frame_delta_s"] <= 5:
+        raise ValueError("检测时限须在0–5秒之间")
+    if type(result["jpeg_quality"]) is not int or not 1 <= result["jpeg_quality"] <= 100:
+        raise ValueError("JPEG质量须为1–100的整数")
+    return result
+
+
+def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
+    """Annotate camera-space boxes only; LiDAR candidates have no image box."""
+    import cv2
+    boxes = []
+    for detection in detections:
+        label = getattr(detection, "label", "")
+        if label not in BALL_BOX_STYLES or getattr(detection, "source", "camera") == "lidar":
+            continue
+        try:
+            confidence = float(detection.confidence)
+            coords = [float(getattr(detection, name))
+                      for name in ("x_min", "y_min", "x_max", "y_max")]
+            if not all(math.isfinite(v) for v in [confidence] + coords) or not min_confidence <= confidence <= 1:
+                continue
+            x1, y1, x2, y2 = [max(0, min(1, v)) for v in coords]
+            if x2 <= x1 or y2 <= y1:
+                continue
+            boxes.append((label, confidence, (x1, y1, x2, y2)))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    if not boxes:
+        return jpeg
+    try:
+        frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return jpeg
+        height, width = frame.shape[:2]
+        text = []
+        for label, confidence, coords in boxes:
+            x1, y1, x2, y2 = coords
+            p1 = (int(x1 * (width - 1)), int(y1 * (height - 1)))
+            p2 = (int(x2 * (width - 1)), int(y2 * (height - 1)))
+            name, color = BALL_BOX_STYLES[label]
+            cv2.rectangle(frame, p1, p2, color, 2)
+            tx, ty = min(p1[0], max(0, width - 140)), max(0, p1[1] - 24)
+            cv2.rectangle(frame, (tx, ty), (min(width - 1, tx + 140), min(height - 1, ty + 24)), (20, 20, 20), -1)
+            text.append((f"{name} {confidence:.0%}", (tx + 3, ty + 2), color, 18))
+        frame = draw_texts(frame, text)
+        ok, output = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return output.tobytes() if ok else jpeg
+    except (cv2.error, ValueError, TypeError):
+        return jpeg
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 画图（雷达俯视图）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -546,6 +618,9 @@ class Bridge:
         self.rclpy = rclpy
         self.cfg = cfg
         self.lock = threading.Lock()
+        self._overlay_lock = threading.Lock()
+        self._overlay_options = overlay_options(cfg.get("camera_overlay"))
+        self._overlay_cache = {}
         self.logs: deque = deque(maxlen=400)
         self.launch_logs: deque = deque(maxlen=400)
         # 阶段变迁时间线：方便一眼看出"跑到哪一步、卡在哪一步"
@@ -743,16 +818,19 @@ class Bridge:
         with self.lock:
             self.state["dets"] = list(m.detections)
             self.state["dets_stamp"] = time.time()
+            self.state["dets_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_image_rear(self, m):
         with self.lock:
             self.state["cam_rear"] = bytes(m.data)
             self.state["cam_rear_stamp"] = time.time()
+            self.state["cam_rear_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_dets_rear(self, m):
         with self.lock:
             self.state["dets_rear"] = list(m.detections)
             self.state["dets_rear_stamp"] = time.time()
+            self.state["dets_rear_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def _on_image(self, m):
         now = time.time()
@@ -760,6 +838,7 @@ class Bridge:
         with self.lock:
             self.state["cam"] = bytes(m.data)
             self.state["cam_stamp"] = now
+            self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
             if len(self._cam_times) > 1:
                 dt = self._cam_times[-1] - self._cam_times[0]
                 self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -785,6 +864,7 @@ class Bridge:
                 if self.state["cam"] is None or now - self.state["cam_stamp"] > 1.0:
                     self.state["cam"] = jpg.tobytes()
                     self.state["cam_stamp"] = now
+                    self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
                 if len(self._cam_times) > 1:
                     dt = self._cam_times[-1] - self._cam_times[0]
                     self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -1028,6 +1108,50 @@ class Bridge:
                 "matched": matched, "lidar_only": len(cands) - matched,
                 "camera_only": len(balls) - matched}
 
+    def camera_overlay_settings(self, updates=None):
+        with self.lock:
+            if updates is not None:
+                if not isinstance(updates, dict):
+                    raise ValueError("请求须为JSON对象")
+                self._overlay_options = overlay_options(dict(self._overlay_options, **updates))
+            return dict(self._overlay_options)
+
+    def camera_frame(self, slot):
+        """Cache a rendered frame across viewers; never hold the ROS state lock while encoding."""
+        if slot not in ("front", "rear"):
+            raise ValueError("摄像头须为front或rear")
+        image_key, detections_key = (("cam", "dets") if slot == "front"
+                                      else ("cam_rear", "dets_rear"))
+        with self.lock:
+            image = self.state.get(image_key)
+            image_received = self.state.get(image_key + "_stamp", 0)
+            detection_received = self.state.get(detections_key + "_stamp", 0)
+            image_source = self.state.get(image_key + "_source_stamp", 0)
+            detection_source = self.state.get(detections_key + "_source_stamp", 0)
+            detections = list(self.state.get(detections_key, []))
+            options = dict(self._overlay_options)
+        now = time.time()
+        if image is None or not 0 <= now - image_received <= 1.5:
+            return None
+        # Disabled is a byte-for-byte pass-through: no decode, draw, or re-encode.
+        if not options[slot]:
+            return image
+        ros_now = self.node.get_clock().now().nanoseconds * 1e-9
+        fresh = (0 <= now - detection_received <= options["max_age_s"]
+                 and image_source > 0 and detection_source > 0
+                 and 0 <= ros_now - detection_source <= options["max_age_s"]
+                 and abs(image_source - detection_source) <= options["max_frame_delta_s"])
+        if not fresh or not detections:
+            return image
+        key = (id(image), detection_received, options["min_confidence"], options["jpeg_quality"])
+        with self._overlay_lock:
+            cached = self._overlay_cache.get(slot)
+            if cached and cached[0] == key:
+                return cached[2]
+            output = draw_ball_boxes(image, detections, options["min_confidence"], options["jpeg_quality"])
+            self._overlay_cache[slot] = (key, image, output)
+            return output
+
     def snapshot(self):
         """返回可 JSON 化的快照。
 
@@ -1036,6 +1160,7 @@ class Bridge:
         """
         with self.lock:
             s = dict(self.state)
+            s["camera_overlay"] = dict(self._overlay_options)
             s["logs"] = [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                          for (tt, lv, src, ms) in list(self.logs)[-120:]]
             s["timeline"] = list(self.timeline)
@@ -1710,44 +1835,35 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
         s["logs"] = sorted(s["logs"], key=lambda x: x["t"])[-140:]
         return jsonify(s)
 
-    @app.route("/api/camera_rear.mjpg")
-    def api_camera_rear_mjpg():
-        """后摄像头实时画面（和 camera.mjpg 同一套做法）。"""
+    @app.route("/api/camera_overlay", methods=["GET", "POST"])
+    def api_camera_overlay():
+        try:
+            updates = request.get_json(silent=True) if request.method == "POST" else None
+            if request.method == "POST" and not isinstance(updates, dict):
+                raise ValueError("请求须为JSON对象")
+            return jsonify({"ok": True, "settings": bridge.camera_overlay_settings(updates)})
+        except ValueError as exc:
+            return jsonify({"ok": False, "msg": str(exc)}), 400
+
+    def camera_response(slot):
         def gen():
             while True:
-                with bridge.lock:
-                    jpg = bridge.state["cam_rear"]
+                jpg = bridge.camera_frame(slot)
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"
                            + jpg + b"\r\n")
-                time.sleep(0.1)
-        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
+                time.sleep(0.05 if slot == "front" else 0.1)
+        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    @app.route("/api/camera_rear.mjpg")
+    def api_camera_rear_mjpg():
+        return camera_response("rear")
 
     @app.route("/api/camera.mjpg")
     def api_camera():
-        def gen():
-            # ⚠️ 必须直接读 bridge.state["cam"]：snapshot() 为了 JSON 序列化
-            # 会把 cam 置成 None，用 snapshot 拿画面会永远拿到空。
-            last = None
-            idle = 0
-            while True:
-                with bridge.lock:
-                    img = bridge.state["cam"]
-                if img is not None and img is not last:
-                    last = img
-                    idle = 0
-                elif last is not None:
-                    idle += 1
-                if last is not None:
-                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
-                           b"Content-Length: " + str(len(last)).encode() + b"\r\n\r\n"
-                           + last + b"\r\n")
-                # 长时间没有新帧就停下（避免无相机时空转刷屏）
-                if last is None and idle > 200:
-                    break
-                time.sleep(0.05)
-        return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
+        return camera_response("front")
 
     @app.route("/api/lidar.mjpg")
     def api_lidar():
@@ -1929,7 +2045,17 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--no-stack-control", action="store_true",
                     help="禁用页面上的「启动/停止整套」按钮")
+    ap.add_argument("--overlay-config", default=str(Path(__file__).with_name("console_overlay.yaml")),
+                    help="摄像头画框后端配置文件")
+    ap.add_argument("--no-ball-boxes", action="store_true", help="关闭两路视频画框，输出原始画面")
     args = ap.parse_args(argv)
+    try:
+        options = yaml.safe_load(Path(args.overlay_config).read_text(encoding="utf-8")) or {}
+        options = overlay_options(options)
+        if args.no_ball_boxes:
+            options.update(front=False, rear=False)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        ap.error(f"画框配置无效：{exc}")
 
     mission_cfg = yaml.safe_load(
         (WS / "src/rb_mission/config/mission.yaml").read_text(encoding="utf-8")) or {}
@@ -1949,7 +2075,7 @@ def main(argv=None):
         loc_out = loc_cfg.get("output") or {}
     except Exception:  # noqa: BLE001
         loc_conv, loc_out = {}, {}
-    bridge = Bridge({"topics": topics, "localization": {
+    bridge = Bridge({"topics": topics, "camera_overlay": options, "localization": {
         # ⚠️ 名字要和定位节点实际用的完全一致，否则 TF 查不到（静默不变换）
         "odom_frame": loc_conv.get("odom_frame") or "camera_init",
         "field_frame": loc_out.get("field_frame") or "field",
