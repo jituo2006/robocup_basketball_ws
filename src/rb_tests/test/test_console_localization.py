@@ -49,3 +49,18 @@ def test_missing_pose_does_not_draw_robot_at_zero_and_missing_tf_hides_cloud(mon
     empty=mod.render_lidar(None,(4.,3.,0.),[],{},False,True)
     unaligned=mod.render_lidar(np.array([[5.,3.,0.]],dtype=np.float32),(4.,3.,0.),[],{},False,True)
     assert empty==unaligned
+
+
+def test_relative_pose_has_own_status_and_cannot_claim_field_health():
+    mod=_load();s=live_state();s['pose_frame']='lidar_local'
+    out=mod.localization_display_state(s,100.1,200.1)
+    assert out['localization_mode']=='relative' and out['relative_ready']
+    assert not out['loc_ok']
+
+
+def test_relative_map_does_not_overlay_official_field(monkeypatch):
+    mod=_load(); texts=[]
+    monkeypatch.setattr(mod,'draw_texts',lambda img,items:(texts.extend(items) or img))
+    assert mod.render_lidar(None,(0.,0.,0.),[],{'home':{'x':1.,'y':8.}},False,False,relative=True)
+    assert any('非场地坐标' in t[0] for t in texts)
+    assert not any('出发' in t[0] or '投篮点' in t[0] for t in texts)

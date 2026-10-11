@@ -330,7 +330,11 @@ def localization_display_state(state, ros_now, wall_now, max_age_s=0.5):
     out["pose_fresh"] = fresh("pose")
     out["odom_fresh"] = fresh("odom")
     out["cloud_fresh"] = fresh("cloud")
-    out["loc_ok"] = bool(out.get("loc_ok") and out["pose_fresh"])
+    out["localization_mode"] = ("relative" if state.get("pose_frame") == "lidar_local" else "field")
+    out["relative_ready"] = bool(out["localization_mode"] == "relative" and out["pose_fresh"]
+                                 and out["odom_fresh"])
+    out["loc_ok"] = bool(out.get("loc_ok") and out["pose_fresh"]
+                         and out["localization_mode"] == "field")
     out["odom_delay"] = (max(0.0, ros_now - state["odom_source_stamp"])
                          if state.get("odom_source_stamp") else None)
     if not out["pose_fresh"]:
@@ -346,10 +350,12 @@ def localization_display_state(state, ros_now, wall_now, max_age_s=0.5):
 
 def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                  view: str = "field", mirror_x: bool = False,
-                 mirror_y: bool = False, odom_tf=None, lb_cands=None) -> bytes:
+                 mirror_y: bool = False, odom_tf=None, lb_cands=None, relative=False) -> bytes:
     """把点云画成俯视图（鸟瞰），叠加机器人位姿、球检测、场地边界。"""
     import cv2
 
+    if relative:
+        view = "robot"
     img = np.zeros((LIDAR_H, LIDAR_W, 3), dtype=np.uint8)
     img[:] = (24, 22, 20)
     texts = []          # ⚠️ 必须在任何 append 之前建（曾经放在后面 → UnboundLocalError）
@@ -404,117 +410,118 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         texts.append((f"雷达球 {cd.get('slant_m', 0):.1f}m", (qx + r_px + 3, qy - 4),
                       (255, 220, 60), 12))
 
-    # 场地边界（浅灰矩形）+ 中线
-    pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
-    cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
-    if view != "robot":
-        cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
-        cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
+    if not relative:
+        # 场地边界（浅灰矩形）+ 中线
+        pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
+        cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
+        if view != "robot":
+            cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
+            cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
 
-    # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
-    def _poly(world_pts, color, thick=1, close=True, dash=False):
-        """世界坐标点列 → 屏幕折线。超出场地的自动裁掉（只看场内）。"""
-        ps = []
-        for (px_, py_) in world_pts:
-            sx, sy = to_px(px_, py_)
-            ps.append((sx, sy))
-        if len(ps) >= 2:
-            cv2.polylines(img, [np.array(ps, np.int32)], close, color, thick, cv2.LINE_AA)
+        # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
+        def _poly(world_pts, color, thick=1, close=True, dash=False):
+            """世界坐标点列 → 屏幕折线。超出场地的自动裁掉（只看场内）。"""
+            ps = []
+            for (px_, py_) in world_pts:
+                sx, sy = to_px(px_, py_)
+                ps.append((sx, sy))
+            if len(ps) >= 2:
+                cv2.polylines(img, [np.array(ps, np.int32)], close, color, thick, cv2.LINE_AA)
 
-    def _arc(cxw, cyw, r, color, thick=1, a0=0.0, a1=360.0, steps=72):
-        """圆弧（世界坐标），自动裁到场内。"""
-        pts = []
-        for i in range(steps + 1):
-            a = math.radians(a0 + (a1 - a0) * i / steps)
-            wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
-            # 严格裁到场内：官方图上三分线也是被边线裁掉的，不该画到场外
-            if 0.0 <= wx_ <= L and 0.0 <= wy_ <= W:
-                pts.append((wx_, wy_))
-        if len(pts) >= 2:
-            _poly(pts, color, thick, close=False)
+        def _arc(cxw, cyw, r, color, thick=1, a0=0.0, a1=360.0, steps=72):
+            """圆弧（世界坐标），自动裁到场内。"""
+            pts = []
+            for i in range(steps + 1):
+                a = math.radians(a0 + (a1 - a0) * i / steps)
+                wx_, wy_ = cxw + r * math.cos(a), cyw + r * math.sin(a)
+                # 严格裁到场内：官方图上三分线也是被边线裁掉的，不该画到场外
+                if 0.0 <= wx_ <= L and 0.0 <= wy_ <= W:
+                    pts.append((wx_, wy_))
+            if len(pts) >= 2:
+                _poly(pts, color, thick, close=False)
 
-    # 三分线（以 three_point_center 为心）
-    tp = field.get("three_point_center") or {}
-    r3 = float(field.get("three_point_radius_m", 0.0) or 0.0)
-    if isinstance(tp, dict) and "x" in tp and r3 > 0:
-        _arc(float(tp["x"]), float(tp["y"]), r3, (60, 110, 150), 1)
-        # 三分线在场内的两条直线段（足球场式的直线部分）
-        _poly([(float(tp["x"]), float(tp["y"]) - r3), (L, float(tp["y"]) - r3)], (60, 110, 150))
-        _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
-        tp_px = to_px(float(tp["x"]), float(tp["y"]))
-        texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
+        # 三分线（以 three_point_center 为心）
+        tp = field.get("three_point_center") or {}
+        r3 = float(field.get("three_point_radius_m", 0.0) or 0.0)
+        if isinstance(tp, dict) and "x" in tp and r3 > 0:
+            _arc(float(tp["x"]), float(tp["y"]), r3, (60, 110, 150), 1)
+            # 三分线在场内的两条直线段（足球场式的直线部分）
+            _poly([(float(tp["x"]), float(tp["y"]) - r3), (L, float(tp["y"]) - r3)], (60, 110, 150))
+            _poly([(float(tp["x"]), float(tp["y"]) + r3), (L, float(tp["y"]) + r3)], (60, 110, 150))
+            tp_px = to_px(float(tp["x"]), float(tp["y"]))
+            texts.append(("三分线", (tp_px[0] - 20, tp_px[1] + 16), (70, 120, 165), 12))
 
-    # 中线置球区（官方图左侧那个大圆：R2500，圆心距左边线 2500mm → (2.5, 3.75)）
-    fz = field.get("front_zone_circle") or {}
-    if isinstance(fz, dict) and "x" in fz and float(fz.get("radius_m", 0) or 0) > 0:
-        _arc(float(fz["x"]), float(fz["y"]), float(fz["radius_m"]), (110, 90, 140), 1)
-        q = to_px(float(fz["x"]), float(fz["y"]))
-        texts.append((str(fz.get("name", "中线置球区")), (q[0] - 30, q[1] + 4),
-                      (140, 115, 175), 12))
+        # 中线置球区（官方图左侧那个大圆：R2500，圆心距左边线 2500mm → (2.5, 3.75)）
+        fz = field.get("front_zone_circle") or {}
+        if isinstance(fz, dict) and "x" in fz and float(fz.get("radius_m", 0) or 0) > 0:
+            _arc(float(fz["x"]), float(fz["y"]), float(fz["radius_m"]), (110, 90, 140), 1)
+            q = to_px(float(fz["x"]), float(fz["y"]))
+            texts.append((str(fz.get("name", "中线置球区")), (q[0] - 30, q[1] + 4),
+                          (140, 115, 175), 12))
 
-    # 投篮线（以篮筐为心）
-    hoop = field.get("hoop") or {}
-    rs = float(field.get("shoot_line_radius_m", 0.0) or 0.0)
-    if isinstance(hoop, dict) and "x" in hoop and rs > 0:
-        _arc(float(hoop["x"]), float(hoop["y"]), rs, (60, 130, 100), 1)
+        # 投篮线（以篮筐为心）
+        hoop = field.get("hoop") or {}
+        rs = float(field.get("shoot_line_radius_m", 0.0) or 0.0)
+        if isinstance(hoop, dict) and "x" in hoop and rs > 0:
+            _arc(float(hoop["x"]), float(hoop["y"]), rs, (60, 130, 100), 1)
 
-    # 传球区（多边形）
-    pz = (field.get("pass_zone") or {}).get("polygon")
-    if pz:
-        try:
-            poly = [(float(a), float(b)) for a, b in pz]
-            _poly(poly + [poly[0]], (150, 120, 60), 1, close=False)
-            # 半透明填充，便于一眼看出"我在不在区内"
-            sp = np.array([to_px(a, b) for a, b in poly], np.int32)
-            ov = img.copy()
-            cv2.fillPoly(ov, [sp], (60, 48, 24))
-            cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
-            cxp = sum(a for a, _ in poly) / len(poly)
-            cyp = sum(b for _, b in poly) / len(poly)
-            q = to_px(cxp, cyp)
-            texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
-        except (TypeError, ValueError):
-            pass
+        # 传球区（多边形）
+        pz = (field.get("pass_zone") or {}).get("polygon")
+        if pz:
+            try:
+                poly = [(float(a), float(b)) for a, b in pz]
+                _poly(poly + [poly[0]], (150, 120, 60), 1, close=False)
+                # 半透明填充，便于一眼看出"我在不在区内"
+                sp = np.array([to_px(a, b) for a, b in poly], np.int32)
+                ov = img.copy()
+                cv2.fillPoly(ov, [sp], (60, 48, 24))
+                cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
+                cxp = sum(a for a, _ in poly) / len(poly)
+                cyp = sum(b for _, b in poly) / len(poly)
+                q = to_px(cxp, cyp)
+                texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
+            except (TypeError, ValueError):
+                pass
 
-    # 出发区：官方图里 A/B 是**突出在场地左边线之外**的方块。
-    # 尺寸与中心都从配置读（现场量完改 start_zone_size_m / start_zones 即可）。
-    sz = float(field.get("start_zone_size_m", 1.0) or 1.0)
-    zones = field.get("start_zones") or {}
-    home = field.get("home") or {}
-    if not zones and isinstance(home, dict) and "x" in home:
-        zones = {"A": home}                      # 兜底：只配了 home 就画一个
-    for zname, zc in zones.items():
-        if not (isinstance(zc, dict) and "x" in zc):
-            continue
-        zx, zy = float(zc["x"]), float(zc["y"])
-        h2 = sz / 2.0
-        _poly([(zx - h2, zy - h2), (zx + h2, zy - h2), (zx + h2, zy + h2),
-               (zx - h2, zy + h2), (zx - h2, zy - h2)],
-              (90, 150, 90), 2, close=False)
-        q = to_px(zx, zy)
-        is_home = (isinstance(home, dict) and abs(zx - float(home.get("x", 1e9))) < 1e-6
-                   and abs(zy - float(home.get("y", 1e9))) < 1e-6)
-        col = (140, 220, 140) if is_home else (80, 110, 80)
-        texts.append((f"出发区{zname}" + ("（当前）" if is_home else ""),
-                      (q[0] - 22, q[1] + 4), col, 13))
+        # 出发区：官方图里 A/B 是**突出在场地左边线之外**的方块。
+        # 尺寸与中心都从配置读（现场量完改 start_zone_size_m / start_zones 即可）。
+        sz = float(field.get("start_zone_size_m", 1.0) or 1.0)
+        zones = field.get("start_zones") or {}
+        home = field.get("home") or {}
+        if not zones and isinstance(home, dict) and "x" in home:
+            zones = {"A": home}                      # 兜底：只配了 home 就画一个
+        for zname, zc in zones.items():
+            if not (isinstance(zc, dict) and "x" in zc):
+                continue
+            zx, zy = float(zc["x"]), float(zc["y"])
+            h2 = sz / 2.0
+            _poly([(zx - h2, zy - h2), (zx + h2, zy - h2), (zx + h2, zy + h2),
+                   (zx - h2, zy + h2), (zx - h2, zy - h2)],
+                  (90, 150, 90), 2, close=False)
+            q = to_px(zx, zy)
+            is_home = (isinstance(home, dict) and abs(zx - float(home.get("x", 1e9))) < 1e-6
+                       and abs(zy - float(home.get("y", 1e9))) < 1e-6)
+            col = (140, 220, 140) if is_home else (80, 110, 80)
+            texts.append((f"出发区{zname}" + ("（当前）" if is_home else ""),
+                          (q[0] - 22, q[1] + 4), col, 13))
 
-    # 篮筐符号（篮板 + 篮圈）
-    if isinstance(hoop, dict) and "x" in hoop:
-        hx, hy = float(hoop["x"]), float(hoop["y"])
-        _arc(hx, hy, 0.225, (0, 140, 255), 2)          # 篮圈 φ45cm
-        # 篮板：在篮筐靠边线那一侧，画一条短线
-        bx = min(L, hx + 0.30)
-        _poly([(bx, hy - 0.90), (bx, hy + 0.90)], (0, 140, 255), 2, close=False)
-        q = to_px(hx, hy)
-        texts.append(("篮筐", (q[0] - 14, q[1] - 16), (0, 160, 255), 13))
+        # 篮筐符号（篮板 + 篮圈）
+        if isinstance(hoop, dict) and "x" in hoop:
+            hx, hy = float(hoop["x"]), float(hoop["y"])
+            _arc(hx, hy, 0.225, (0, 140, 255), 2)          # 篮圈 φ45cm
+            # 篮板：在篮筐靠边线那一侧，画一条短线
+            bx = min(L, hx + 0.30)
+            _poly([(bx, hy - 0.90), (bx, hy + 0.90)], (0, 140, 255), 2, close=False)
+            q = to_px(hx, hy)
+            texts.append(("篮筐", (q[0] - 14, q[1] - 16), (0, 160, 255), 13))
 
-    # 得分点参考（传球区/投篮点/篮筐）
-    refs = [("投篮点", field.get("shoot_zone_target"))]
-    for name, p in refs:
-        if isinstance(p, dict) and "x" in p:
-            px = to_px(p["x"], p["y"])
-            cv2.drawMarker(img, px, (90, 160, 90), cv2.MARKER_DIAMOND, 8, 1)
-            texts.append((name, (px[0] + 7, px[1] - 16), (120, 180, 120), 13))
+        # 得分点参考（传球区/投篮点/篮筐）
+        refs = [("投篮点", field.get("shoot_zone_target"))]
+        for name, p in refs:
+            if isinstance(p, dict) and "x" in p:
+                px = to_px(p["x"], p["y"])
+                cv2.drawMarker(img, px, (90, 160, 90), cv2.MARKER_DIAMOND, 8, 1)
+                texts.append((name, (px[0] + 7, px[1] - 16), (120, 180, 120), 13))
 
     # 点云（按高度上色）
     if cloud_xyz is not None and len(cloud_xyz) and odom_tf is not None:
@@ -602,12 +609,12 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
          + ("" if view == "robot"
             else f"   [x→{'左' if mirror_x else '右'} y→{'下' if mirror_y else '上'}]"),
          (215, 215, 215), 15),
-        (f"定位 {'正常' if loc_ok else '不可用'}", (120, 220, 120) if loc_ok else (120, 120, 240), 15),
+        (("局部相对定位（非场地坐标）" if relative else f"定位 {'正常' if loc_ok else '不可用'}"), (120, 220, 120) if loc_ok or relative and pose is not None else (120, 120, 240), 15),
         (f"机构串口 {'正常' if launcher_ok else '未连接'}", (120, 220, 120) if launcher_ok else (120, 120, 240), 15),
         (f"点云点数 {0 if cloud_xyz is None else len(cloud_xyz)}"
          + ("" if view == "robot" else
-            ("　✓已变换到场地系" if odom_tf is not None
-             else "　⚠️未变换(缺 field←camera_init TF)")), (150, 150, 150), 15),
+            (("　✓已变换到局部系" if relative else "　✓已变换到场地系") if odom_tf is not None
+             else "　⚠️未变换(缺坐标TF)")), (150, 150, 150), 15),
     ]
     for i, (txt, col, size) in enumerate(lines):
         texts.append((txt, (12, 8 + i * 20), col, size))
@@ -681,6 +688,11 @@ class Bridge:
         self._sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                                       history=HistoryPolicy.KEEP_LAST)
 
+        # FAST-LIO's registered cloud publisher is RELIABLE. Request reliable
+        # delivery for fragmented clouds; KEEP_LAST(1) still bounds backlog.
+        self._cloud_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                                    history=HistoryPolicy.KEEP_LAST)
+
         def sub1(cls, topic, cb, qos=1):
             self.node.create_subscription(cls, topic, cb, qos)
 
@@ -704,7 +716,7 @@ class Bridge:
         # 原图兜底：离线仿真的 publish_test_image 发的是未压缩 /camera/image_raw，
         # 真机 camera_node 发 compressed。两个都订，谁先到用谁。
         sub1(Image, t.get("image_raw", "/camera/image_raw"), self._on_raw_image, self._sensor_qos)
-        sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._sensor_qos)
+        sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._cloud_qos)
         sub1(Log, "/rosout", self._on_log, 50)
         for slot, topic in (("front", "/camera/exposure"), ("rear", "/camera_rear/exposure")):
             sub1(StringMsg, t.get("exposure_" + slot, topic),
@@ -807,6 +819,9 @@ class Bridge:
             yaw = p.z
         with self.lock:
             self.state["pose"] = (float(p.x), float(p.y), float(yaw))
+            self.state["pose_frame"] = m.header.frame_id
+            # The pose header is authoritative: relative diagnostics use lidar_local.
+            self.field_frame_name = m.header.frame_id
             self.state["pose_stamp"] = time.time()
             self.state["pose_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
@@ -1922,7 +1937,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                             for c in _lc]
                 jpg = render_lidar(xyz, pose, dets, field, lok, ok,
                                    view=view, mirror_x=mirror, mirror_y=mirror_y,
-                                   odom_tf=odom_tf, lb_cands=lb_cands)
+                                   odom_tf=odom_tf, lb_cands=lb_cands,
+                                   relative=current["localization_mode"] == "relative")
                 if jpg:
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
                            b"Content-Length: " + str(len(jpg)).encode() + b"\r\n\r\n"

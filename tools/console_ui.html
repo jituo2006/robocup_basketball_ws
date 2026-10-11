@@ -373,7 +373,8 @@
         <button id="vMy" onclick="toggleMy()" style="margin:0">↕ y 方向: 上</button>
       </div>
       <img id="lidar" src="/api/lidar.mjpg?view=field&mirror=0&mirror_y=0" alt="雷达">
-      <div class="hint">
+      <div class="hint" id="lidarRelativeHint" hidden>局部相对坐标：启动时车体中心为 (0,0)，初始车头方向为 +x，左侧为 +y。当前采用车头朝上视图，不叠加场地图；场地导航尚未标定。</div>
+      <div class="hint" id="lidarFieldHint">
         <b>官方图</b>（默认）= 与官方场地图方向一致：出发区 A 在左上、篮筐在右中。
         （依赖下面的 x/y 方向开关）<br>
         <b>ROS标准</b> = x→右、y→上（RViz 俯视）。<br>
@@ -418,7 +419,7 @@
 
     <div class="card">
       <h2>子系统</h2>
-      <div class="kv"><span>定位 localization_ok</span><span id="loc_ok">—</span></div>
+      <div class="kv"><span>场地定位 localization_ok</span><span id="loc_ok">—</span></div>
       <div class="kv"><span>机构 launcher_ok</span><span id="launcher_ok">—</span></div>
       <div class="kv"><span>视觉 perception_ok</span><span id="perception_ok">—</span></div>
       <div class="kv"><span>机构串口状态</span><span id="launcher_status">—</span></div>
@@ -512,6 +513,7 @@ const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
 let LIDAR_VIEW   = localStorage.getItem('lidarView')   || 'field';
 let LIDAR_MIRROR = localStorage.getItem('lidarMirror') || '0';  // x 方向：0=右
 let LIDAR_MIRY   = localStorage.getItem('lidarMirY')   || '0';  // y 方向：0=上（A 在 y=7.0）
+let RELATIVE_VIEW = false;
 function setView(v, mx, my){
   LIDAR_VIEW   = v;
   if(mx !== undefined) LIDAR_MIRROR = mx;
@@ -869,6 +871,12 @@ function renderExposure(s){
 }
 
 function render(s){
+  const relative = s.localization_mode === 'relative';
+  if(relative && !RELATIVE_VIEW) setView('robot','0','0');
+  RELATIVE_VIEW = relative;
+  for(const id of ['vStd','vOff','vMx','vMy']) $(id).disabled = relative;
+  $('lidarRelativeHint').hidden = !relative;
+  $('lidarFieldHint').hidden = relative;
   window._st = s;
   renderRearCam(s);
   renderExposure(s);
@@ -879,11 +887,11 @@ function render(s){
   renderProgress(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
-  p.push(`<span class="pill ${cls(s.loc_ok)}">定位 ${s.loc_ok?'OK':'不可用'}</span>`);
+  p.push(`<span class="pill ${cls(s.relative_ready || s.loc_ok)}">${s.localization_mode==='relative'?'相对定位':'定位'} ${(s.relative_ready || s.loc_ok)?'OK':'不可用'}</span>`);
   p.push(`<span class="pill ${cls(s.launcher_ok)}">机构 ${s.launcher_ok?'OK':'未连'}</span>`);
   p.push(`<span class="pill ${cls(s.perception_ok)}">视觉 ${s.perception_ok?'OK':'异常'}</span>`);
   p.push(`<span class="pill ${cls(s.hw.can_up)}">CAN ${s.hw.can_up?'UP':'DOWN'}</span>`);
-  p.push(`<span class="pill ${cls(s.hw.lidar_link)}">雷达 ${s.hw.lidar_link?'链路OK':'断开'}</span>`);
+  p.push(`<span class="pill ${cls(s.cloud_fresh)}">雷达 ${s.cloud_fresh?'数据正常':s.hw.lidar_link?'链路OK·无点云':'断开'}</span>`);
   p.push(`<span class="pill ${s.stack_running?'ok':'warn'}">整套 ${s.stack_running?'运行中':'未由本页启动'}</span>`);
   const dup = s.hw.node_dup || {};
   const dupN = Object.keys(dup).length;
@@ -906,7 +914,7 @@ function render(s){
   $('launcher_status').textContent = s.launcher_status || '—';
 
   if(s.pose){
-    $('pos').textContent = `(${fmt(s.pose[0])}, ${fmt(s.pose[1])})`;
+    $('pos').textContent = `(${fmt(s.pose[0])}, ${fmt(s.pose[1])})${s.localization_mode==='relative'?' · 局部坐标':''}`;
     $('yaw').textContent = fmt(s.pose[2]*57.2958,1) + '°';
   } else {
     $('pos').textContent = '—（位姿过期或未收到）';

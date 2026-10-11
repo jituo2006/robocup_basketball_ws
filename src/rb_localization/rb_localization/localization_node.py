@@ -87,7 +87,6 @@ class LocalizationNode(Node):
             raise ValueError("source_timeout_s 必须为有限正数")
         self.source_freshness = SourceFreshness()
         self.last_source_stamp = None
-        self.add_on_set_parameters_callback(self.on_tuning_parameters)
         self.use_odom_pose_as_abs = bool(src.get("use_odom_pose_as_abs", True))
         self.camera_yaw_offset = float(src.get("camera_yaw_offset_rad", 0.0))
 
@@ -115,6 +114,11 @@ class LocalizationNode(Node):
         # 而这里要补上 `field → camera_init`，否则 RViz 无法把点云画到 field 下
         # （症状：地图一片黑，明明 /cloud_registered 有数据）。
         self.odom_frame_name = str(lc.get("odom_frame", "camera_init"))
+        self.relative_mode = bool(self.declare_parameter("relative_mode", False).value)
+        if self.relative_mode:
+            self.odom_conv_enabled = True
+            self.odom_zero_on_first = True
+            self.start_pose = (0.0, 0.0, 0.0)
         self.odom_origin: tuple[float, float, float] | None = None
         self.theta = 0.0          # odom → field 的旋转量，首帧确定
         self.conv_ready = False
@@ -124,6 +128,8 @@ class LocalizationNode(Node):
         self.ok_topic = str(out.get("ok_topic", "/localization/ok"))
         self.publish_tf = bool(out.get("publish_tf", True))
         self.field_frame = str(out.get("field_frame", "field"))
+        if self.relative_mode:
+            self.field_frame = "lidar_local"
         self.base_frame = str(out.get("base_frame", "base_link"))
         self.ok_std_threshold = float(out.get("ok_std_threshold_m", 0.60))
         # 发布频率。原来"每 50 条 odom 发一次"，在 50Hz odom 下只有 1Hz，
@@ -131,11 +137,14 @@ class LocalizationNode(Node):
         self.publish_rate_hz = float(out.get("publish_rate_hz", 20.0))
 
         start = self.cfg.get("initial_pose", {}) or {}
-        self.ekf.set_pose(float(start.get("x", 0.0)), float(start.get("y", 0.0)),
-                          float(start.get("yaw", 0.0)))
+        if self.relative_mode:
+            self.ekf.set_pose(0.0, 0.0, 0.0)
+        else:
+            self.ekf.set_pose(float(start.get("x", 0.0)), float(start.get("y", 0.0)),
+                              float(start.get("yaw", 0.0)))
 
         self.landmarks: list[tuple[float, float]] = []
-        for item in self.cfg.get("landmarks", []) or []:
+        for item in ([] if self.relative_mode else self.cfg.get("landmarks", []) or []):
             if "x" in item and "y" in item:
                 self.landmarks.append((float(item["x"]), float(item["y"])))
 
@@ -155,6 +164,7 @@ class LocalizationNode(Node):
         self.odom_count = 0
         self.abs_count = 0
         self.pillar_updates = 0
+        self.add_on_set_parameters_callback(self.on_tuning_parameters)
 
         self.get_logger().info(
             f"定位就绪: odom={self.odom_topic} abs={self.abs_pose_topic or '(未启用)'} "
@@ -385,7 +395,8 @@ class LocalizationNode(Node):
         ok = Bool()
         source_ok = self.source_freshness.valid(
             self.get_clock().now().nanoseconds * 1e-9, self.source_timeout_s)
-        ok.data = bool(source_ok and math.hypot(sx, sy) <= self.ok_std_threshold)
+        ok.data = bool(not self.relative_mode and source_ok
+                       and math.hypot(sx, sy) <= self.ok_std_threshold)
         self.ok_pub.publish(ok)
 
         if self.tf_broadcaster is not None and source_ok:
