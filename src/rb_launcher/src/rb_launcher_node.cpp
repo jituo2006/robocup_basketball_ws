@@ -133,6 +133,21 @@ public:
           std::chrono::milliseconds(static_cast<int64_t>(reconnect_period_s_ * 1000.0)),
           std::bind(&RbLauncherNode::tryReconnect, this));
     }
+
+    // ⚠️ 必须【周期性】重发 ok/status。
+    //    原实现只在事件发生时（打开成功/掉线/服务请求）发一次，QoS 又是默认
+    //    VOLATILE —— 订阅者只要比本节点晚启动就永远收不到那一次，
+    //    界面会一直显示"机构未连"，哪怕串口开着、服务也能通。
+    //    （现场实测：ros2 service call 返回 success=true，但 /rb_launcher/ok 上一条消息都没有。）
+    status_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() {
+      std::lock_guard<std::mutex> lock(mtx_);
+      publishOk();
+      if (!last_status_.empty()) {
+        std_msgs::msg::String out;
+        out.data = last_status_;
+        status_pub_->publish(out);
+      }
+    });
   }
 
   ~RbLauncherNode() override {
@@ -249,6 +264,7 @@ private:
   void publishStatus(const std::string &action, bool success, const std::string &msg) {
     std_msgs::msg::String out;
     out.data = "action=" + action + " success=" + (success ? "true" : "false") + " " + msg;
+    last_status_ = out.data;   // 缓存供 1Hz 周期重发
     status_pub_->publish(out);
   }
 
@@ -289,6 +305,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Service<rb_msgs::srv::Launch>::SharedPtr srv_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr status_timer_;
+  std::string last_status_;
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
 };
 
