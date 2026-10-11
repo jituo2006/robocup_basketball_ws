@@ -557,7 +557,8 @@ class CameraNode(Node):
             elif not found:
                 self.get_logger().warn(
                     f"按名字 '{self.device_name}' 没找到可采集的摄像头，"
-                    f"仍试 {self.device}（可用 v4l2-ctl --list-devices 核对）")
+                    "等待该设备重连，避免操作另一台摄像头")
+                return False
         try:
             cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
         except Exception as exc:  # noqa: BLE001

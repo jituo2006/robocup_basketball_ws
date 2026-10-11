@@ -89,3 +89,14 @@ def test_readback_mismatch_is_rejected():
     result = node._on_exposure_parameters(params(**{"exposure.value": 1, "exposure.auto": False}))
     assert not result.successful and node.ae_enabled
     assert writes[-1] == ("exposure_time_absolute", 95)
+
+
+def test_missing_named_camera_never_opens_other_device(monkeypatch):
+    node, _ = camera_stub()
+    node.device_name = "missing front camera"
+    node.device = "/dev/video0"
+    node.get_logger = lambda: SimpleNamespace(warn=lambda message: None)
+    monkeypatch.setattr("rb_camera.camera_node.resolve_device_by_name", lambda name, log: None)
+    monkeypatch.setattr("rb_camera.camera_node.cv2.VideoCapture",
+                        lambda *args: pytest.fail("must not open another camera"))
+    assert node._open_capture() is False
