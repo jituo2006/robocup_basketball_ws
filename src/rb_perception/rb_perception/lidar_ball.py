@@ -265,4 +265,7 @@ class LidarDetection:
         self.bbox_px_h = 0.0
         self.x_min = self.y_min = self.x_max = self.y_max = float("nan")
         self.cx = self.cy = self.width = self.height = float("nan")
+        # ⚠️ 还要有 bbox：感知节点的 to_msg() 会读 d.bbox 拼消息，
+        #    缺了会 AttributeError（和"不可迭代"是同一类错：接口没对齐）。
+        self.bbox = (float("nan"), float("nan"), float("nan"), float("nan"))
         self._cand = cand

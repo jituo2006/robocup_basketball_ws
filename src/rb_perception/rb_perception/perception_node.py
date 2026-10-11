@@ -226,6 +226,18 @@ class PerceptionNode(Node):
                 per_label[r.label] = per_label.get(r.label, 0) + 1
                 found.append(r)
 
+        # ⚠️ 顺序很重要：标来源 / 融合都要在【建消息对象之前】对 Detection 对象做。
+        #    曾经写成建完 DetectionArray 再 `for d in out:` —— DetectionArray 不可迭代，
+        #    节点一收到图像就 TypeError 崩掉，表现为"检测数永远是 0、寻球跑不了"。
+        for d in found:
+            try:
+                d.source = "camera"
+            except Exception:  # noqa: BLE001
+                pass
+        if self.lidar_cfg.get("enabled", False):
+            found, self._lidar_stats = fuse_lidar_balls(
+                found, self.lidar_candidates(), self.lidar_cfg)
+
         out = DetectionArray()
         out.header = Header()
         out.header.stamp = stamp
@@ -238,15 +250,6 @@ class PerceptionNode(Node):
         out.img_width = int(w)
         out.img_height = int(h)
         out.detections = [self.to_msg(d, stamp) for d in found]
-        # 相机检测标来源（RadarDetection 自己带 source="lidar"）
-        for d in out:
-            try:
-                d.source = "camera"
-            except Exception:  # noqa: BLE001
-                pass
-        if self.lidar_cfg.get("enabled", False):
-            out, self._lidar_stats = fuse_lidar_balls(
-                out, self.lidar_candidates(), self.lidar_cfg)
         self.pub.publish(out)
 
         # 限频打印，避免日志洪泛
@@ -297,6 +300,8 @@ class PerceptionNode(Node):
         m.bearing_rad = float(d.bearing_rad)
         m.distance_m = float(d.distance_m)
         m.diameter_m = float(d.diameter_m)
+        # 来源：相机 "camera" / 雷达 "lidar"（LidarDetection 自带 source）
+        m.source = str(getattr(d, "source", "camera") or "camera")
         return m
 
     def publish_debug_image(self, frame: np.ndarray, dets: list[Detection], cam: CameraModel) -> None:
