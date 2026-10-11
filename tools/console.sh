@@ -41,10 +41,20 @@ done
 #      * --force → 把旧的我们自己的控制台杀掉，接管这个端口
 FORCE=0
 APP_ARGS=()
+# ⚠️ 这些是 console.sh【自己】的开关，透传给 app 会让 argparse 报错或吞错参数：
+#   --force      → "unrecognized arguments: --force"
+#   --port [值]  → 我又显式传了 --port "$PORT"，再透传一次就变成
+#                  "--port 8090 --port 8092" 甚至 "--port --port"，
+#                  argparse 直接报 "argument --port: expected one argument"
+#                  （现场：bash tools/console.sh --port 8092 起不来）
+_pass_next=0
 for a in "$@"; do
-    # --force 是 console.sh 自己的开关，不能透传给 app
-    # （透传过 → argparse 报 "unrecognized arguments: --force"，控制台起不来）
-    if [ "$a" = "--force" ]; then FORCE=1; else APP_ARGS+=("$a"); fi
+    if [ "$_pass_next" = "1" ]; then _pass_next=0; continue; fi   # 跳过 --port 的值
+    case "$a" in
+        --force)     FORCE=1 ;;
+        --port)      _pass_next=1 ;;                              # 跳过它和它的值
+        *)           APP_ARGS+=("$a") ;;
+    esac
 done
 
 is_our_console() {
