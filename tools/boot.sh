@@ -17,6 +17,11 @@
 #   否则 MotorOn 落到"还没上电的板子"上就丢了，板子不会使能。
 #   雷达则相反：驱动启动后广播找雷达，雷达上电后回应握手即可，顺序无碍
 #   （只要雷达不是"上一个会话残留的流状态"）。
+
+# ⚠️ txqueuelen 必须 ≥1000（内核默认 20，底盘 400 帧/秒一眨眼就满 →
+#    write() 报 ENOBUFS → 底盘节点 fail-closed 退出）。适配器每次重连都会把它
+#    重置回 20，所以每次启动都要设。
+ip link set can0 txqueuelen 1000 2>/dev/null || true
 set -o pipefail
 
 WS=/home/user/robocup_basketball_ws
