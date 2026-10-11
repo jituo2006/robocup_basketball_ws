@@ -1429,7 +1429,7 @@ DEBUG_TOOLS = {
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
         "args": ["--skip-perimeter", "--takeover", "--yes"],
-        "label": "寻球 → 走到球前 50cm → 转身背对球",
+        "label": "寻球 → 走到球前 0.60m → 转身背对球",
     },
     "TEST_PERIMETER": {
         "script": "tools/test_perimeter_ball.py",
@@ -1482,10 +1482,28 @@ class ToolRunner:
                 return False, f"{self.name} 还在跑，先停掉它"
             if not (WS / spec["script"]).is_file():
                 return False, f"找不到 {spec['script']}"
-            # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境
+            # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境。
+            #
+            # ⚠️ 必须【显式 export ROS_DOMAIN_ID】，不能只靠继承。
+            #    实测四组对照（--skip-perimeter --dry，其余条件相同）：
+            #      无 DOMAIN_ID + 无 lidar ws → 读不到 /localization/pose ✗
+            #      有 DOMAIN_ID + 无 lidar ws → 全部通过 ✓
+            #      无 DOMAIN_ID + 有 lidar ws → 读不到 /localization/pose ✗
+            #      有 DOMAIN_ID + 有 lidar ws → 全部通过 ✓
+            #    唯一决定因素就是 ROS_DOMAIN_ID。若控制台不是经 console.sh/rbws
+            #    起（那两处才会 export 2），子进程就跑在 domain 0 上，现象是
+            #    "节点都在、但一个话题都收不到"，极难排查 ✗。这里自己设死。
+            #
+            # 顺带 source 雷达工作空间：脚本若要用 livox 的 CustomMsg
+            # （ros2 topic hz 之类）不加会认不出类型。当前用不到，但和
+            # check_ready.sh 保持一致，省得以后踩。
+            lidar_ws = Path.home() / "lidar_360"
             cmd = ["bash", "-c",
                    "source /opt/ros/humble/setup.bash && "
+                   f"source {lidar_ws}/ws_livox/install/setup.bash 2>/dev/null; "
+                   f"source {lidar_ws}/fast_prop_ws/install/setup.bash 2>/dev/null; "
                    f"source {WS}/install/setup.bash && "
+                   "export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-2} && "
                    f"exec python3 {spec['script']} " +
                    " ".join(list(spec["args"]) + list(extra_args or []))]
             self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))
