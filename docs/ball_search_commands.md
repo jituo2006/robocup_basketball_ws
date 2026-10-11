@@ -16,9 +16,23 @@
 上电后立刻自检：
 
 ```bash
-# 雷达：应能 ping 通、网卡应 UP
+# 雷达：应能 ping 通、网卡应 UP 且有 IP
 ping -c 2 192.168.1.138
 ip -br addr show enp114s0          # 期望 UP 192.168.1.110/24
+
+# ⚠️⚠️ 最常见的假故障：网卡 NO-CARRIER
+ip -details link show enp114s0 | head -2
+#   看到 <NO-CARRIER,...> + carrier=0 就说明【物理链路断了】✗
+#   原因：机器人断电 → 雷达断电 → 网卡失去载波自动 DOWN ✗
+#         雷达再上电时【网卡不会自己回来】✗
+#   后果：Livox SDK 报 bind failed / Init lds lidar fail! ✗
+#         → /livox/lidar、/Odometry、/cloud_registered_body 全无数据 ✗
+#         → 找球卡在 "waiting for fresh radar odometry" ✗ 什么都不动
+#   处理：① 先确认雷达真的上电了、网线插紧（NO-CARRIER 多半是物理问题）
+#         ② 再拉起网卡：sudo ip link set enp114s0 up
+#            sudo ip addr add 192.168.1.110/24 dev enp114s0
+#         boot.sh 现在会自动做②，并在日志里报告雷达是否 ping 得通 ✓
+cat /sys/class/net/enp114s0/carrier     # 期望 1
 
 # CAN：适配器在、接口 UP
 lsusb | grep 0c72

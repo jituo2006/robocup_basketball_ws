@@ -120,4 +120,27 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
+# ⚠️ 雷达网卡必须确保 UP 且有 IP ——
+#    机器人断电时雷达断电 → 网卡失去载波自动 DOWN ✗，
+#    雷达再上电时【网卡不会自己回来】✗ → Livox SDK 报
+#        bind failed / Failed to init livox lidar sdk / Init lds lidar fail!
+#    → /livox/lidar、/Odometry、/cloud_registered_body 全没数据 ✗
+#    （现场反复出现，就是这一条）
+for _i in $(seq 1 10); do
+  ip link show enp114s0 >/dev/null 2>&1 || break
+  if ip -4 addr show enp114s0 2>/dev/null | grep -q "192.168.1.110"; then
+    ip link set enp114s0 up 2>/dev/null
+    break
+  fi
+  ip link set enp114s0 up 2>/dev/null
+  ip addr add 192.168.1.110/24 dev enp114s0 2>/dev/null
+  sleep 1
+done
+if ip -4 addr show enp114s0 2>/dev/null | grep -q "192.168.1.110"; then
+  echo "  ✓ 雷达网卡 enp114s0 = 192.168.1.110（雷达 $(
+    ping -c1 -W1 192.168.1.138 >/dev/null 2>&1 && echo '可 ping 通 ✓' || echo '⚠️ ping 不通，检查雷达上电')）"
+else
+  echo "  ⚠️ 雷达网卡 enp114s0 没配好，/livox/lidar 会没数据"
+fi
+
 exec ros2 launch rb_bringup bringup_lidar_vision.launch.py
