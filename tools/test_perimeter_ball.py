@@ -311,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--approach-speed", type=float, default=0.12, help="绕场航点接近速度")
     ap.add_argument("--inset", type=float, default=0.70, help="绕场时离边界距离 m")
     ap.add_argument("--search-wz", type=float, default=0.4, help="找球自转角速度 rad/s")
+    ap.add_argument("--search-timeout", type=float, default=40.0,
+                    help="原地转圈找球的最长秒数（默认 40s，按 0.4rad/s 约转 1.6 圈）")
+    ap.add_argument("--no-search", action="store_true",
+                    help="跳过原地转圈找球，直接进精确流程（要求球已在车正前方）")
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
                     help="保留旧辅助函数参数；精确找球使用已验收的安装外参")
     ap.add_argument("--stop-distance", type=float, default=0.60,
@@ -402,6 +406,32 @@ def main(argv: list[str] | None = None) -> int:
                     log("中止", "绕场未完成，停车退出", C_BAD)
                     return 1
             log("绕场完成", "已回到出发点", C_OK)
+
+        # ── [4.5/5] 原地转圈找球（前置摄像头）
+        #
+        # ⚠️ 这一步原来是缺失的 ✗。
+        #
+        # 下面的 precision_ball_approach 第一步是 "Front approach"
+        # （见它的 docstring：Front approach -> relative 180 degree turn ->
+        #   NEW rear camera/LiDAR servo），它【假设球已经在车正前方】✗。
+        # 于是球在车后或侧面时，它只会一直刷
+        #     front: waiting for one valid front target (no_range_data); stopped
+        # 既不接近、也不旋转、更不会动 ✗ —— 现场实测就是这个现象。
+        #
+        # 而 find_ball()（原地慢转 + 前摄找球）本来就是为这一步写的 ✓，
+        # 却一直没人调用，成了死代码 ✗。这里把它接回来：
+        #   转圈找到球 → 车头正对球 → 再交给 precision 流程（它要的正是这个前提 ✓）。
+        if args.no_search:
+            log("跳过", "不转圈找球，直接进精确流程（要求球已在车正前方）")
+        else:
+            log("找球", f"原地转圈找 {args.ball_label}"
+                        f"（最多 {args.search_timeout:.0f}s，wz={args.search_wz:+.2f} rad/s）")
+            det = run.find_ball(timeout=args.search_timeout)
+            if det is None:
+                log("找球失败", f"转 {args.search_timeout:.0f}s 没看到 {args.ball_label}",
+                    C_BAD)
+                return 1
+            log("对准", "已停在球的正前方，交给精确流程（接近 → 转180° → 后摄精定位）")
 
         # Precision flow replaces blind 0.5 m advances and +0.30 m arrival fudge.
         run.stop()
