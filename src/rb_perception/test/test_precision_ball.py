@@ -100,14 +100,14 @@ def test_two_spheres_in_one_box_are_ambiguous():
 
 def approach_cfg():
     return {'intake_confirmed': True, 'intake_position_base_m': [-.4, 0, .12],
-            'intake_outward_xy': [-1., 0.], 'target_gap_m': .60}
+            'intake_outward_xy': [-1., 0.], 'target_center_distance_m': .60}
 
 
-def target(gap=.60, y=0):
-    return {'centre_base_m': [-.4-gap-.12, y, .12], 'radius_m': .12}
+def target(distance=.60, y=0):
+    return {'centre_base_m': [-.4-distance, y, .12], 'radius_m': .12}
 
 
-def test_surface_gap_uses_intake_offset_and_radius_and_single_target():
+def test_centre_distance_uses_rail_tip_offset_and_single_target():
     cfg = approach_cfg()
     e, lateral, heading, _ = errors(target(), cfg)
     assert abs(e) < 1e-8 and lateral == 0 and abs(heading) < 1e-8
@@ -115,14 +115,31 @@ def test_surface_gap_uses_intake_offset_and_radius_and_single_target():
     assert command(target(.9), cfg)[0] < 0  # Rearward when still too far away.
     assert command(target(.3), cfg)[0] > 0  # Forward to correct overshoot.
     assert np.linalg.norm(command(target(2.), cfg)[:2]) <= .08+1e-8
-    front = target(); front['centre_base_m'][:2] = [1.12, 0]
+    front = target(); front['centre_base_m'][:2] = [1.0, 0]
     assert errors(front, cfg, rear=False)[0] == pytest.approx(0.)
 
 
-def test_surface_gap_includes_vertical_intake_offset():
+def test_centre_distance_includes_vertical_rail_tip_offset():
     cfg = approach_cfg(); cfg['intake_position_base_m'][2] = .4
     ball = target()
-    assert errors(ball, cfg)[0] == pytest.approx(math.hypot(.72, .28) - .12 - .60)
+    assert errors(ball, cfg)[0] == pytest.approx(math.hypot(.60, .28) - .60)
+
+
+def test_changing_ball_radius_does_not_change_arrival_distance():
+    cfg = approach_cfg()
+    for radius in [.105, .12]:
+        ball = target(); ball['radius_m'] = radius
+        assert errors(ball, cfg)[0] == pytest.approx(0.)
+        assert command(ball, cfg) == (0., 0., 0.)
+    # The former surface-gap stop point is now 12 cm too far away.
+    assert errors(target(.72), cfg)[0] == pytest.approx(.12)
+    assert command(target(.72), cfg)[0] < 0
+
+
+def test_legacy_surface_gap_config_cannot_silently_change_meaning():
+    cfg = approach_cfg(); cfg['target_gap_m'] = cfg.pop('target_center_distance_m')
+    with pytest.raises(ValueError, match='rail-tip-to-ball-centre'):
+        Arrival(cfg)
 
 
 @pytest.mark.parametrize('bad_target,speed,wz', [(target(.9), 0, 0), (target(.3), 0, 0),
@@ -147,7 +164,7 @@ def test_invalid_rigid_transform_and_unmeasured_intake_are_rejected():
     with pytest.raises(ValueError): rigid(np.diag([1., 1., -1., 1.]))
     cfg = approach_cfg(); cfg['intake_confirmed'] = False
     with pytest.raises(ValueError): Arrival(cfg)
-    cfg['intake_confirmed'] = True; cfg['target_gap_m'] = .9
+    cfg['intake_confirmed'] = True; cfg['target_center_distance_m'] = .9
     with pytest.raises(ValueError): Arrival(cfg)
 
 

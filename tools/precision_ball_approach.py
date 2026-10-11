@@ -192,7 +192,7 @@ def main(argv=None):
             if gate.update(target, obs_stamp, now, speed, wz, rear=phase == "rear"):
                 send()
                 if phase == "rear":
-                    node.get_logger().info("arrived: intake-to-ball-surface gap 0.60 m, stable")
+                    node.get_logger().info("arrived: rail-tip-to-ball-centre distance 0.60 m, stable")
                     done = True
                     break
                 predicted_ball_world = current_world
@@ -202,7 +202,7 @@ def main(argv=None):
                 node.get_logger().info("turn: front stage settled, relative 180 degree turn")
             from rb_perception.ball_approach import errors
             e, lateral, heading, _ = errors(target, cfg, rear=phase == "rear")
-            status(f"gap_error={e:.3f} lateral={lateral:.3f} heading={heading:.3f}")
+            status(f"centre_distance_error={e:.3f} lateral={lateral:.3f} heading={heading:.3f}")
     except (KeyboardInterrupt, RuntimeError, ValueError, KeyError, TypeError) as exc:
         node.get_logger().error(str(exc))
     finally:

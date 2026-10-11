@@ -11,7 +11,7 @@
   （任务侧在用的同一份，坐标系/单位约定一致）。
 * **安全兜底**：每步都有超时；超时/异常/Ctrl-C 一律发零速再退出。
 * **精确找球**：标定必须先通过，找球阶段委托 precision_ball_approach.py。
-  0.60m 定义为车尾吸球口到球表面；转身后必须用新后相机/雷达观测确认。
+  0.60m 定义为车尾导轨末端中点到球心；转身后必须用新后相机/雷达观测确认。
 
 用法
 ----
@@ -314,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
                     help="保留旧辅助函数参数；精确找球使用已验收的安装外参")
     ap.add_argument("--stop-distance", type=float, default=0.60,
-                    help="固定 0.60m，车尾吸球口到球表面；容差在 ball_approach.yaml")
+                    help="固定 0.60m，车尾导轨末端中点到球心；容差在 ball_approach.yaml")
     args = ap.parse_args(argv)
 
     from precision_ball_approach import validate
@@ -323,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     precision_path = Path(WS) / "src/rb_perception/config/ball_approach.yaml"
     cfg = yaml.safe_load(precision_path.read_text())
     if args.stop_distance != .60 or args.ball_label != cfg["ball_label"]:
-        print("REFUSED: use the configured ball class and 0.60 m intake surface gap")
+        print("REFUSED: use the configured ball class and 0.60 m rail-tip-to-ball-centre distance")
         return 1
     try:
         validate(cfg)

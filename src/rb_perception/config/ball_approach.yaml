@@ -1,8 +1,8 @@
 # 仅上层控制；不会配置、使能或重启底盘。
 ball_label: ball_basketball
-target_gap_m: 0.60
+target_center_distance_m: 0.60  # 导轨最外端中点到球心的三维距离，不减球半径
 intake_confirmed: false
-intake_position_base_m: null  # 吸球口中心相对 base_link，实测 [x,y,z]
+intake_position_base_m: null  # 两条车尾取球导轨最外端中点相对 base_link，[x,y,z]
 intake_outward_xy: [-1.0, 0.0]
 distance_tolerance_m: 0.02
 lateral_tolerance_m: 0.02

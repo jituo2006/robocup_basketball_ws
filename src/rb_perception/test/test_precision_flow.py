@@ -21,7 +21,7 @@ def test_actual_flow_requires_new_rear_data_before_success(tmp_path, monkeypatch
     state = NS(t=10., x=0., y=0., yaw=0., cmd=(0., 0., 0.), count=0, moving=False)
     messages = []
     callbacks = {}
-    config = {'ball_label':'ball_basketball', 'target_gap_m':.60,
+    config = {'ball_label':'ball_basketball', 'target_center_distance_m':.60,
               'intake_confirmed':True, 'intake_position_base_m':[-.4, 0., .12],
               'intake_outward_xy':[-1., 0.], 'front_range_topic':'front',
               'rear_range_topic':'rear', 'odom_topic':'odom', 'stage_timeout_s':45.}
@@ -61,7 +61,7 @@ def test_actual_flow_requires_new_rear_data_before_success(tmp_path, monkeypatch
                   # FAST-LIO may leave twist zero: pose differentiation must settle.
                   twist=NS(twist=Twist()))
         callbacks['odom'](pose)
-        dx,dy=1.12-state.x,-state.y
+        dx,dy=1.0-state.x,-state.y
         ball=[math.cos(state.yaw)*dx+math.sin(state.yaw)*dy,
               -math.sin(state.yaw)*dx+math.cos(state.yaw)*dy,.12]
         report={'valid':True, 'camera_stamp':state.t-.005, 'cloud_stamp':state.t-.005,

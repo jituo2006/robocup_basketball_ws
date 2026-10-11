@@ -66,7 +66,7 @@ def main():
     g = json.loads(Path(args.geometry).read_text())
     position = np.asarray(g['intake_position_base_m'], dtype=float)
     if position.shape != (3,) or not np.isfinite(position).all():
-        raise ValueError("invalid measured intake centre")
+        raise ValueError("invalid measured rear rail-tip midpoint")
     board = rigid(g["base_from_board"])
     lidar = rigid(g["base_from_cloud"])
     square = float(g["square_m"])

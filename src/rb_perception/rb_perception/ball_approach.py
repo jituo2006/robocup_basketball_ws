@@ -1,4 +1,4 @@
-"""Pure body-frame control and arrival rules for a REAR intake."""
+"""Body-frame control: rear rail-tip midpoint to BALL CENTRE is 0.60 m."""
 import math
 import numpy as np
 from .precision_ball import fresh
@@ -17,8 +17,8 @@ def geometry(cfg):
             or not np.isfinite(axis).all() or abs(np.linalg.norm(axis) - 1) > 1e-5
             or axis[0] > -.9):
         raise ValueError("invalid rear intake geometry")
-    if cfg.get("target_gap_m") != .60:
-        raise ValueError("this procedure requires the agreed 0.60 m surface gap")
+    if "target_gap_m" in cfg or cfg.get("target_center_distance_m") != .60:
+        raise ValueError("this procedure requires the agreed 0.60 m rail-tip-to-ball-centre distance")
     for key, default, lower, upper in (
             ("distance_tolerance_m", .02, .005, .03),
             ("lateral_tolerance_m", .02, .005, .03),
@@ -41,10 +41,10 @@ def errors(target, cfg, rear=True):
     if not rear:
         point, axis = point * [-1., -1., 1.], -axis
     relative = centre - point
-    gap = float(np.linalg.norm(relative)) - radius
+    centre_distance = float(np.linalg.norm(relative))
     lateral = float(relative[:2] @ np.array([-axis[1], axis[0]]))
     heading = wrap(math.atan2(relative[1], relative[0]) - math.atan2(axis[1], axis[0]))
-    return gap - .60, lateral, heading, axis
+    return centre_distance - cfg["target_center_distance_m"], lateral, heading, axis
 
 
 class Arrival:
