@@ -58,6 +58,20 @@ python3 tools/calibrate_camera.py --camera-role rear --images /tmp/rear_calib
 
 ## 安装外参和吸球口位置
 
+### 2026-10-12 现场相机高度记录（待完成外参标定）
+
+现场测量：前相机中心在底盘前横梁最底端正上方 0.30 m，
+后相机中心在底盘后横梁最底端正上方 0.18 m。
+两项测量各自以对应横梁的最底端为高度基准，不是相机离地高度，
+也不是相机相对 `base_link` 原点的 z 坐标。
+若横梁底面相对 `base_link` 的高度分别为 z_front_beam、z_rear_beam，
+则相机中心候选高度分别为 z_front_beam + 0.30 m、z_rear_beam + 0.18 m。
+前后横梁底面若不等高，不能直接推断前相机比后相机高 0.12 m。
+
+尚需确认镜头是否位于横梁左右中线、所报“相机中心”是否为镜头中心，
+以及镜头前后朝向、俯仰角、横梁位置和 `base_link` 原点。
+以上高度只作为实测约束，不据此填写完整 `base_from_camera` 或更改标定确认标志。
+
 所有测量统一以底盘使用的 `base_link` 原点为参考：x 车头、y 左侧、z 上。
 相机采用 OpenCV 光学坐标：x 向右、y 向下、z 镜头前方。
 FAST-LIO `/cloud_registered_body` 是 **IMU 坐标**，并非自动等于车体坐标。
