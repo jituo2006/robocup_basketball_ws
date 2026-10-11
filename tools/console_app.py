@@ -1122,70 +1122,74 @@ class SystemChecks:
                 self.state["running"] = None
             return False, f"{type(e).__name__}: {e}"
 
+    # 一键启动要等的关键进程（用进程名判断：比 ros2 node list 快得多；
+    # pgrep -x 精确匹配进程名，不会匹配到我们自己 ✓）
+    FLOW_NODES = ("rb_chassis_node", "mission_node", "camera_node",
+                  "perception_node", "localization_node")
+
     def startup_flow(self, stack: "StackManager"):
-        """一键流程：boot.sh → 等 mission 就绪 → 自动就绪检查。"""
+        """一键启动（极简版）：起 boot.sh → 等关键进程出现 → 完事。
+
+        ⚠️ 原实现叠了三层，每层都脆：
+          ① 翻日志文本找 "底盘已使能" / "mission 就绪" 两个字符串
+             —— 日志一改措辞就永远等不到 ✗
+          ② 超时 120 秒 —— 出问题时白等两分钟 ✗
+          ③ 再调 tools/check_ready.sh 并解析它的输出 —— 多一个脚本+格式 ✗
+        现在：一个判据（关键进程在不在）、一个超时（45s）、不调任何脚本。
+        要看更细的检查点旁边的「✅ 就绪检查」——那是独立功能，不塞进一键启动。
+        """
         with self.lock:
             if self.state["flow"] == "running":
-                return False, "一键流程已在跑"
+                return False, "一键启动已在跑"
             self.state["flow"] = "running"
             self.state["flow_step"] = "启动整套"
 
         def worker():
+            missing = []
+            ok = False
+            msg = ""
             try:
                 ok, msg = stack.start()
-                self.log.append((time.time(), "TOOL", "一键流程", f"boot.sh: {msg}"))
-                if not ok:
-                    with self.lock:
-                        self.state["flow"] = "failed"
-                        self.state["flow_step"] = msg
-                    return
-                # 等关键就绪标志（最多 120s）
-                deadline = time.time() + 120
-                seen = {"chassis": False, "mission": False}
-                while time.time() < deadline:
-                    txt = "\n".join(m for (_, _, _, m) in list(stack.log)[-200:])
-                    if "底盘已使能" in txt:
-                        seen["chassis"] = True
-                    if "mission 就绪" in txt:
-                        seen["mission"] = True
-                    if seen["chassis"] and seen["mission"]:
-                        break
-                    if not stack.running:
-                        with self.lock:
-                            self.state["flow"] = "failed"
-                            self.state["flow_step"] = "boot.sh 退出了（看日志）"
-                        return
-                    time.sleep(1.5)
-                else:
-                    with self.lock:
-                        self.state["flow"] = "failed"
-                        self.state["flow_step"] = "等就绪标志超时（看日志）"
-                    return
-
-                self.log.append((time.time(), "TOOL", "一键流程",
-                                 "底盘已使能 + mission 就绪 → 开始就绪检查"))
-                with self.lock:
-                    self.state["flow_step"] = "就绪检查"
-                out = self._run("就绪检查", "tools/check_ready.sh")
-                res = parse_check_ready(out)
-                with self.lock:
-                    self.state["result"] = res
-                    self.state["flow"] = "done" if res["ok"] else "notready"
-                    self.state["flow_step"] = ("可以开车了" if res["ok"]
-                                               else f"{len(res['failed'])} 项没就绪")
+                self.log.append((time.time(), "TOOL", "一键启动", f"boot.sh: {msg}"))
+                if ok:
+                    deadline = time.time() + 45
+                    missing = list(self.FLOW_NODES)
+                    while time.time() < deadline:
+                        missing = [n for n in self.FLOW_NODES if not _proc_running(n)]
+                        if not missing or not stack.running:
+                            break
+                        time.sleep(1.0)
+                step = ("可以开车了" if (ok and not missing)
+                        else ("boot.sh: " + msg if not ok
+                              else "缺少节点: " + ", ".join(missing)))
             except Exception as e:  # noqa: BLE001
-                with self.lock:
-                    self.state["flow"] = "failed"
-                    self.state["flow_step"] = f"{type(e).__name__}: {e}"
+                step = f"{type(e).__name__}: {e}"
+                ok = False
+            with self.lock:
+                self.state["flow"] = "done" if (ok and not missing) else "notready"
+                self.state["flow_step"] = step
 
         threading.Thread(target=worker, daemon=True).start()
-        return True, "一键流程已启动（boot.sh → 等就绪 → 就绪检查）"
+        return True, "一键启动已开始（boot.sh → 等关键进程）"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 底盘使能：CAN 检查 → 恢复 → 起底盘节点 → 等"已使能 4 个电机"
 # ─────────────────────────────────────────────────────────────────────────────
 PCAN_VIDPID = "0c72:000c"
+
+
+def _proc_running(name: str) -> bool:
+    """进程在不在。
+
+    用 `pgrep -x`（精确匹配进程名）而不是 `pgrep -f`（匹配整条命令行）——
+    `-f` 会匹配到我们自己（命令行里就带着这个名字），这个坑踩过很多次 ✗。
+    """
+    try:
+        return subprocess.run(["pgrep", "-x", name],
+                              capture_output=True, timeout=3).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def probe_can():
