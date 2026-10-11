@@ -1,16 +1,16 @@
 # 后相机独立内参；同一新 YOLO 模型，禁止复制前相机安装参数。
 camera:
-  fx: 0.0
-  fy: 0.0
-  cx: 0.0
-  cy: 0.0
+  fx: 794.16
+  fy: 793.9
+  cx: 577.4
+  cy: 378.38
   distortion:
   - 0.0
   - 0.0
   - 0.0
   - 0.0
   - 0.0
-  calibrated: false
+  calibrated: true
   calibration_size:
   - 1280
   - 720
