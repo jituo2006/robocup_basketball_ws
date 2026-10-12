@@ -49,7 +49,7 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 # V4L2 控件名在不同 UVC 驱动上不一致，这里给出别名表，按顺序取第一个存在的。
 # 本机实测这台 HD USB Camera 的实际控件名：
@@ -225,6 +225,23 @@ class CameraNode(Node):
         self.compressed_pub = (
             self.create_publisher(CompressedImage, self.compressed_topic, img_qos)
             if self.publish_compressed else None)
+
+        # ── 运行时曝光控制接口（供调试界面"分别调曝光"用）────────────────
+        #
+        # ⚠️ 设计约束（避开前几次踩过的坑）：
+        #   * 只用【标准消息类型】（std_msgs/String + JSON），不新增 rb_msgs 消息，
+        #     这样不用重编译消息包、不会破坏已有订阅者、也不动通信协议 ✓
+        #   * 话题名带节点私有前缀 ~（即 /rb_camera/exposure_cmd 与
+        #     /rb_camera_rear/exposure_cmd），前后摄天然分开、互不干扰 ✓
+        #   * 状态用【周期性发布】而不是 latched(TRANSIENT_LOCAL)：
+        #     前面被 DDS 的 writer/reader 匹配坑过好几次（新订阅者收不到老发布者的
+        #     latched 消息），周期发布最稳 ✓
+        self.exposure_cmd_sub = self.create_subscription(
+            String, "~/exposure_cmd", self.on_exposure_cmd, 5)
+        self.exposure_state_pub = self.create_publisher(String, "~/exposure_state", 5)
+        self.create_timer(1.0, self.publish_exposure_state)
+        # 最近一次实测画面亮度（自动曝光闭环算出来的），回报给界面看
+        self._ae_last_mean = 0.0
 
         # 采集线程共享状态
         self._lock = threading.Lock()
@@ -534,6 +551,7 @@ class CameraNode(Node):
             return
         mean = sum(self._ae_buf) / len(self._ae_buf)
         self._ae_buf.clear()
+        self._ae_last_mean = mean      # 回报给调试界面（"当前画面亮度"）
         if abs(self.ae_target - mean) < self.ae_deadband:
             return
         # ⚠️ 必须用【乘性】控制，不能用线性步进。
@@ -559,6 +577,81 @@ class CameraNode(Node):
             self._ae_log_t = now
             self.get_logger().info(
                 f"自动曝光: 当前亮度 {mean:.0f}（目标 {self.ae_target:.0f}）→ 曝光设为 {new}")
+
+    # ── 运行时曝光控制（调试界面用）────────────────────────────────────
+    #
+    # 语义（两个相机完全一致，配置可以照抄同一套 ✓）：
+    #   {"auto": true}            打开软件自动曝光（按 target 闭环调）
+    #   {"auto": false}           关掉自动，改用固定的 value
+    #   {"target": 115}           自动模式的目标平均亮度 0~255
+    #   {"value": 300}            手动模式的曝光值 1~5000（同时会应用到相机）
+    # 只带其中一部分键也行，其余保持不变 ✓
+    def on_exposure_cmd(self, msg) -> None:
+        import json as _json
+        try:
+            cmd = _json.loads(msg.data or "{}")
+        except Exception:  # noqa: BLE001
+            self.get_logger().warn(f"曝光指令不是合法 JSON: {msg.data[:80]!r}")
+            return
+        changed = []
+        try:
+            if "auto" in cmd:
+                self.ae_enabled = bool(cmd["auto"])
+                changed.append(f"auto={self.ae_enabled}")
+                if not self.ae_enabled:
+                    # 关掉自动时立刻把当前值固化到相机，避免停在自动算出的中间值
+                    self._apply_exposure(self._ae_current)
+            if "target" in cmd:
+                t = float(cmd["target"])
+                if 1.0 <= t <= 255.0:
+                    self.ae_target = t
+                    changed.append(f"target={t:.0f}")
+                else:
+                    self.get_logger().warn(f"target 超范围（1~255）: {t}")
+            if "value" in cmd:
+                v = int(cmd["value"])
+                if 1 <= v <= 5000:
+                    self._ae_current = v
+                    changed.append(f"value={v}")
+                    if not self.ae_enabled:
+                        self._apply_exposure(v)
+                else:
+                    self.get_logger().warn(f"value 超范围（1~5000）: {v}")
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"曝光指令处理失败: {exc}")
+            return
+        if changed:
+            self._ae_buf.clear()     # 参数变了，丢掉旧的亮度样本，避免用旧值收敛
+            self._ae_skip = self.ae_settle_frames
+            self.get_logger().info("曝光指令已应用: " + ", ".join(changed))
+
+    def _apply_exposure(self, value: int) -> None:
+        """把曝光值直接写到相机（手动模式用）。"""
+        try:
+            if self._ae_ctrl is None:
+                self._ae_ctrl = (self._find_ctrl("exposure", self._v4l2_ctrls())
+                                 or "exposure_time_absolute")
+            self._set_ctrl(self._ae_ctrl, int(value))
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"写曝光值失败: {exc}")
+
+    def publish_exposure_state(self) -> None:
+        """周期回报曝光状态（不用 latched —— DDS 的 writer/reader 匹配坑过好几次）。"""
+        import json as _json
+        msg = String()
+        msg.data = _json.dumps({
+            "node": self.get_name(),          # rb_camera / rb_camera_rear
+            "topic": self.image_topic,
+            "auto": bool(self.ae_enabled),
+            "target": float(self.ae_target),
+            "value": int(self._ae_current),
+            "mean": round(float(self._ae_last_mean), 1),   # 最近实测画面亮度
+            "ok": bool(getattr(self, "_ok", False)),
+        }, ensure_ascii=False)
+        try:
+            self.exposure_state_pub.publish(msg)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _sleep(self, sec: float) -> None:
         """可被 stop() 打断的睡眠。"""
