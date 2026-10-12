@@ -137,7 +137,7 @@
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
         <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
-      <div class="hint">右转90° → 前进 → 左移找球 → 转180° → 后摄横移对正 → 向中线低速后退0.40米。<br>靠近期间不要求识球；上方参数下次启动时生效。</div>
+      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 转180° → 后摄横移对正 → 低速后退吸球。<br>预移途中不触发取球；靠近期间不要求识球。</div>
     </div>
     <div class="card" id="matchRoundCard">
       <h2>三回合分阶段实验</h2>
@@ -160,10 +160,11 @@
       <h3>第1回合：预装1球，再取中线第2球</h3>
       <div class="step-buttons" id="round1Steps">阶段读取中</div>
       <div class="hint" id="round1Progress"></div>
+      <div class="hint" id="round1PathHint">第2阶段：先到中线置球区图右端，再向图左端寻球。</div>
       <h3>第2回合：中线优先，三分弧补找</h3>
       <div class="step-buttons" id="round2Steps">阶段读取中</div>
       <div class="hint" id="round2Progress"></div>
-      <div class="hint" id="round2PathHint">右转90° → 前进3.2米 → 中线左右扫 → 取球 → 传球/投篮点。中线无球时补扫三分弧。</div>
+      <div class="hint" id="round2PathHint">到中线附近 → 预移到规则图右端 → 向图左端寻球 → 取球 → 动作点。中线无球时补扫三分弧。</div>
       <h3>第3回合：直接去三分区</h3>
       <div class="step-buttons" id="round3Steps">阶段读取中</div>
       <div class="hint" id="round3Progress"></div>
@@ -696,7 +697,11 @@ async function loadRoundConfig(){
     if(!cfg.ok){ $('roundReleaseState').textContent = cfg.msg; return; }
     window._roundConfig = cfg;
     $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
-    $('round2PathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → 中线左右扫 → 取球 → 传球/投篮点。中线无球时补扫三分弧。`;
+    const m = cfg.middle_scan;
+    const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
+    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 转180° → 后摄横移对正 → 低速后退吸球。预移途中不触发取球；靠近期间不要求YOLO。`;
+    $('round1PathHint').textContent = `第2阶段：${sweep}；对正后靠近吸球，到动作点放球。`;
+    $('round2PathHint').textContent = `每次中线寻球：${sweep} → 取球 → 动作点。中线无球时补扫三分弧。`;
     $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
     ['middle','arc','inner'].forEach(area => {
       $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
@@ -741,7 +746,7 @@ async function loadRoundSteps(){
 }
 function toolRun(key){
   const warn = {
-    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 向车体左侧平移找篮球 → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 先到规则图右端（车体左移） → 向图左端找篮球（车体右移） → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
     TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 对准停车。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';

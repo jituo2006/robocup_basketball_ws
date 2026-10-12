@@ -18,7 +18,8 @@ def load():
 def make_runner(mod):
     run = mod.Runner.__new__(mod.Runner)
     run.pose = (1.5, 8.0, 0.0)
-    run.args = NS(ball_label='ball_basketball', route_forward=3.55, route_scan_distance=3.0,
+    run.args = NS(ball_label='ball_basketball', route_forward=3.55,
+                  route_scan_start_offset=2.9, route_scan_distance=3.8,
                   route_forward_speed=.12, route_scan_speed=.08, route_scoop_speed=.08,
                   route_scoop_distance=.20, route_forward_timeout=60., route_scan_timeout=60.,
                   route_scoop_timeout=15., route_heading_tol=.10, route_ball_tol_deg=6.,
@@ -47,6 +48,20 @@ def test_route_respects_initial_heading_without_resetting_localization():
     assert heading == pytest.approx(0.)
     assert near == pytest.approx((4., 2.))
     assert axis == pytest.approx((0., 1.))
+
+
+@pytest.mark.parametrize('yaw', [0., math.pi/2, -1.2])
+def test_middle_preposition_and_scan_use_rule_diagram_directions_in_any_local_frame(yaw):
+    mod = load()
+    heading, near, begin, axis, end = mod.fixed_middle_route_plan((1.5, 8., yaw), 3.2, 2.9, 3.8)
+    c, s = math.cos(yaw), math.sin(yaw)
+    assert near == pytest.approx((1.5+3.2*s, 8.-3.2*c))
+    assert begin == pytest.approx((near[0]+2.9*c, near[1]+2.9*s))
+    assert end == pytest.approx((near[0]-.9*c, near[1]-.9*s))
+    assert axis == pytest.approx((-c, -s))
+    # 向图左端扫在右转后的车体坐标中是右移，不能沿用旧的左移符号。
+    assert math.cos(heading)*axis[0]+math.sin(heading)*axis[1] == pytest.approx(0.)
+    assert -math.sin(heading)*axis[0]+math.cos(heading)*axis[1] == pytest.approx(-1.)
 
 
 def mock_motion(run, fail=None):
@@ -83,12 +98,14 @@ def test_fixed_sequence_turns_180_and_backs_towards_ball_at_low_speed():
     run = make_runner(mod)
     actions = mock_motion(run)
     assert run.fixed_seek_and_scoop()
-    assert [a[0] for a in actions] == ['turn', 'move', 'scan', 'turn', 'move', 'stop']
+    assert [a[0] for a in actions] == ['turn', 'move', 'move', 'scan', 'turn', 'move', 'stop']
     assert actions[0][1] == pytest.approx(-math.pi/2)
-    assert actions[3][1] == pytest.approx(math.pi/2)
+    assert actions[4][1] == pytest.approx(math.pi/2)
     assert actions[1][1:3] == pytest.approx((1.5, 4.45))
-    assert actions[4][1:3] == pytest.approx((1.5, 4.25))
-    assert actions[4][3] == .08 and actions[4][4] == .02
+    assert actions[2][1:3] == pytest.approx((4.4, 4.45))
+    assert actions[2][3] == .08
+    assert actions[5][1:3] == pytest.approx((4.4, 4.25))
+    assert actions[5][3] == .08 and actions[5][4] == .02
     assert run.args.speed == .25 and run.args.approach_speed == .12
 
 
@@ -102,6 +119,23 @@ def test_route_failure_never_starts_search_or_scoop(failure):
     assert run.args.speed == .25
 
 
+def test_preposition_failure_never_reads_yolo_or_turns_to_scoop():
+    mod = load(); run = make_runner(mod)
+    events = mock_motion(run)
+    goto = run.goto
+    def fail_at_right_end(x, y, **kwargs):
+        if x == pytest.approx(4.4):
+            events.append(('preposition_failed',))
+            return False
+        return goto(x, y, **kwargs)
+    run.goto = fail_at_right_end
+    run.centered_basketball = lambda: pytest.fail('preposition must not inspect basketballs')
+    assert not run.fixed_seek_and_scoop()
+    assert events[-1] == ('preposition_failed',)
+    assert not any(e[0] == 'scan' for e in events)
+    assert run.args.speed == .25 and run.args.approach_speed == .12
+
+
 @pytest.mark.parametrize('found', [None])
 def test_unconfirmed_off_axis_or_out_of_range_ball_does_not_trigger_turn_or_scoop(found):
     mod = load()
@@ -110,7 +144,7 @@ def test_unconfirmed_off_axis_or_out_of_range_ball_does_not_trigger_turn_or_scoo
     run.fixed_left_scan = lambda *a: found
     assert not run.fixed_seek_and_scoop()
     assert sum(a[0] == 'turn' for a in actions) == 1
-    assert sum(a[0] == 'move' for a in actions) == 1
+    assert sum(a[0] == 'move' for a in actions) == 2
 
 
 def test_center_detection_stops_without_waiting_for_confirmation():
@@ -143,6 +177,24 @@ def test_scan_command_is_body_left_with_zero_forward_speed():
     assert run.fixed_left_scan(-math.pi/2, (1., 0.)) is None
     assert speeds[0] == pytest.approx((0., .08, 0.))
     assert stops
+
+
+def test_rule_left_scan_commands_body_right_and_stops_at_end_tolerance():
+    mod = load(); run = make_runner(mod)
+    run.pose, run.yaw_rate = (4.4, 4.8, -math.pi/2), 0.
+    run.args.route_scan_distance = .1
+    run.spin = lambda sec: None
+    run.centered_basketball = lambda: None
+    run.stop = lambda: None
+    run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
+    speeds = []
+    def command(msg):
+        speeds.append((msg.linear.x, msg.linear.y))
+        # 停在终点容差内，不必依赖超时或越过末端才停。
+        run.pose = (4.315, 4.8, run.pose[2])
+    run.publish_command = command
+    assert run.fixed_left_scan(-math.pi/2, (-1., 0.)) is None
+    assert speeds == [pytest.approx((0., -.08))]
 
 @pytest.mark.parametrize('label,center,source,fresh,conf,expected', [
     ('ball_basketball',.5,'camera',True,.9,True),

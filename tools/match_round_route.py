@@ -122,11 +122,10 @@ def search_order(round_number, task):
 
 
 def search_plan(cfg, area, cycle=0):
-    """(点, 前摄朝向)。回合内第二次搜索换向，球位始终由摄像头发现。"""
+    """(点, 前摄朝向)。中线始终从规则图右端向左扫；其它区域第二次换向。"""
     if area == 'middle':
         m = cfg[area]
-        ends = [m['right_x'], m['left_x']] if cycle == 0 else [m['left_x'], m['right_x']]
-        return [((cfg['start'][0], m['y']), -math.pi/2)] + [((x, m['y']), -math.pi/2) for x in ends]
+        return [((x, m['y']), -math.pi/2) for x in (m['right_x'], m['left_x'])]
     if area == 'inner':
         i = cfg[area]
         ys = [i['top_y'], i['bottom_y']] if cycle == 0 else [i['bottom_y'], i['top_y']]
@@ -234,6 +233,13 @@ class RoundRoute:
             if not self.move(p, remember=True):
                 return 'failed'
         points = search_plan(cfg, area, cycle)
+        if area == 'middle':
+            # 先朝黄线到 C，再平移到规则图右端；这两段不读取球框触发取球。
+            if not self.turn(points[0][1]):
+                return 'failed'
+            if not self.move([cfg['start'][0], cfg['middle']['y']], remember=True):
+                return 'failed'
+            self.say(f"中线预移至图右端 X={cfg['middle']['right_x']:.2f}，到位后向图左端搜索")
         if not self.move(points[0][0], remember=True):
             return 'failed'
         for p, yaw in points:

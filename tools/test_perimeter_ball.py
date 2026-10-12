@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""默认固定路线：右转90° → 到中线附近 → 左移找篮球 → 停车 → 转180° → 后退。
+"""默认固定路线：右转90° → 到中线附近 → 图右端 → 向图左端找球 → 转180° → 后退。
 
 --route legacy 运行旧绕场/视觉伺服流程。
 
@@ -178,6 +178,16 @@ def fixed_route_plan(start_pose, forward_m: float, scan_m: float):
     scan_end = (near_line[0] + scan_m * left_axis[0],
                 near_line[1] + scan_m * left_axis[1])
     return right_yaw, near_line, left_axis, scan_end
+
+
+def fixed_middle_route_plan(start_pose, forward_m, start_offset_m, scan_m):
+    """先到规则图右端，再向图左端扫；初始朝向对应图 +X，右转后车体左右相反。"""
+    heading, near_line, field_right, _ = fixed_route_plan(start_pose, forward_m, scan_m)
+    scan_start = (near_line[0]+start_offset_m*field_right[0],
+                  near_line[1]+start_offset_m*field_right[1])
+    axis = (-field_right[0], -field_right[1])
+    scan_end = (scan_start[0]+scan_m*axis[0], scan_start[1]+scan_m*axis[1])
+    return heading, near_line, scan_start, axis, scan_end
 
 
 def stamp_seconds(stamp) -> float:
@@ -917,7 +927,7 @@ class Runner:
         return False
 
     def fixed_left_scan(self, heading, axis):
-        """车体左移，篮球框中心进入中央竖带即停车。"""
+        """沿给定方向横移，篮球框中心进入中央竖带即停车。"""
         origin = self.pose[:2]
         deadline = time.monotonic() + self.args.route_scan_timeout
         while time.monotonic() < deadline:
@@ -932,7 +942,7 @@ class Runner:
             px, py, yaw = self.pose
             travelled = (px-origin[0])*axis[0] + (py-origin[1])*axis[1]
             err = wrap_pi(heading-yaw)
-            if travelled >= self.args.route_scan_distance:
+            if travelled >= self.args.route_scan_distance-self.args.step_tol:
                 break
             if abs(err) > self.args.route_heading_tol:
                 self.stop()
@@ -949,19 +959,21 @@ class Runner:
             tw.angular.z = max(-self.args.max_ang, min(self.args.max_ang, wz)) if math.isfinite(wz) else 0.0
             self.publish_command(tw)
         self.stop()
-        log("路线中止", "左移搜索到达距离/时间上限，未找到篮球", C_WARN)
+        log("路线中止", "横移搜索到达距离/时间上限，未找到篮球", C_WARN)
         return None
 
     def fixed_seek_and_scoop(self):
-        """固定步骤：右90° → 到中线附近 → 左移找篮球 → 停 → 转180° → 后退。"""
+        """右90° → 到中线附近 → 预移到图右端 → 向图左端找球 → 转身吸球。"""
         if self.args.ball_label != "ball_basketball":
             raise ValueError("固定铲球路线只搜索篮球")
         start = self.pose
-        heading, near_line, axis, endpoint = fixed_route_plan(
-            start, self.args.route_forward, self.args.route_scan_distance)
+        heading, near_line, scan_start, axis, endpoint = fixed_middle_route_plan(
+            start, self.args.route_forward, self.args.route_scan_start_offset,
+            self.args.route_scan_distance)
         trace("fixed_route", start=list(start), right_yaw=heading,
-              near_line=list(near_line), scan_end=list(endpoint))
-        log("固定路线", f"右转90° → 前进{self.args.route_forward:.2f}m → 左移找篮球 "
+              near_line=list(near_line), scan_start=list(scan_start), scan_end=list(endpoint))
+        log("固定路线", f"右转90° → 前进{self.args.route_forward:.2f}m → 向图右端预移"
+                        f"{self.args.route_scan_start_offset:.2f}m → 向图左端找篮球 "
                         f"(最多{self.args.route_scan_distance:.2f}m) → 停 → 转180° → 后退")
         if not self.rotate_to(heading, timeout=30.0):
             return False
@@ -970,6 +982,16 @@ class Runner:
             self.args.speed = self.args.route_forward_speed
             self.args.approach_speed = min(saved_approach, self.args.route_forward_speed)
             if not self.goto(*near_line, timeout=self.args.route_forward_timeout,
+                             tolerance=self.args.step_tol):
+                return False
+            if abs(wrap_pi(heading-self.pose[2])) > self.args.yaw_tol:
+                if not self.rotate_to(heading, timeout=15.0):
+                    return False
+            self.args.speed = self.args.route_scan_speed
+            self.args.approach_speed = min(saved_approach, self.args.route_scan_speed)
+            # 预移阶段只用位姿，到图右端后才读取中心框开始找球。
+            if not self.goto(*scan_start, timeout=max(20.,
+                             abs(self.args.route_scan_start_offset)/self.args.route_scan_speed+15.),
                              tolerance=self.args.step_tol):
                 return False
         finally:
@@ -1203,7 +1225,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-forward", type=float, default=3.2, help="右转后到中线附近的前进距离 m")
     ap.add_argument("--route-forward-speed", type=float, default=0.25)
     ap.add_argument("--route-forward-timeout", type=float, default=60.0)
-    ap.add_argument("--route-scan-distance", type=float, default=3.0, help="车体左移搜索距离上限 m")
+    ap.add_argument("--route-scan-start-offset", type=float, default=None,
+                    help="到中线附近后沿原出发朝向预移的距离；默认 middle.right_x-start.x")
+    ap.add_argument("--route-scan-distance", type=float, default=None,
+                    help="向规则图左端搜索的距离；默认 middle.right_x-middle.left_x")
     ap.add_argument("--route-scan-speed", type=float, default=0.25)
     ap.add_argument("--route-scan-timeout", type=float, default=60.0)
     ap.add_argument("--route-heading-tol", type=float, default=0.10, help="平移时允许的朝向偏差 rad")
@@ -1246,6 +1271,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--obstacle-lidar-cells', type=int, default=3,
                     help='危险区域内不同6cm体素数量阈值')
     args = ap.parse_args(argv)
+    if args.route == 'fixed':
+        from match_round_route import load_config
+        try:
+            middle_cfg = load_config(args.round_config)
+            if args.route_scan_start_offset is None:
+                args.route_scan_start_offset = middle_cfg['middle']['right_x']-middle_cfg['start'][0]
+            if args.route_scan_distance is None:
+                args.route_scan_distance = middle_cfg['middle']['right_x']-middle_cfg['middle']['left_x']
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            ap.error(str(exc))
+    else:
+        if args.route_scan_start_offset is None:
+            args.route_scan_start_offset = 0.
+        if args.route_scan_distance is None:
+            args.route_scan_distance = 3.8
+    if not math.isfinite(args.route_scan_start_offset) or not -5 <= args.route_scan_start_offset <= 5:
+        ap.error('起扫点预移须为 -5 到 5 米之间的有限数')
     round_cfg = None
     if args.route in ('round1', 'round2', 'round3'):
         from match_round_route import load_config, validate_mode, TASK_LABELS
@@ -1315,7 +1357,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.route in ('round1', 'round2', 'round3'):
         print(f'🤖 第{args.route[-1]}回合路线实验：{args.round_task} / {args.round_mode}')
     else:
-        print("🤖 固定路线：右转90° → 到中线附近 → 左移找篮球 → 停车 → 转180° → 后退铲球" if args.route == "fixed" else "🤖 绕场/视觉伺服测试")
+        print("🤖 固定路线：右转90° → 到中线附近 → 图右端 → 向图左端找球 → 转180°后退铲球" if args.route == "fixed" else "🤖 绕场/视觉伺服测试")
 
     # ── [1/5] 节点 ──────────────────────────────────────────────────────
     print("\n[1/5] 检查节点")

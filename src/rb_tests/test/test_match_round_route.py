@@ -66,6 +66,51 @@ def test_rule_target_regions_differ_by_round_and_task():
     assert search_order(3, 'shoot') == ['inner', 'arc']
 
 
+@pytest.mark.parametrize('cycle', [0, 1])
+def test_middle_always_starts_at_diagram_right_end_before_scanning_left(cycle):
+    points = search_plan(load_config(), 'middle', cycle)
+    assert [p for p, yaw in points] == [(4.4, 4.8), (.6, 4.8)]
+    assert all(yaw == pytest.approx(-math.pi/2) for p, yaw in points)
+
+
+def test_middle_reaches_right_end_before_target_trigger_and_remembers_return_path():
+    cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
+    plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
+    def detect(dets):
+        assert r.pose == pytest.approx((4.4, 4.8, -math.pi/2))
+        events.append(('detect',))
+        return NS()
+    r.centered_target_candidates = detect
+    assert plan.search_area('middle', 0, search_only=True) == 'found'
+    assert [e[1:] for e in events if e[0] == 'move'] == [(1.5, 6.8), (1.5, 4.8), (4.4, 4.8)]
+    assert events.index(('turn', -math.pi/2)) < events.index(('move', 1.5, 4.8))
+    assert plan.trail[:3] == [(1.5, 6.8), (1.5, 4.8), (4.4, 4.8)]
+
+
+def test_middle_scan_velocity_is_towards_diagram_left_after_preposition():
+    cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
+    plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
+    commands = []; publish = r.publish_command
+    def command(tw):
+        commands.append((tw.linear.x, tw.linear.y))
+        publish(tw)
+    r.publish_command = command
+    r.centered_target_candidates = lambda dets: NS() if r.pose[0] < 4.39 else None
+    assert plan.search_area('middle', 1, search_only=True) == 'found'
+    assert commands[0] == pytest.approx((0., -.25))
+    assert plan.search_origin[0] < 4.4
+
+
+def test_middle_preposition_failure_does_not_inspect_or_acquire_target():
+    cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
+    plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
+    goto = r.goto
+    r.goto = lambda x, y, **kw: False if x == pytest.approx(4.4) else goto(x, y, **kw)
+    r.centered_target_candidates = lambda dets: pytest.fail('must arrive at right end first')
+    assert plan.search_area('middle', 0) == 'failed'
+    assert not any(e[0] == 'scoop' for e in events)
+
+
 @pytest.mark.parametrize('number,task,area,distance', [
     (2, 'pass', 'middle', .4), (2, 'shoot', 'middle', .4),
     (3, 'pass', 'arc', .25), (3, 'shoot', 'inner', .15)])
@@ -161,6 +206,8 @@ def test_frontend_reads_current_config_defaults_without_actuating():
     assert cfg['ok'] and cfg['scoop_m']=={'middle':.4,'arc':.25,'inner':.15}
     assert cfg['release_ready']=={'pass':False,'shoot':False}
     assert cfg['forward_m']==pytest.approx(3.2)
+    assert cfg['middle_scan']==pytest.approx({'start_x':4.4, 'end_x':.6,
+                                             'preposition_m':2.9, 'distance_m':3.8})
 
 
 @pytest.mark.parametrize('name', ['TEST_ROUND2', 'TEST_ROUND3'])

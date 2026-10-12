@@ -1534,7 +1534,7 @@ DEBUG_TOOLS = {
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
         "args": ["--route", "fixed", "--takeover", "--yes"],
-        "label": "右转90° → 中线附近 → 左移找球 → 转180°后退铲球",
+        "label": "右转90° → 中线附近 → 图右端 → 向图左端找球 → 转180°后退铲球",
     },
     "TEST_PERIMETER": {
         "script": "tools/test_perimeter_ball.py",
@@ -1745,6 +1745,10 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             return jsonify({'ok': True, 'speed_mps': cfg['speed_mps'],
                             'start_delay_s': cfg['start_delay_s'],
                             'forward_m': cfg['start'][1]-cfg['middle']['y'],
+                            'middle_scan': {'start_x': cfg['middle']['right_x'],
+                                            'end_x': cfg['middle']['left_x'],
+                                            'preposition_m': cfg['middle']['right_x']-cfg['start'][0],
+                                            'distance_m': cfg['middle']['right_x']-cfg['middle']['left_x']},
                             'scoop_m': {area: cfg[area]['scoop_m'] for area in ('middle', 'arc', 'inner')},
                             'release_ready': {task: bool(action['commands']) and action['aim'] is not None
                                               for task, action in cfg['release'].items()}})
