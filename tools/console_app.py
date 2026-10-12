@@ -1736,8 +1736,20 @@ def hw_cached():
     now = time.time()
     with _HW_CACHE["lock"]:
         data, at = _HW_CACHE["data"], _HW_CACHE["at"]
-    if data is None or now - at > _HW_TTL_S:
-        # 过期：起一个后台线程去刷新，本次先返回现有值（首次会返回 None 的替身）
+    if data is None:
+        # ⚠️ 【首次】调用同步查一遍（约 0.3s），只有这一次会慢 ✓
+        #    为什么不像后续那样丢后台：后台刷新期间会返回"未知占位"，
+        #    而占位里 can_up/cam_front/cam_rear 都是 False →
+        #    界面头 1.5 秒会显示一片【红的假故障】✗（用户会以为坏了）
+        #    宁可第一次请求多等 0.3 秒，也要一上来就是真值 ✓
+        try:
+            data = probe_hardware()
+            with _HW_CACHE["lock"]:
+                _HW_CACHE["data"], _HW_CACHE["at"] = data, time.time()
+        except Exception:  # noqa: BLE001
+            data = None
+    elif now - at > _HW_TTL_S:
+        # 后续过期：丢后台刷新，本次先返回旧值（最多旧 1.5s，对硬件状态够用 ✓）
         if not _HW_CACHE.get("busy"):
             _HW_CACHE["busy"] = True
 
@@ -1752,7 +1764,7 @@ def hw_cached():
                     _HW_CACHE["busy"] = False
             threading.Thread(target=_refresh, daemon=True).start()
     if data is None:
-        # 还没缓存过（刚启动）：给一份"未知"占位，前端会显示"—"而不是瞎猜的值 ✓
+        # 真查不到（探针自身出错）：给"未知"占位，前端会显示"—"而不是瞎猜 ✓
         return {"node_counts": {}, "node_dup": {}, "node_missing": {},
                 "can_up": False, "lidar_link": False, "lidar_carrier": False,
                 "lidar_ping": False, "camera": False, "cam_front": False,
