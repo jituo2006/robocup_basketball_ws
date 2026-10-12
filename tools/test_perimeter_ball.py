@@ -542,7 +542,8 @@ class Runner:
                 self.args.kp, self.args.kp_yaw, self.args.speed, self.args.max_ang,
                 face_travel=False,
                 approach_radius=self.args.approach_radius,
-                approach_speed=self.args.approach_speed)
+                approach_speed=(self.args.approach_speed if getattr(self, "visual_guard", False)
+                                else self.args.speed))
             if dist < (self.args.tol if tolerance is None else tolerance):
                 self.stop()
                 log("到点", f"({tx:.2f},{ty:.2f}) 剩余 {dist*100:.1f}cm", C_OK)
@@ -1107,10 +1108,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--log-file", default="", help="JSONL 日志路径；默认 log/seek_ball_时间.jsonl")
     # 默认 A 出发区 y=8.0；前进3.2m到y=4.8，位于黄线y=3.75北侧1.05m。
     ap.add_argument("--route-forward", type=float, default=3.2, help="右转后到中线附近的前进距离 m")
-    ap.add_argument("--route-forward-speed", type=float, default=0.15)
+    ap.add_argument("--route-forward-speed", type=float, default=0.25)
     ap.add_argument("--route-forward-timeout", type=float, default=60.0)
     ap.add_argument("--route-scan-distance", type=float, default=3.0, help="车体左移搜索距离上限 m")
-    ap.add_argument("--route-scan-speed", type=float, default=0.08)
+    ap.add_argument("--route-scan-speed", type=float, default=0.25)
     ap.add_argument("--route-scan-timeout", type=float, default=60.0)
     ap.add_argument("--route-heading-tol", type=float, default=0.10, help="平移时允许的朝向偏差 rad")
     ap.add_argument("--route-ball-tol-deg", type=float, default=6.0, help="停车后球偏离铲口轴线最大角度")

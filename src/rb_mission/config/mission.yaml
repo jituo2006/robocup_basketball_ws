@@ -98,7 +98,7 @@ field:
   grab_distance_m: 0.45
 
 limits:
-  max_linear: 0.40          # m/s，比赛先保守
+  max_linear: 0.25          # m/s，通行/导航/回位统一平移上限
   max_angular: 0.80         # rad/s
   kp_linear: 1.5
   kp_yaw: 2.0
