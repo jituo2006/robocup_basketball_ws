@@ -74,7 +74,7 @@ def test_jump_is_rejected_even_if_supervisor_callback_arrives_late():
 def test_manager_disappearance_expires_session_and_old_pose():
     n=supervised();status(n,1,True)
     feed_field(n,(1.5,8.,.4),100)
-    n.lidar_session_received=time.monotonic()-1
+    n.lidar_session_received=time.monotonic()-1.1
     n.publish_state(None)
     assert not n.ok_messages[-1].data
     assert n.last_source_stamp is None

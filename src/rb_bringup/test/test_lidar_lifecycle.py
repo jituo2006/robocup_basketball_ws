@@ -16,7 +16,7 @@ import lidar_session
                                  'driver_silence'])
 def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     runtime=NS(t=100.,tick=0,events=[],messages=[],processes=[],callbacks={})
-    def bad():return 102 < runtime.t < (104.3 if fault=='driver_silence' else 102.7)
+    def bad():return 102 < runtime.t < (104.3 if fault=='driver_silence' else (103.3 if fault=='imu_gap' else 102.7))
     class Proc:
         def __init__(self,cmd,**kwargs):
             assert kwargs['start_new_session']
@@ -54,7 +54,7 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         def destroy_node(self):pass
     n=Node()
     def message(position=False, lidar=False):
-        delay = .6 if fault=='sync_skew' and bad() else (.3 if fault=='batch_delay' else 0.)
+        delay = 1.1 if fault=='sync_skew' and bad() else (.3 if fault=='batch_delay' else 0.)
         t=runtime.t-(delay if lidar else 0.)
         m=NS(header=NS(stamp=NS(sec=int(t),nanosec=int((t-int(t))*1e9))))
         if position:

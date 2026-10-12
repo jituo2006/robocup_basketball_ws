@@ -22,7 +22,7 @@ class Stream:
         self.stamp = self.received = self.since = None
 
     def observe(self, stamp, wall, mono):
-        if not math.isfinite(stamp) or not -.05 <= wall-stamp <= .5:
+        if not math.isfinite(stamp) or not -.05 <= wall-stamp <= 1.:
             self.clear()
             return False
         if self.stamp is not None:
@@ -38,16 +38,16 @@ class Stream:
         return True
 
     def live(self, wall, mono):
-        return (self.stamp is not None and -.05 <= wall-self.stamp <= .5
+        return (self.stamp is not None and -.05 <= wall-self.stamp <= 1.
                 and mono-self.received <= self.max_gap)
 
 
 class LidarHealth:
     def __init__(self, stable_seconds=1.):
         self.stable_seconds = stable_seconds
-        self.imu = Stream(.2)
-        self.lidar = Stream(.5)
-        self.odom = Stream(.5)
+        self.imu = Stream(1.)
+        self.lidar = Stream(1.)
+        self.odom = Stream(1.)
         self.last_position = None
         self.fault_serial = 0
         self.reason = '等待雷达和 IMU'

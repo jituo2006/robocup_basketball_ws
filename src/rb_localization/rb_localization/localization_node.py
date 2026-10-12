@@ -83,7 +83,7 @@ class LocalizationNode(Node):
         self.detections_topic = str(self.declare_parameter(
             "detections_topic", str(src.get("detections_topic", "/perception/detections"))).value)
         self.source_timeout_s = float(self.declare_parameter(
-            "source_timeout_s", float(src.get("source_timeout_s", 0.5))).value)
+            "source_timeout_s", float(src.get("source_timeout_s", 1.0))).value)
         if not math.isfinite(self.source_timeout_s) or self.source_timeout_s <= 0:
             raise ValueError("source_timeout_s 必须为有限正数")
         self.source_freshness = SourceFreshness()
@@ -254,7 +254,7 @@ class LocalizationNode(Node):
     def _lidar_session_live(self):
         if not getattr(self, 'require_lidar_session', False):
             return True
-        live = self.lidar_session_ready and time.monotonic()-self.lidar_session_received <= .5
+        live = self.lidar_session_ready and time.monotonic()-self.lidar_session_received <= 1.
         if not live and self.lidar_session_ready:
             self._reset_lidar_session()
             self.lidar_session_ready = False
@@ -370,7 +370,7 @@ class LocalizationNode(Node):
             self.last_odom_field_pose = current
             self.ekf.update_pose(*current)
             self.abs_count += 1
-        elif 0.0 < dt <= 0.5:
+        elif 0.0 < dt <= self.source_timeout_s:
             # Velocity-only mode retains the existing world-frame convention.
             tw = msg.twist.twist
             byaw = wrap_pi(yaw + self.s2b_yaw)

@@ -40,6 +40,15 @@ def test_waits_for_continuous_imu_and_lidar():
     assert h.inputs_stable(t,t)
 
 
+def test_one_second_budget_accepts_brief_gap_but_expires_without_new_data():
+    h=LidarHealth();t=feed(h)
+    assert h.inputs_live(t+.8,t+.8)
+    assert h.observe('imu',t+.8,t+.8,t+.8)
+    assert h.observe('lidar',t+.8,t+.8,t+.8)
+    assert h.fault_serial==0
+    assert not h.inputs_live(t+1.81,t+1.81)
+
+
 def test_power_cycle_cannot_reuse_old_stable_period():
     h=LidarHealth();t=feed(h)
     assert h.inputs_stable(t,t)
@@ -53,7 +62,7 @@ def test_power_cycle_cannot_reuse_old_stable_period():
 
 def test_duplicate_data_never_renews_readiness():
     h=LidarHealth();t=feed(h)
-    for i in range(1,81):
+    for i in range(1,121):
         now=t+i*.01
         h.observe('imu',t,now,now)
         h.observe('lidar',t,now,now)
@@ -110,7 +119,7 @@ def test_delayed_scan_past_source_deadline_cannot_authorize_localization():
     for i in range(150):
         t=100+i*.01
         h.observe('imu',t,t,t)
-        h.observe('lidar',t-.6,t,t)
+        h.observe('lidar',t-1.1,t,t)
     assert h.inputs_receiving(t)
     assert not h.inputs_live(t,t)
     assert not h.inputs_stable(t,t)

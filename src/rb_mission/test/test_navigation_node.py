@@ -82,14 +82,14 @@ def test_goto_keeps_target_until_stopped_and_confirmed(node):
 
 def test_stale_pose_or_status_stops_and_keeps_goal(node):
     goal = node.goto_goal
-    node.now = 100.6
+    node.now = 101.1
     node.tick()
     assert node.commands[-1] == (0,0,0) and node.goto_goal == goal
-    measurement(node,100.7,0)
+    measurement(node,101.2,0)
     node.last_loc_ok_time = 100
     node.tick()
     assert node.commands[-1] == (0,0,0)
-    measurement(node,100.8,0)
+    measurement(node,101.3,0)
     node.tick()
     assert node.commands[-1][0] > 0 and node.goto_goal == goal
 
@@ -118,7 +118,7 @@ def test_confirm_timeout_faults_without_resuming_old_goal(node):
 
 
 def test_parameters_validate_whole_request_and_take_effect(node):
-    invalid = [NS(name='navigation.velocity_window_s',value=.6)]
+    invalid = [NS(name='navigation.velocity_window_s',value=1.1)]
     assert not node.on_tuning_parameters(invalid).successful
     assert node.velocity_window_s == .15
     assert not node.on_tuning_parameters([NS(name='limits.max_linear',value=float('nan'))]).successful

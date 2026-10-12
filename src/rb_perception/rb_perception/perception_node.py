@@ -314,6 +314,9 @@ class PerceptionNode(Node):
         return m
 
     def publish_debug_image(self, frame: np.ndarray, dets: list[Detection], cam: CameraModel) -> None:
+        # 前端自己在 JPEG 上画框；没有调试图订阅者时不复制/绘制/发布大图。
+        if self.debug_pub.get_subscription_count() == 0:
+            return
         vis = frame.copy()
         h, w = vis.shape[:2]
         for d in dets:

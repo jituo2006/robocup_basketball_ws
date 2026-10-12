@@ -816,6 +816,10 @@ class Bridge:
 
     def _on_raw_image(self, m):
         """未压缩图 → JPEG（只在还没收到 compressed 时用，避免覆盖高质量源）。"""
+        # 压缩画面已经可用时不再把同一帧原图重编码成 JPEG。
+        with self.lock:
+            if self.state["cam"] is not None and time.time()-self.state["cam_stamp"] <= 1.0:
+                return
         try:
             import cv2
             h, w, enc = m.height, m.width, m.encoding

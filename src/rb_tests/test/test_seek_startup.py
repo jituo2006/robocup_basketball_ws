@@ -2,6 +2,8 @@
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as NS
+from types import ModuleType
+import sys
 
 import pytest
 
@@ -12,6 +14,41 @@ def load():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_fixed_route_skips_cloud_and_tf_until_they_are_requested(monkeypatch):
+    mod=load();topics=[]
+    node=NS(create_publisher=lambda *a:object(),
+            create_subscription=lambda typ,topic,*a:topics.append(topic) or object())
+    modules={
+        'rclpy':dict(init=lambda:None,create_node=lambda *a:node),
+        'geometry_msgs.msg':dict(PoseWithCovarianceStamped=object,Twist=object),
+        'rb_msgs.msg':dict(DetectionArray=object),
+        'nav_msgs.msg':dict(Odometry=object),
+        'sensor_msgs.msg':dict(PointCloud2=object),
+        'rclpy.qos':dict(qos_profile_sensor_data=object()),
+        'rb_mission.geometry':dict(goto_command=lambda *a:None),
+    }
+    for name,attrs in modules.items():
+        m=ModuleType(name);m.__dict__.update(attrs);monkeypatch.setitem(sys.modules,name,m)
+    monkeypatch.setitem(sys.modules,'tf2_ros',None)
+    r=mod.Runner(NS(obstacle_guard=False,lidar_odom='/Odometry',
+                    lidar_cloud='/cloud_registered',rear_topic='/perception/detections_rear'))
+    assert '/Odometry' in topics and '/cloud_registered' not in topics
+    assert r.obstacle_tf is None
+    r._ensure_cloud_subscription();r._ensure_cloud_subscription()
+    assert topics.count('/cloud_registered')==1
+
+
+def test_motion_accepts_point_eight_second_old_pose_with_new_budget():
+    mod=load();r=mod.Runner.__new__(mod.Runner)
+    r.args=NS(pose_timeout=1.);r.pose=(1.5,8.,0.);r.pose_stamp=r.odom_stamp=99.2
+    r.node=NS(get_clock=lambda:NS(now=lambda:NS(nanoseconds=100000000000)))
+    r.stop=lambda:None
+    r.require_fresh_pose()
+    r.pose_stamp=98.99
+    with pytest.raises(RuntimeError,match='时间戳过期'):
+        r.require_fresh_pose()
 
 
 def test_wait_pose_accepts_initialisation_longer_than_eight_seconds():

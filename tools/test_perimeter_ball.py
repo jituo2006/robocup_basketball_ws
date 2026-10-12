@@ -208,6 +208,10 @@ def pose_at(history, stamp: float, max_gap: float = 0.15):
 
 
 def trace(event, **data):
+    # 高频循环不做 JSON 编码/磁盘写入；保留阶段、目标触发和错误信息。
+    if event in {'command', 'rotation', 'observation', 'rear_align',
+                 'rear_distance_scoop', 'obstacle_guard'}:
+        return
     if _TRACE is not None:
         _TRACE.write(json.dumps(dict(time=time.time(), event=event, **data),
                                 ensure_ascii=False, allow_nan=False) + "\n")
@@ -236,8 +240,6 @@ class Runner:
         from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
         from rb_msgs.msg import DetectionArray
         from nav_msgs.msg import Odometry
-        from sensor_msgs.msg import PointCloud2
-        from rclpy.qos import qos_profile_sensor_data
 
         self.args = args
         self.rclpy = rclpy
@@ -265,9 +267,11 @@ class Runner:
         self.obstacle_cloud_status = "not_received"
         self.obstacle_scoop = False
         self.obstacle_cloud_history = deque(maxlen=4)
-        from tf2_ros import Buffer, TransformListener
-        self.obstacle_tf = Buffer()
-        self.obstacle_tf_listener = TransformListener(self.obstacle_tf, self.node)
+        self.obstacle_tf = self.obstacle_tf_listener = None
+        if self.args.obstacle_guard:
+            from tf2_ros import Buffer, TransformListener
+            self.obstacle_tf = Buffer()
+            self.obstacle_tf_listener = TransformListener(self.obstacle_tf, self.node)
         self.pose_history = deque(maxlen=250)
         self.yaw_rate = float("inf")
 
@@ -278,8 +282,9 @@ class Runner:
         # 雷达兜底找球：需要点云 + camera_init 位姿（把点云转到车体系）
         self.cloud = None          # Nx3 numpy（camera_init 系）
         self.odom_cam = None       # (x, y, yaw) in camera_init
-        self.node.create_subscription(PointCloud2, self.args.lidar_cloud,
-                                      self._on_cloud, qos_profile_sensor_data)
+        self.cloud_subscription = None
+        if self.args.obstacle_guard:
+            self._ensure_cloud_subscription()
         self.node.create_subscription(Odometry, self.args.lidar_odom,
                                       self._on_odom_cam, 10)
 
@@ -339,11 +344,19 @@ class Runner:
         cfg["enabled"] = True     # 兜底用，强制打开
         return cfg
 
+    def _ensure_cloud_subscription(self):
+        """点云仅在启用避障或真正进入雷达兜底找球时订阅。"""
+        if self.cloud_subscription is None:
+            from sensor_msgs.msg import PointCloud2
+            from rclpy.qos import qos_profile_sensor_data
+            self.cloud_subscription = self.node.create_subscription(
+                PointCloud2, self.args.lidar_cloud, self._on_cloud, qos_profile_sensor_data)
+
     def _on_cloud(self, m) -> None:
         try:
             pts = obstacle_guard.pointcloud_xyz(m)
             self.cloud = pts
-            if pts is not None:
+            if pts is not None and getattr(self.args, 'obstacle_guard', False):
                 self.obstacle_cloud_history.append((
                     pts, m.header.stamp, m.header.frame_id))
         except Exception as exc:  # noqa: BLE001
@@ -368,6 +381,7 @@ class Runner:
         """
         if self.args.no_lidar_fallback:
             return []
+        self._ensure_cloud_subscription()
         secs = float(seconds if seconds is not None else self.args.lidar_seconds)
         log("雷达找球", f"等点云/位姿（{secs:.0f}s）…")
         t0 = time.time()
@@ -483,7 +497,7 @@ class Runner:
             self.stop()
             raise RuntimeError("位姿缺失或非有限数，已请求停车")
         for name, stamp in (("定位", self.pose_stamp), ("雷达里程计", self.odom_stamp)):
-            # 两个源都必须有效且默认不超过 0.5 秒；只更新其中一个仍会失败。
+            # 两个源都必须有效且默认不超过 1 秒；只更新其中一个仍会失败。
             # 不检查 YOLO、不检查 /localization/ok 的布尔值，也不读取协方差。
             if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now - stamp <= self.args.pose_timeout:
                 self.stop()
@@ -1264,8 +1278,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-perimeter", action="store_true", help="跳过绕场，直接找球")
     ap.add_argument("--ball-label", default="ball_basketball", help="目标球标签")
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
-    # 运动公共参数：源数据0.5s、位置跳变、到点/朝向容差均会影响后续能否执行。
-    ap.add_argument("--pose-timeout", type=float, default=0.5,
+    # 运动公共参数：源数据1s、位置跳变、到点/朝向容差均会影响后续能否执行。
+    ap.add_argument("--pose-timeout", type=float, default=1.0,
                     help="定位及雷达源时间戳最大年龄 s，过期即停车")
     ap.add_argument('--pose-jump-margin',type=float,default=.25,help='定位跳变基础容差 m')
     ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
