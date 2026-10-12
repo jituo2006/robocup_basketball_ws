@@ -579,9 +579,24 @@ class Bridge:
             # ── 两个相机各自的曝光状态（来自 /rb_camera*/exposure_state）──
             #    键是 ROS 节点名：rb_camera / rb_camera_rear
             "exposure": {},
+            # ── 各路数据的【到达时刻】。0.0 = 从未收到 ──────────────────
+            # ⚠️ 没有这些时间戳，节点停掉后界面会一直显示最后一帧的旧值 ✗
+            #    看着像"车没动、一切正常"，实际数据早断了（假信息的根源）
+            "pose_stamp": 0.0, "dets_stamp": 0.0, "cam_stamp": 0.0,
+            "cloud_stamp": 0.0, "odom_stamp": 0.0, "mission_stamp": 0.0,
+            "loc_ok_stamp": 0.0, "launcher_ok_stamp": 0.0,
+            "launcher_status_stamp": 0.0,
         }
         self._cam_times: deque = deque(maxlen=30)
         self._cam_rear_times: deque = deque(maxlen=30)
+        # ── 雷达球候选的缓存 + 后台重算线程 ────────────────────────────
+        # ⚠️ 算一次要 ~1.0s（整个点云的纯 Python 处理）✗
+        #    绝不能放进 /api/state 同步算，否则接口 1 秒、前端 1 秒轮询一次
+        #    → 永远排不上队 → 界面卡死不更新 → 全是旧值（假信息的根源）
+        self._lb_cands: list = []
+        self._lb_ms: float = 0.0
+        self._lb_stamp: float = 0.0
+        self._LB_PERIOD_S = 0.4
         self._cloud_times: deque = deque(maxlen=30)
         self._last_odom_wall = 0.0
 
@@ -592,14 +607,18 @@ class Bridge:
         def sub1(cls, topic, cb, qos=1):
             self.node.create_subscription(cls, topic, cb, qos)
 
-        sub1(MissionStatus, t.get("status", "/mission/status"), self._on_status, 10)
-        sub1(RobotState, t.get("state", "/mission/state"), self._on_rstate, 10)
-        sub1(PoseWithCovarianceStamped, t.get("pose", "/localization/pose"), self._on_pose, 10)
-        sub1(Bool, t.get("ok", "/localization/ok"), self._on_ok, 10)
+        sub1(MissionStatus, t.get("status", "/mission/status"), self._on_status, self._sensor_qos)
+        sub1(RobotState, t.get("state", "/mission/state"), self._on_rstate, self._sensor_qos)
+        # ⚠️ 20Hz 的话题必须 depth=1：用 10 会积压 ~0.5s，界面看着"实时"其实慢一拍 ✗
+        #    （实测过：所有话题都稳定滞后约 1.1s，改小队列是第一步）
+        sub1(PoseWithCovarianceStamped, t.get("pose", "/localization/pose"),
+             self._on_pose, self._sensor_qos)
+        sub1(Bool, t.get("ok", "/localization/ok"), self._on_ok, self._sensor_qos)
         sub1(Odometry, t.get("odom", "/Odometry"), self._on_odom, self._sensor_qos)
-        sub1(Bool, "/rb_launcher/ok", self._on_lok, 10)
-        sub1(StringMsg, "/rb_launcher/status", self._on_lstatus, 10)
-        sub1(DetectionArray, t.get("dets", "/perception/detections"), self._on_dets, 10)
+        sub1(Bool, "/rb_launcher/ok", self._on_lok, self._sensor_qos)
+        sub1(StringMsg, "/rb_launcher/status", self._on_lstatus, self._sensor_qos)
+        sub1(DetectionArray, t.get("dets", "/perception/detections"),
+             self._on_dets, self._sensor_qos)
         sub1(CompressedImage, t.get("image", "/camera/image_raw/compressed"),
              self._on_image, self._sensor_qos)
         # 原图兜底：离线仿真的 publish_test_image 发的是未压缩 /camera/image_raw，
@@ -617,8 +636,8 @@ class Bridge:
         # ── 双摄：两个相机各自的曝光状态 ──────────────────────────────────
         #    相机节点用节点私有话题 ~/exposure_state 周期发布（不用 latched，
         #    避开 DDS writer/reader 匹配问题）✓
-        sub1(StringMsg, "/rb_camera/exposure_state", self._on_exposure, 5)
-        sub1(StringMsg, "/rb_camera_rear/exposure_state", self._on_exposure, 5)
+        sub1(StringMsg, "/rb_camera/exposure_state", self._on_exposure, self._sensor_qos)
+        sub1(StringMsg, "/rb_camera_rear/exposure_state", self._on_exposure, self._sensor_qos)
 
         from rb_msgs.srv import SerialText
         self.cli_text = self.node.create_client(
@@ -662,6 +681,10 @@ class Bridge:
         self.field_frame_name = str(
             ((cfg.get("localization") or {}).get("field_frame")) or "field")
 
+        # 雷达球候选的后台重算线程（让 /api/state 保持毫秒级 ✓）
+        self._lb_thread = threading.Thread(target=self._lb_bg_loop, daemon=True)
+        self._lb_thread.start()
+
         self._spin_thread = threading.Thread(target=self._spin, daemon=True)
         self._spin_thread.start()
 
@@ -681,6 +704,10 @@ class Bridge:
         with self.lock:
             self.state.update(mission=m.mission, phase=m.phase, detail=m.detail,
                               elapsed=float(m.elapsed_s), score=int(m.score_estimate))
+            # ⚠️ 任务状态也必须记到达时刻：mission_node 停了以后 phase 会一直
+            #    停在最后一个值 ✗（如"SEEK_BALL"），界面看着像"还在找球"，
+            #    实际节点早没了。有了时间戳才能显示成"（N 秒前，节点可能已停）"✓
+            self.state["mission_stamp"] = now
             if key == self._last_phase_key:
                 # 同一阶段内 detail 是实时变的（"对准 hoop 误差 +2.1°"这种），
                 # 要回写到时间线最后一条，否则页面只显示进入该阶段时的那句话。
@@ -734,10 +761,15 @@ class Bridge:
             yaw = p.z
         with self.lock:
             self.state["pose"] = (float(p.x), float(p.y), float(yaw))
+            # ⚠️ 必须记到达时刻：定位节点停掉后，state["pose"] 会一直留着旧值 ✗
+            #    界面就显示出【不动的旧位姿】，看着像"车在原地"，
+            #    实际是数据早断了。有了这个时间戳，界面才能显示"数据 N 秒前"并置灰 ✓
+            self.state["pose_stamp"] = time.time()
 
     def _on_ok(self, m):
         with self.lock:
             self.state["loc_ok"] = bool(m.data)
+            self.state["loc_ok_stamp"] = time.time()
 
     def _on_odom(self, m):
         now = self.node.get_clock().now().nanoseconds * 1e-9
@@ -752,14 +784,17 @@ class Bridge:
             # ⚠️ 雷达找球要把 camera_init 系的点云按【里程计】转到车体系，
             #    所以必须存完整的 (x, y, yaw)，不能只存 x。
             self.state["odom"] = (float(pp.position.x), float(pp.position.y), float(yaw))
+            self.state["odom_stamp"] = time.time()
 
     def _on_lok(self, m):
         with self.lock:
             self.state["launcher_ok"] = bool(m.data)
+            self.state["launcher_ok_stamp"] = time.time()
 
     def _on_lstatus(self, m):
         with self.lock:
             self.state["launcher_status"] = m.data
+            self.state["launcher_status_stamp"] = time.time()
 
     def _on_dets(self, m):
         with self.lock:
@@ -830,7 +865,8 @@ class Bridge:
             pass
 
     def _on_cloud(self, m):
-        self._cloud_times.append(time.time())
+        now = time.time()
+        self._cloud_times.append(now)
         xyz = pc2_xyz(m)
         fps = 0.0
         if len(self._cloud_times) > 1:
@@ -839,6 +875,9 @@ class Bridge:
         with self.lock:
             self.state["cloud"] = xyz
             self.state["cloud_fps"] = fps
+            # 雷达停了之后 cloud_fps 会一直是最后一帧算出来的值 ✗
+            # 有了到达时刻，界面才能显示"雷达数据 N 秒前"并置灰 ✓
+            self.state["cloud_stamp"] = now
 
     def _on_log(self, m):
         lvl = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}.get(m.level, "?")
@@ -964,8 +1003,15 @@ class Bridge:
             self.state["lb_enabled"] = bool(d.get("enabled", False))
             self.state["lb_mode"] = str(d.get("mode", "fuse"))
 
-    def lidar_ball_candidates(self):
-        """用车体系点云找地面球候选（界面调的参数优先）。返回 (cands, 耗时ms)。"""
+    def _lb_recompute(self):
+        """真正算一遍候选（慢：要对整个点云做纯 Python 处理，实测 ~1.0s ✗）。
+
+        ⚠️ 【绝不能】在 /api/state 里同步调用它 ✗
+           实测 /api/state 因此要 1.067s，而前端每 1000ms 轮询一次 →
+           请求永远排不上队 → 界面卡住不更新 → 显示的全是旧值 ✗✗
+           （这就是"界面很多假信息"的总根源）
+        所以改成后台线程低频重算，接口只读缓存 ✓
+        """
         if not _LIDAR_BALL_OK:
             return [], 0.0
         with self.lock:
@@ -983,6 +1029,40 @@ class Bridge:
             self.node.get_logger().warn(f"雷达找球失败: {e}")
             return [], 0.0
         return cands, (time.time() - t0) * 1000.0
+
+    def lidar_ball_candidates(self):
+        """返回【缓存】的候选（瞬时，绝不阻塞请求 ✓）。返回 (cands, 耗时ms)。"""
+        with self.lock:
+            return list(self._lb_cands), float(self._lb_ms)
+
+    def _lb_bg_loop(self):
+        """后台低频重算雷达球候选 —— 让 /api/state 保持毫秒级 ✓。
+
+        * 只在【有新点云】时才重算（点云没变就算同一个东西，浪费 ✗）
+        * 且限频 LB_PERIOD_S，避免占满 CPU 把别的线程（含 ROS spin）饿死 ✗
+        """
+        last_cloud_id = None
+        while True:
+            try:
+                time.sleep(self._LB_PERIOD_S)
+                with self.lock:
+                    enabled = bool(self.state["lb_enabled"])
+                    cloud = self.state["cloud"]
+                if not enabled or cloud is None:
+                    with self.lock:
+                        if self._lb_cands:
+                            self._lb_cands, self._lb_ms = [], 0.0
+                    continue
+                cid = id(cloud)
+                if cid == last_cloud_id:
+                    continue          # 点云没更新，不重复算 ✓
+                last_cloud_id = cid
+                cands, ms = self._lb_recompute()
+                with self.lock:
+                    self._lb_cands, self._lb_ms = cands, ms
+                    self._lb_stamp = time.time()
+            except Exception:  # noqa: BLE001
+                time.sleep(1.0)
 
     def odom_to_field_tf(self):
         """返回 (tx, ty, theta)：camera_init 原点在 field 下的位置与相对朝向。
@@ -1623,8 +1703,72 @@ KEY_NODES = {
     "任务": "mission_node",
 }
 
+# 每个可执行文件【正常应该有几个】。
+# ⚠️ 双摄之后 camera_node / perception_node 各起两个（前摄 + 后摄），
+#    原来一律用 ">1 就是重复" 判定 → 界面永远挂着
+#        "⚠ 重复节点 感知×2 相机×2"
+#    这是个纯误报 ✗（双摄本来就该是 2），会让人以为系统有病而忽略真正的重复。
+#    真要抓的是【超过应有数量】，比如 3 个 camera_node 或 2 个 mission_node。
+EXPECTED_NODES = {
+    "livox_ros_driver2_node": 1,
+    "fastlio_mapping": 1,
+    "camera_node": 2,          # 前摄 + 后摄
+    "perception_node": 2,      # 前感知 + 后感知
+    "localization_node": 1,
+    "rb_chassis_node": 1,
+    "rb_launcher_node": 1,
+    "mission_node": 1,
+}
+
+
+_HW_CACHE: dict = {"data": None, "at": 0.0, "lock": threading.Lock()}
+_HW_TTL_S = 1.5
+
+
+def hw_cached():
+    """probe_hardware 的缓存封装（毫秒级返回 ✓）。
+
+    ⚠️ 为什么必须缓存：probe_hardware 里有 ping（最长 0.3s）和 ps，
+       同步调会让 /api/state 变得很慢，前端轮询就排不上队 ✗
+       这里用 TTL 缓存：过期了就【在后台线程里】刷新，调用方立刻拿到旧值，
+       最多旧 1.5 秒 —— 对"CAN 有没有 UP / 雷达链路通不通"完全够用 ✓
+    """
+    now = time.time()
+    with _HW_CACHE["lock"]:
+        data, at = _HW_CACHE["data"], _HW_CACHE["at"]
+    if data is None or now - at > _HW_TTL_S:
+        # 过期：起一个后台线程去刷新，本次先返回现有值（首次会返回 None 的替身）
+        if not _HW_CACHE.get("busy"):
+            _HW_CACHE["busy"] = True
+
+            def _refresh():
+                try:
+                    d = probe_hardware()
+                    with _HW_CACHE["lock"]:
+                        _HW_CACHE["data"], _HW_CACHE["at"] = d, time.time()
+                except Exception:  # noqa: BLE001
+                    pass
+                finally:
+                    _HW_CACHE["busy"] = False
+            threading.Thread(target=_refresh, daemon=True).start()
+    if data is None:
+        # 还没缓存过（刚启动）：给一份"未知"占位，前端会显示"—"而不是瞎猜的值 ✓
+        return {"node_counts": {}, "node_dup": {}, "node_missing": {},
+                "can_up": False, "lidar_link": False, "lidar_carrier": False,
+                "lidar_ping": False, "camera": False, "cam_front": False,
+                "cam_rear": False, "serial_ports": [], "r1_symlink": False,
+                "_pending": True}
+    return data
+
 
 def probe_hardware():
+    """硬件体检 —— ⚠️ 慢（ping 最长 0.3s + ps 等），必须走后台缓存 ✓
+
+    实测过：里面的 ping 在【雷达不通】时会卡满超时，而"雷达不通"恰恰是
+    最常见的情况 → /api/state 永远 1 秒多，而前端每 1 秒轮询一次 →
+    请求永远排不上队 → 界面卡住不更新、显示的全是旧值 ✗（"假信息"第二根源）
+    所以这里只负责"真的去查"，调用方一律走 _hw_cached() ✓
+    """
     def sh(cmd):
         try:
             return subprocess.run(cmd, capture_output=True, text=True, timeout=3).stdout.strip()
@@ -1634,7 +1778,10 @@ def probe_hardware():
     can_up = "UP" in sh(["ip", "-br", "link", "show", "can0"])
     lidar_carrier = sh(["cat", "/sys/class/net/enp114s0/carrier"]) == "1"
     lidar_ip = "enp114s0" in sh(["ip", "-br", "addr", "show", "enp114s0"])
-    ping = subprocess.run(["ping", "-c", "1", "-W", "1", "192.168.1.138"],
+    # ⚠️ -W 原来是 1（秒）→ 雷达不通时【正好卡满 1.003s】✗，
+    #    而 /api/state 每次都要调本函数 → 接口永远 1.06s ✗
+    #    实测: -W 1 → 1.003s，-W 0.3 → 0.303s。改成 0.3 并把整个函数丢后台缓存 ✓
+    ping = subprocess.run(["ping", "-c", "1", "-W", "0.3", "192.168.1.138"],
                           capture_output=True).returncode == 0
     serials = sorted(p.name for p in Path("/dev").glob("R1_usb2ttl"))
     serials += sorted(p.name for p in Path("/dev").glob("usb2ttl"))
@@ -1651,14 +1798,40 @@ def probe_hardware():
                                    (f"/{name} " in ln and "install/" in ln))
     except Exception:  # noqa: BLE001
         pass
-    dup = {k: v for k, v in counts.items() if v > 1}
+    # 只报【超过应有数量】的（双摄下 camera/perception 各有 2 个是正常的 ✓）。
+    # 原来一律 v>1 判重复 → 双摄下界面永远挂 "重复节点 感知×2 相机×2" 的假警报 ✗
+    dup = {}
+    for label, name in KEY_NODES.items():
+        n = counts.get(label, 0)
+        want = EXPECTED_NODES.get(name, 1)
+        if n > want:
+            dup[label] = n
+    # 缺失（0 个）也要报 —— 这比"重复"更常见，而且原来完全没显示 ✗
+    missing = {label: 0 for label, name in KEY_NODES.items()
+               if counts.get(label, 0) == 0}
+
+    # ⚠️ 相机不能用 /dev/video0 判断 ✗
+    #    两个相机现在都走稳定的 /dev/v4l/by-id/... ✓，video0 归前摄还是后摄
+    #    取决于插拔顺序（现场见过 HD→video2、LRCP→video0）。
+    #    直接查两个 by-id 链接是否存在才是真的 ✓
+    cam_links = {}
+    for role, vid in (("front", "usb-HD_Camera_Manufacturer"),
+                      ("rear", "usb-LRCP_V1080P")):
+        hits = [p for p in Path("/dev/v4l/by-id").glob(f"{vid}*") if p.exists()]
+        cam_links[role] = bool(hits)
+
     return {
         "node_counts": counts,
         "node_dup": dup,
+        "node_missing": missing,
         "can_up": can_up,
         "lidar_link": lidar_carrier and lidar_ip,
+        "lidar_carrier": lidar_carrier,     # 单独给出来，好区分"网卡没链路"和"IP 没配"
         "lidar_ping": ping,
-        "camera": Path("/dev/video0").exists(),
+        # 兼容旧字段名，但语义改成"两个相机设备节点都在"
+        "camera": cam_links["front"],
+        "cam_front": cam_links["front"],
+        "cam_rear": cam_links["rear"],
         "serial_ports": sorted(set(serials)),
         "r1_symlink": Path("/dev/R1_usb2ttl").exists(),
     }
@@ -1691,7 +1864,14 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     @app.route("/api/state")
     def api_state():
         s = bridge.snapshot()
-        hw = probe_hardware()
+        # ⚠️ s["now"] 必须【紧接 snapshot】就取 ✗
+        #    以前放在函数末尾，而末尾前的雷达候选计算要 ~1s，
+        #    于是"数据年龄" = 接口自身耗时 + 真实滞后，虚报了一大截 ✗
+        #    挪到这里，age 才是诚实的（现在候选走缓存，接口已经是毫秒级 ✓）
+        s["now"] = time.time()
+        # ⚠️ 走缓存：probe_hardware 里有 ping（最长 0.3s）+ ps，
+        #    同步调会让接口变慢、前端轮询排不上队 ✗
+        hw = hw_cached()
         s["hw"] = hw
         s["stack_running"] = stack.running
         s["tool_running"] = tool.running
@@ -1724,7 +1904,30 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             s["can_result"] = checks.state["can_result"]
         s["stack_enabled"] = stack.enabled
         s["field"] = field
-        s["now"] = time.time()
+        # ── 数据新鲜度（消灭"假信息"的核心 ✓）────────────────────────────
+        # 每个实时值都带上"多少秒之前的"，前端据此置灰/警告。
+        # 没有这个，节点停掉后界面会一直显示最后一帧的值 ✗
+        # （现场现象：定位早断了，界面位姿还稳稳当当停在那，看着像车没动 ✗）
+        now_t = s["now"]
+        s["fresh"] = {
+            k[:-6]: round(now_t - s[k], 2)      # 键去掉 _stamp，前端好直接用
+            for k in ("pose_stamp", "dets_stamp", "cam_stamp", "cam_rear_stamp",
+                      "cloud_stamp", "odom_stamp", "mission_stamp",
+                      "loc_ok_stamp", "launcher_ok_stamp", "launcher_status_stamp")
+            if isinstance(s.get(k), (int, float)) and s[k] > 0
+        }
+        # 阈值（秒）：超过就认为该路数据"不可信"，前端置灰并在面板里报出来
+        FRESH_LIMITS = {
+            "pose_stamp": 1.0, "dets_stamp": 1.5, "cam_stamp": 1.5,
+            "cam_rear_stamp": 2.0, "cloud_stamp": 1.5, "odom_stamp": 1.5,
+            "mission_stamp": 2.0, "loc_ok_stamp": 2.0,
+            "launcher_ok_stamp": 3.0, "launcher_status_stamp": 3.0,
+        }
+        # fresh 的键已经是去 _stamp 的名字，这里也要统一 ✓
+        limits = {k[:-6]: v for k, v in FRESH_LIMITS.items()}
+        s["stale"] = sorted(k for k, age in s["fresh"].items()
+                            if age > limits.get(k, 2.0))
+        s["fresh_limits"] = limits
         s["logs"] += [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                       for (tt, lv, src, ms) in list(stack.log)[-40:]]
         s["logs"] = sorted(s["logs"], key=lambda x: x["t"])[-140:]

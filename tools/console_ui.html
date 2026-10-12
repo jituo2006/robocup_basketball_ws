@@ -49,6 +49,17 @@
   /* 双摄并排：两张画面等宽，窄屏（<900px）自动堆成一列 ✓ */
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
   @media (max-width:900px){ .grid2{grid-template-columns:1fr} }
+  /* 数据新鲜度条：每路数据一格，显示"多少秒之前的" */
+  .freshbar{display:flex;flex-wrap:wrap;gap:6px;padding:7px 14px;background:#12151b;
+            border-bottom:1px solid var(--line);align-items:center}
+  .freshbar .lb{color:var(--dim);font-size:12px;margin-right:2px}
+  .fresh{font-size:11.5px;padding:2px 8px;border-radius:11px;border:1px solid var(--line);
+         background:var(--panel2);color:var(--dim);font-variant-numeric:tabular-nums;
+         white-space:nowrap}
+  .fresh.ok{color:var(--ok);border-color:#2a4a35;background:#12211a}
+  .fresh.warn{color:var(--warn);border-color:#4a4020;background:#211d12}
+  .fresh.bad{color:var(--bad);border-color:#4a2a2a;background:#211414;font-weight:600}
+  .fresh .v{color:inherit;font-weight:600}
   /* 曝光控制条：紧凑一行，不把画面挤小 ✓ */
   .exp{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--dim)}
   .exp input[type=range]{flex:1;min-width:0;height:16px}
@@ -114,13 +125,28 @@
   <div class="pills" id="pills"></div>
   <div style="margin-left:auto;display:flex;gap:8px">
     <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_START')">▶ 启动整套</button>
-    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>
-  </div>
+    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>  </div>
 </header>
+
+<!-- ── 数据新鲜度条 ────────────────────────────────────────────────
+     每一路数据都标出"多少秒之前的"，超过阈值就标红置灰 ✓
+     ⚠️ 这是消灭"假信息"的关键：没有它，节点停掉后界面会一直显示
+        最后一帧的旧值，看着像"一切正常、车没动"，实际数据早断了 ✗ -->
+<div class="freshbar" id="freshbar"></div>
 
 <main>
   <!-- 左列：任务按钮 -->
   <div>
+    <!-- ── 找球全流程检查点（运动时实时看 ✓）────────────────────────── -->
+    <div class="card" id="cardBallFlow" style="border-color:#3a4a2a">
+      <h2>🎯 找球全流程（实时检查点）</h2>
+      <div id="ballflow"></div>
+      <div class="hint">
+        这里只显示【真正收到过的】数据：每一行都带年龄，超时就标红说"过期"，
+        <b>不会拿旧值假装正常</b> ✓<br>
+        点「🔍 寻球」后，下面会实时跟着脚本的 5 个阶段走。
+      </div>
+    </div>
     <div class="card" style="border-color:#2a3a55">
       <h2>系统（上电后先点这个）</h2>
       <button class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
@@ -856,6 +882,98 @@ function renderExposure(s){
   $('camR_info').textContent = fmt(s.cam_rear_fps, 1) + ' Hz' + (s.has_cam_rear ? '' : ' · 无画面');
 }
 
+// ── 数据新鲜度条（消灭"假信息"的核心）────────────────────────────
+// 后端 s.fresh = {字段名: 多少秒之前}，s.fresh_limits = {字段名: 阈值}
+// 每路数据一格：绿=新鲜 ✓ / 黄=接近超时 / 红=过期（该路数据不可信 ✗）
+const FRESH_LABEL = {
+  pose: '定位位姿', dets: '视觉检测', cam: '前摄画面', cam_rear: '后摄画面',
+  cloud: '雷达点云', odom: '雷达里程计', mission: '任务状态',
+  loc_ok: '定位OK', launcher_ok: '机构OK', launcher_status: '机构状态',
+};
+function renderFreshness(s){
+  const f = s.fresh || {}, lim = s.fresh_limits || {};
+  const order = ['pose','dets','cam','cam_rear','cloud','odom','mission',
+                 'loc_ok','launcher_ok','launcher_status'];
+  const seen = {};
+  const parts = ['<span class="lb">数据新鲜度</span>'];
+  let nBad = 0;
+  for(const k of order){
+    const age = f[k];
+    const label = FRESH_LABEL[k] || k;
+    if(age === undefined){
+      // 从未收到 —— 明确说"从未"，不拿别的值糊弄 ✗
+      parts.push(`<span class="fresh bad" title="从未收到该话题">${label} <span class="v">从未</span></span>`);
+      nBad++;
+      seen[k] = 1;
+      continue;
+    }
+    seen[k] = 1;
+    const L = lim[k] || 2.0;
+    const cls = age > L ? 'bad' : (age > L*0.6 ? 'warn' : 'ok');
+    if(cls === 'bad') nBad++;
+    parts.push(`<span class="fresh ${cls}" title="阈值 ${L}s">${label} <span class="v">${age.toFixed(2)}s</span></span>`);
+  }
+  for(const k in f){ if(!seen[k])
+    parts.push(`<span class="fresh">${FRESH_LABEL[k]||k} <span class="v">${f[k].toFixed(2)}s</span></span>`); }
+  if(nBad) parts.push(`<span class="fresh bad">⚠ ${nBad} 路数据过期/缺失</span>`);
+  $('freshbar').innerHTML = parts.join('');
+}
+
+// ── 找球全流程检查点（运动时实时可见 ✓）──────────────────────────
+// 只反映【真实数据】：节点在不在、位姿/检测/雷达是否新鲜、球有没有认出来
+function renderBallFlow(s){
+  const hw = s.hw || {}, f = s.fresh || {}, lim = s.fresh_limits || {};
+  const live = (k) => {
+    const a = f[k];
+    if(a === undefined) return [false, '从未收到'];
+    const L = lim[k] || 2.0;
+    return [a <= L, `${a.toFixed(2)}s 前`];
+  };
+  const rows = [];
+  const add = (name, ok, detail) => {
+    const mk = ok === true ? '✓' : (ok === false ? '✗' : '·');
+    const cls = ok === true ? 'done' : (ok === false ? 'bad' : 'pend');
+    rows.push(`<div class="stage ${cls}"><span class="mk">${mk}</span>` +
+              `<span class="nm">${name}</span><span class="dt">${detail}</span></div>`);
+  };
+
+  const nc = hw.node_counts || {};
+  const need = ['定位','底盘','感知','任务'];
+  const miss = need.filter(k => !nc[k]);
+  add('① 节点', miss.length === 0 && !hw._pending,
+      hw._pending ? '体检中…' :
+      (miss.length ? `<span style="color:var(--bad)">缺 ${miss.join('/')}</span>` :
+       `定位/底盘/感知/任务 都在 ✓（相机 ${nc['相机']||0} 个）`));
+
+  const [pOk, pTxt] = live('pose');
+  add('② 定位', pOk, `${pTxt}${s.pose ? ` · (${s.pose[0].toFixed(2)}, ${s.pose[1].toFixed(2)}, ${(s.pose[2]*57.3).toFixed(1)}°)` : ''}`);
+
+  const [dOk, dTxt] = live('dets');
+  const balls = (s.dets||[]).filter(d => (d.label||'').startsWith('ball'));
+  add('③ 视觉', dOk && balls.length > 0,
+      dOk ? `${dTxt} · 共 ${(s.dets||[]).length} 个检出` +
+            (balls.length ? `，<span style="color:var(--ok)">球 ${balls.length} 个</span>` : '，未见球')
+          : `${dTxt}【过期】`);
+
+  const [cOk, cTxt] = live('cloud');
+  const [oOk, oTxt] = live('odom');
+  add('④ 雷达', cOk && oOk,
+      hw.lidar_carrier === false
+        ? '<span style="color:var(--bad)">网卡无载波（查雷达上电/网线）✗</span>'
+        : `点云 ${cTxt} · 里程计 ${oTxt}`);
+
+  const lb = s.lb_stats || {};
+  const nCand = (s.lb_cands||[]).length;
+  add('⑤ 雷达找球', s.lb_enabled ? (nCand > 0) : null,
+      s.lb_enabled ? `候选 ${nCand} 个${lb.reason ? ` · ${lb.reason}` : ''}` : '未启用（界面里打开）');
+
+  const run = s.tool_running && (s.tool_name||'').includes('寻球');
+  add('⑥ 找球脚本', run ? true : null,
+      run ? `<span style="color:var(--ok)">运行中：${s.tool_name}</span>` : '未运行（点下面「🔍 寻球」）');
+
+  $('ballflow').innerHTML = rows.join('');
+}
+
 function render(s){
   window._st = s;
   renderMissionNode(s);
@@ -864,6 +982,8 @@ function render(s){
   renderChecks(s);
   renderProgress(s);
   renderExposure(s);
+  renderFreshness(s);
+  renderBallFlow(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
   p.push(`<span class="pill ${cls(s.loc_ok)}">定位 ${s.loc_ok?'OK':'不可用'}</span>`);
