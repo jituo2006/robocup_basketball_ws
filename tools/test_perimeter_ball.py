@@ -850,19 +850,25 @@ class Runner:
         self.stop()
         origin = self.pose[:2]
         deadline = time.monotonic() + self.args.route_rear_timeout
-        seen = False
+        waiting_for_target = False
         centered_frames = 0
-        last_center_stamp = None
+        last_observation_stamp = 0.0
         while time.monotonic() < deadline:
             self.spin(.03)
             d = self.centered_target_candidates(getattr(self, 'dets_rear', []), centered=False)
             if d is None:
                 self.stop()
-                if seen:
-                    log('后摄停车', '横移对准期间目标球丢失或过期，保持停车', C_WARN)
-                    return False
+                centered_frames = 0
+                if not waiting_for_target:
+                    log('后摄等待', '暂时没有新鲜球框，停车等待重新识别；恢复后继续对正', C_WARN)
+                    waiting_for_target = True
                 continue
-            seen = True
+            if waiting_for_target:
+                log('后摄恢复', '重新识别到目标球，继续横移对正')
+                waiting_for_target = False
+            stamp = stamp_seconds(d.stamp)
+            new_frame = stamp > last_observation_stamp
+            last_observation_stamp = max(last_observation_stamp, stamp)
             error = (float(d.x_min)+float(d.x_max))/2 - .5
             displacement = math.hypot(self.pose[0]-origin[0], self.pose[1]-origin[1])
             trace('rear_align', cx=error+.5, displacement=displacement,
@@ -873,16 +879,13 @@ class Runner:
                 return False
             if abs(error) <= self.args.route_rear_center_tolerance:
                 self.stop()
-                stamp = stamp_seconds(d.stamp)
-                if last_center_stamp is None or stamp > last_center_stamp:
+                if new_frame:
                     centered_frames += 1
-                    last_center_stamp = stamp
                 if centered_frames < self.args.route_rear_center_frames:
                     continue
                 log('后摄对准', '连续新帧居中，切换定位距离后退；接近期间不再要求YOLO')
                 return self.aligned_intake_approach() if approach else True
             centered_frames = 0
-            last_center_stamp = None
             tw = self._Twist()
             # Rear image right corresponds to body +y.
             # 5 mm/s often cannot overcome chassis friction near the centre.
@@ -937,7 +940,8 @@ class Runner:
                 self.stop()
                 trace('center_trigger', cx=(det.x_min+det.x_max)/2,
                       confidence=float(det.confidence), stamp=stamp_seconds(det.stamp))
-                log("路线停车", "篮球进入画面中心，已发零速，立即转身180°")
+                log("路线停车", "篮球进入画面中心，已发零速；停车稳定后转身180°")
+                self.spin(getattr(self.args, 'settle_seconds', .3))
                 return (float(det.bearing_rad), float(det.distance_m), 1)
             px, py, yaw = self.pose
             travelled = (px-origin[0])*axis[0] + (py-origin[1])*axis[1]

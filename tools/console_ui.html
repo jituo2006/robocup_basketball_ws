@@ -129,7 +129,7 @@
         <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.01" value="0.45"></label>
         <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
       </div>
-      <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 对正后启动吸球再靠近</label>
+      <label><input id="routeIntake" type="checkbox" style="width:auto"> 开启机构：对正后启动吸球再靠近（默认关闭）</label>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
       <div class="hint" id="missionstate">—</div>
@@ -137,7 +137,7 @@
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
         <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
-      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 转180° → 后摄横移对正 → 低速后退吸球。<br>预移途中不触发取球；靠近期间不要求识球。</div>
+      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 居中停车 → 转180° → 后摄横移对正 → 低速后退0.45米。<br>预移途中不触发取球；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
     </div>
     <div class="card" id="matchRoundCard">
       <h2>比赛回合全自动流程</h2>
@@ -707,7 +707,7 @@ async function loadRoundConfig(){
     $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
     const m = cfg.middle_scan;
     const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
-    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 转180° → 后摄横移对正 → 低速后退吸球。预移途中不触发取球；靠近期间不要求YOLO。`;
+    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 居中停车 → 转180° → 后摄横移对正 → 按上方距离低速后退。预移途中不触发取球；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求YOLO。机构关闭时照常靠近。`;
     $('round1PathHint').textContent = `中线搜索：${sweep}；对正后靠近吸球，到动作点放球。`;
     $('round2PathHint').textContent = `中线从图右端向左找球，没找到补扫三分弧；两次取球、放球后回位。`;
     $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;

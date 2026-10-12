@@ -64,11 +64,12 @@ def test_failed_stop_has_no_additional_commands():
     assert events==['MOVE 1 0 5']
 
 
-def test_route_ui_parameters_reach_script_and_start_intake_by_default():
+def test_route_ui_parameters_reach_script_without_requiring_unplugged_mechanism():
     args=console().fixed_seek_tool_args({'scoop_distance':.4,'scoop_speed':.08})
     assert args==['--route-scoop-distance','0.4','--route-scoop-speed','0.08',
-                  '--route-scoop-timeout','15.0','--route-intake']
+                  '--route-scoop-timeout','15.0','--no-route-intake']
     assert console().fixed_seek_tool_args({'start_intake':False})[-1]=='--no-route-intake'
+    assert console().fixed_seek_tool_args({'start_intake':True})[-1]=='--route-intake'
 
 
 @pytest.mark.parametrize('args',[{'scoop_distance':float('nan')}, {'scoop_distance':-.4},

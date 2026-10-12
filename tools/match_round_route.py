@@ -199,6 +199,7 @@ class RoundRoute:
             self.r.spin(.03)
             if detect and self.r.centered_target_candidates(self.r.dets) is not None:
                 self.r.stop()
+                self.r.spin(getattr(self.r.args, 'settle_seconds', .3))
                 self.search_origin = tuple(self.r.pose)
                 self.trail.append(self.search_origin[:2])
                 self.say('目标球到画面中心，停车 → 转180° → 后摄横移对正')

@@ -212,34 +212,86 @@ def test_center_trigger_requires_fresh_confident_camera_basketball(label,center,
     assert (run.centered_basketball() is not None)==expected
 
 
-def test_rear_lost_detection_stops_without_blind_backing():
+def timed_rear_samples(mod, run, monkeypatch, samples):
+    clock = [0.]
+    monkeypatch.setattr(mod.time, 'monotonic', lambda: clock[0])
+    run.spin = lambda seconds: clock.__setitem__(0, clock[0]+seconds)
+    observations = iter(samples)
+    run.centered_target_candidates = lambda *a, **kw: next(observations, None)
+
+
+def test_rear_lost_detection_waits_stopped_until_timeout_without_blind_backing(monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
     run.args.route_rear_align_speed=.04
     d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
-    samples=iter([d,None]);events=[]
-    run.spin=lambda sec:None
-    run.centered_target_candidates=lambda *a,**kw:next(samples)
+    events=[]
+    timed_rear_samples(mod, run, monkeypatch, [d,None])
     run.stop=lambda:events.append('stop')
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
     assert not run.rear_visual_scoop()
-    assert events==['stop','stop','stop']
+    assert len(events)>=3 and set(events)=={'stop'}
 
 @pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04)),(.5,(-.08,0.))])
-def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected):
+def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected,monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
     run.args.route_rear_align_speed=.04
     d=NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
-    samples=iter([d,None]);commands=[]
-    run.spin=lambda sec:None
-    run.centered_target_candidates=lambda *a,**kw:next(samples)
+    commands=[]
+    timed_rear_samples(mod, run, monkeypatch, [d,None])
     run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y))
     assert not run.rear_visual_scoop()
     assert commands==([] if cx==.5 else [expected])
+
+
+def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(monkeypatch):
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=1.;run.args.route_rear_align_speed=.04
+    run.args.route_scoop_distance=.45;run.args.route_intake=False
+    run.pose=(0.,0.,math.pi/2);run.pose_stamp=10.;run.yaw_rate=0.
+    def det(cx, stamp):
+        return NS(x_min=cx-.05,x_max=cx+.05,confidence=.9,
+                  stamp=NS(sec=stamp,nanosec=0))
+    # Same off-centre location as the failed field run, then one missing frame.
+    samples=[det(.263,10),None,det(.3,11),det(.5,12),det(.5,12),det(.5,13),det(.5,14)]
+    timed_rear_samples(mod, run, monkeypatch, samples)
+    commands=[];run.stop=lambda:None
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    def publish(tw):
+        commands.append((tw.linear.x,tw.linear.y))
+        x,y,yaw=run.pose
+        run.pose=(x+.03*(tw.linear.x*math.cos(yaw)-tw.linear.y*math.sin(yaw)),
+                  y+.03*(tw.linear.x*math.sin(yaw)+tw.linear.y*math.cos(yaw)),yaw)
+    run.publish_command=publish
+    run.intake_text=lambda cmd:pytest.fail('disabled mechanism must not block approach')
+    original_approach=run.rear_distance_scoop
+    def approach():
+        run.centered_target_candidates=lambda *a,**kw:pytest.fail('approach must not read YOLO')
+        return original_approach()
+    run.rear_distance_scoop=approach
+    assert run.rear_visual_scoop()
+    assert sum(vy<0 for vx,vy in commands)==2
+    assert all(vy==0 for vx,vy in commands if vx<0)
+    assert -run.pose[1] == pytest.approx(.45,abs=run.args.step_tol)
+
+
+def test_rear_missing_frame_resets_center_count_and_cached_frame_cannot_finish_alignment(monkeypatch):
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=1.;run.args.route_rear_align_speed=.04
+    def det(stamp):
+        return NS(x_min=.45,x_max=.55,confidence=.9,stamp=NS(sec=stamp,nanosec=0))
+    samples=iter([det(10),det(11),None,det(11),det(12),det(13),det(14)])
+    timed_rear_samples(mod,run,monkeypatch,samples)
+    run.stop=lambda:None
+    def approach():
+        assert next(samples,None) is None, 'three distinct centered frames required after drop'
+        return True
+    run.aligned_intake_approach=approach
+    assert run.rear_visual_scoop()
 
 @pytest.mark.parametrize('height',[.2,.6])
 def test_rear_requires_unique_center_frames_then_approaches_without_more_yolo(height):
