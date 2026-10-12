@@ -141,7 +141,7 @@
     </div>
     <div class="card" id="matchRoundCard">
       <h2>三回合分阶段实验</h2>
-      <div class="hint" id="roundStartHint">每次启动前把车放回 A 出发区，面向篮筐、平行中线。启动后静止5秒。</div>
+      <div class="hint" id="roundStartHint">每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止5秒。</div>
       <div class="row">
         <label>比赛环节<select id="roundTask" onchange="roundReleaseState();loadRoundSteps()">
           <option value="pass">传球：找篮球</option><option value="shoot">投篮：找排球</option>
@@ -187,7 +187,7 @@
       </details>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
       <div class="hint" id="roundReleaseState">放球联调已可用；正式传球/投篮需要配置发射指令和瞄准点。</div>
-      <div class="hint">当前避障仍关闭。两轮实验共享上方运行状态和日志。</div>
+      <div class="hint">当前避障仍关闭。三轮实验共享上方运行状态和日志。</div>
     </div>
     <div class="card">
       <h2>吸球机构单独测试</h2>
@@ -695,7 +695,7 @@ async function loadRoundConfig(){
     const cfg = await (await fetch('/api/round-config')).json();
     if(!cfg.ok){ $('roundReleaseState').textContent = cfg.msg; return; }
     window._roundConfig = cfg;
-    $('roundStartHint').textContent = `每次启动前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
+    $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
     $('round2PathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → 中线左右扫 → 取球 → 传球/投篮点。中线无球时补扫三分弧。`;
     $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
     ['middle','arc','inner'].forEach(area => {
