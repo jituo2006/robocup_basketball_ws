@@ -121,7 +121,7 @@
         <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.05" value="0.40"></label>
         <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
       </div>
-      <label><input id="routeIntake" type="checkbox" style="width:auto"> 靠近时启动吸球（接上机构后勾选）</label>
+      <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 对正后启动吸球再靠近</label>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
       <div class="hint" id="missionstate">—</div>
@@ -135,6 +135,7 @@
       <h2>吸球机构单独测试</h2>
       <button class="primary" onclick="act('INTAKE_START')">▶ 单独测试吸球</button>
       <button class="danger" onclick="act('INTAKE_STOP')">■ 停止吸球</button>
+      <div class="hint" id="intakeStatus">机构连接状态读取中</div>
       <div class="hint">仅控制机构，车不移动。测试执行 STOP → ZERO → MOVE 1 90 5；结束时点击停止吸球。</div>
     </div>
     <div class="card">
@@ -307,7 +308,7 @@
     </div>
     <div class="card"><h2>后摄 YOLO：对准 / 铲球</h2>
       <img id="camRear" src="/api/camera.mjpg?slot=rear" alt="后摄像头">
-      <div class="hint">篮球在中心±1%内连续3帧后退；偏离先停再横移；丢球立即停车。框高度45%或移动距离达到上限时停止。</div>
+      <div class="hint">篮球在中心±2.5%内连续3个新帧后，低速向球靠近（默认0.40米）；靠近期间不再要求YOLO，按定位距离停车。</div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -719,6 +720,7 @@ function render(s){
   $('launcher_ok').textContent = yn(s.launcher_ok);
   $('perception_ok').textContent = yn(s.perception_ok);
   $('launcher_status').textContent = s.launcher_status || '—';
+  $('intakeStatus').textContent = s.launcher_ok ? '机构串口已连接' : '机构未连接：请检查串口或启动机构节点';
 
   if(s.pose){
     $('pos').textContent = `(${fmt(s.pose[0])}, ${fmt(s.pose[1])})`;

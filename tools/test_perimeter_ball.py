@@ -1193,8 +1193,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-scoop-distance", type=float, default=0.40, help="后摄居中后独立后退距离 m，不含横移纠偏")
     ap.add_argument("--route-scoop-speed", type=float, default=0.08)
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0)
-    ap.add_argument('--route-intake', action=argparse.BooleanOptionalAction, default=False,
-                    help='对正后启动文本吸球机构再靠近；默认仅测试底盘靠近')
+    ap.add_argument('--route-intake', action=argparse.BooleanOptionalAction, default=True,
+                    help='对正后启动文本吸球机构再靠近；--no-route-intake 仅测试靠近')
     ap.add_argument("--route-center-tolerance", type=float, default=0.04,
                     help="篮球框中心距画面中心允许偏差（画面宽度比例）")
     ap.add_argument('--route-rear-timeout', type=float, default=15.0)

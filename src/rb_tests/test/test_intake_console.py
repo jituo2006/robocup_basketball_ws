@@ -47,11 +47,11 @@ def test_intake_buttons_only_call_text_service_and_do_not_start_route():
     assert events==['STOP','ZERO','MOVE 1 90 5','STOP']
 
 
-def test_route_ui_parameters_reach_script_and_leave_intake_off_by_default():
+def test_route_ui_parameters_reach_script_and_start_intake_by_default():
     args=console().fixed_seek_tool_args({'scoop_distance':.4,'scoop_speed':.08})
     assert args==['--route-scoop-distance','0.4','--route-scoop-speed','0.08',
-                  '--route-scoop-timeout','15.0','--no-route-intake']
-    assert console().fixed_seek_tool_args({'start_intake':True})[-1]=='--route-intake'
+                  '--route-scoop-timeout','15.0','--route-intake']
+    assert console().fixed_seek_tool_args({'start_intake':False})[-1]=='--no-route-intake'
 
 
 @pytest.mark.parametrize('args',[{'scoop_distance':float('nan')}, {'scoop_distance':-.4},

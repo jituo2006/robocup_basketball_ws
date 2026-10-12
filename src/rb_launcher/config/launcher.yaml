@@ -5,11 +5,8 @@
 #   共 11 字节，115200 8N1
 rb_launcher:
   ros__parameters:
-    # ⚠️ 上一届用的是 /dev/R1_usb2ttl，但**本机 udev 规则只生成 /dev/usb2ttl**，
-    #    名字对不上。现在节点会**自动回退**：这个 port 不存在时，按下面的
-    #    fallback_ports 顺序找第一个真实存在的设备，并在日志里说明用了哪个。
-    #    所以正常情况下不用改这里；要固定某个设备就补一条 udev 规则（见 docs/04）。
-    port: "/dev/R1_usb2ttl"
+    # 按当前吸球机构转接器的名称/序列号固定；更换转接器时修改此参数。
+    port: "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AR05Y7IF-if00-port0"
     # port 不存在时的候选（相对 /dev 的名字或绝对路径都行）。
     # ⚠️ 默认**不启用回退**（节点里的 C++ 默认值是空表），这是安全选择：
     #    像 "usb2ttl" 这种名字是通配的（本机 usb2ttl_1.rules 那条就没有端口/
