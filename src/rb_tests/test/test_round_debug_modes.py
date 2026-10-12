@@ -87,3 +87,34 @@ def test_formal_round1_rejects_ground_first_ball_before_moving():
     with pytest.raises(ValueError,match='首球须预装'):
         RoundRoute(r,cfg,1,'shoot','cycle')
     assert events == []
+
+
+def test_resume_after_serial_failure_completes_scoop_without_repeating_approach(tmp_path, monkeypatch):
+    from types import MethodType
+    from test_perimeter_ball import Runner
+    monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
+    cfg = load_config(); cfg['round1_first_ball'] = 'search'
+    r, events = fake_runner(); r.args.route_intake = True
+    r.aligned_intake_approach = MethodType(Runner.aligned_intake_approach, r)
+    def approach():
+        x, y, yaw = r.pose
+        distance = r.args.route_scoop_distance
+        r.pose = (x-distance*math.cos(yaw), y-distance*math.sin(yaw), yaw)
+        events.append(('distance', distance))
+        return True
+    r.rear_distance_scoop = approach
+    r.intake_text = lambda command: (False, '串口未打开')
+    assert not stages.execute_step(r, cfg, 1, 'pass', 1, emit=lambda msg: None)
+    assert events.count(('distance', .70)) == 1
+    r.rear_distance_scoop = lambda: pytest.fail('已靠近到位，重试不能重复走0.70米')
+    r.intake_text = lambda cmd: events.append(('text', cmd)) or (True, 'sent')
+    original_spin = r.spin
+    def record_wait(sec):
+        original_spin(sec)
+        events.append(('wait', sec))
+    r.spin = record_wait
+    assert stages.execute_step(r, cfg, 1, 'pass', 1, emit=lambda msg: None)
+    commands = [e[1] for e in events if e[0] == 'text']
+    assert commands == ['STOP', 'ZERO', 'MOVE 1 90 5', 'MOVE 1 0 5', 'MOVE 1 0 5']
+    lift = events.index(('text', 'MOVE 1 90 5'))
+    assert events[lift+1:lift+3] == [('wait', 1.), ('text', 'MOVE 1 0 5')]

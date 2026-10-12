@@ -164,13 +164,13 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 # 总距离来自本区域 scoop_m，中线默认0.70m，容差默认2cm。
                 remaining = cfg[state['area']]['scoop_m']-travelled
                 if remaining <= runner.args.step_tol:
-                    # 如果定位计算的剩余距离<=2cm，会直接认为完成，不再发速度。
-                    ok = True
+                    # 已靠近到位，不重复行驶；仍补做本动作的铲球→等1秒→放下。
+                    ok = runner.aligned_intake_approach(approach=False)
                 else:
                     runner.args.route_scoop_distance = remaining
                     runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
-                    # 机构关闭：直接调用距离后退；机构开启：先发吸球序列，
-                    # 任何机构命令失败都会阻止后退。实际负vx见 rear_distance_scoop。
+                    # 先按距离后退，完成后才发铲球序列，等1秒再放下。
+                    # 机构关闭则只靠近；实际负vx见 rear_distance_scoop。
                     ok = runner.aligned_intake_approach()
             elif kind == 'carry':
                 ok = plan.unwind() and plan.action_point()

@@ -17,4 +17,4 @@ echo '第一轮全自动：静止5秒 → 首球到传球区 → 中线取第二
 echo "机构开关：${first_round_mechanism}（关闭时跳过全部机构动作和发射瞄准）"
 exec bash "$(dirname "${BASH_SOURCE[0]}")/run_round_test.sh" 1 pass \
   --round-release-kind match --round-first-ball preloaded \
-  "$first_round_mechanism" "${first_round_args[@]}"
+  "$first_round_mechanism" ${first_round_args[@]+"${first_round_args[@]}"}

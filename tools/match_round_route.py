@@ -165,7 +165,6 @@ class RoundRoute:
         self.emit = emit
         self.frame = StartFrame(runner.pose, cfg['start'])
         runner.round_start_frame = self.frame
-        runner.keep_intake_after_scoop = True
         self.trail = []
         self.search_origin = None
         self.target_aligned = False

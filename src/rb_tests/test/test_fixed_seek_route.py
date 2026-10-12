@@ -372,7 +372,7 @@ def test_rear_requires_unique_center_frames_then_approaches_without_more_yolo(he
     run.stop=lambda:events.append('stop')
     run.rear_distance_scoop=lambda:events.append('distance') or True
     assert run.rear_visual_scoop()
-    assert events==['stop','stop','stop','stop','stop','distance']
+    assert events==['stop','stop','stop','stop','stop','distance','stop']
     assert not run.obstacle_scoop
 
 
@@ -417,39 +417,76 @@ def test_rear_accepts_observed_two_percent_offset_then_starts_approach():
     assert events==['approach']
 
 
-@pytest.mark.parametrize('approach_result',[True,False])
-def test_optional_intake_starts_before_approach_and_stops_afterwards(approach_result):
-    mod=load();run=make_runner(mod);run.args.route_intake=True
-    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
-    run.spin=lambda sec:None;run.stop=lambda:None
-    run.rear_distance_scoop=lambda:events.append('approach') or approach_result
-    assert run.aligned_intake_approach() is approach_result
-    assert events==['STOP','ZERO','MOVE 1 90 5','approach','MOVE 1 0 5']
+def intake_runner():
+    mod = load()
+    run = make_runner(mod)
+    run.args.route_intake = True
+    events = []
+    run.intake_text = lambda cmd: events.append(cmd) or (True, 'sent')
+    run.spin = lambda sec: events.append(('wait', sec))
+    run.stop = lambda: events.append('chassis_stop')
+    run.rear_distance_scoop = lambda: events.append('approach') or True
+    return run, events
 
 
-def test_unplugged_intake_does_not_start_approach_when_option_enabled():
-    mod=load();run=make_runner(mod);run.args.route_intake=True
-    run.intake_text=lambda cmd:(False,'串口未打开')
-    run.stop=lambda:None
-    run.rear_distance_scoop=lambda:pytest.fail('must not approach after intake start fails')
-    assert not run.aligned_intake_approach()
-
-
-def test_match_round_holds_intake_after_success_until_explicit_release():
-    mod=load();run=make_runner(mod);run.args.route_intake=True
-    run.keep_intake_after_scoop=True
-    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
-    run.spin=lambda sec:None;run.stop=lambda:None
-    run.rear_distance_scoop=lambda:events.append('approach') or True
+def test_automatic_scoop_runs_after_approach_then_lowers_after_exactly_one_second():
+    run, events = intake_runner()
     assert run.aligned_intake_approach()
-    assert events==['STOP','ZERO','MOVE 1 90 5','approach']
+    assert events == ['approach', 'chassis_stop', 'STOP', ('wait', .3),
+                      'ZERO', ('wait', .8), 'MOVE 1 90 5', ('wait', 1.), 'MOVE 1 0 5']
 
 
-def test_match_round_stops_intake_when_approach_fails():
-    mod=load();run=make_runner(mod);run.args.route_intake=True
-    run.keep_intake_after_scoop=True
-    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
-    run.spin=lambda sec:None;run.stop=lambda:None
-    run.rear_distance_scoop=lambda:False
+def test_approach_failure_never_sends_shovel_commands():
+    run, events = intake_runner()
+    run.rear_distance_scoop = lambda: events.append('approach') or False
     assert not run.aligned_intake_approach()
-    assert events[-1]=='MOVE 1 0 5'
+    assert events == ['approach', 'chassis_stop']
+
+
+def test_mechanism_switch_off_keeps_approach_but_skips_every_serial_command():
+    run, events = intake_runner()
+    run.args.route_intake = False
+    assert run.aligned_intake_approach()
+    assert events == ['approach', 'chassis_stop']
+
+
+def test_unplugged_intake_is_reported_after_approach_without_claiming_scoop_success():
+    run, events = intake_runner()
+    run.intake_text = lambda cmd: events.append(cmd) or (False, '串口未打开')
+    assert not run.aligned_intake_approach()
+    assert events == ['approach', 'chassis_stop', 'STOP', 'MOVE 1 0 5']
+
+
+def test_failed_lift_skips_one_second_hold_and_attempts_lowering():
+    run, events = intake_runner()
+    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'MOVE 1 90 5', 'result')
+    assert not run.aligned_intake_approach()
+    assert ('wait', 1.) not in events
+    assert events[-2:] == ['MOVE 1 90 5', 'MOVE 1 0 5']
+
+
+def test_failed_lowering_does_not_complete_the_pickup_action():
+    run, events = intake_runner()
+    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'MOVE 1 0 5', 'result')
+    assert not run.aligned_intake_approach()
+    assert events[-2:] == [('wait', 1.), 'MOVE 1 0 5']
+
+
+def test_interrupted_hold_still_lowers_without_suppressing_cancellation():
+    run, events = intake_runner()
+    def wait(sec):
+        events.append(('wait', sec))
+        if sec == 1.:
+            raise KeyboardInterrupt()
+    run.spin = wait
+    with pytest.raises(KeyboardInterrupt):
+        run.aligned_intake_approach()
+    assert events[-1] == 'MOVE 1 0 5'
+
+
+def test_resumed_pickup_already_at_distance_still_scoops_without_driving_again():
+    run, events = intake_runner()
+    run.rear_distance_scoop = lambda: pytest.fail('already approached: no repeat movement')
+    assert run.aligned_intake_approach(approach=False)
+    assert events == ['chassis_stop', 'STOP', ('wait', .3), 'ZERO', ('wait', .8),
+                      'MOVE 1 90 5', ('wait', 1.), 'MOVE 1 0 5']

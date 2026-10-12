@@ -1563,7 +1563,7 @@ def fixed_seek_tool_args(args):
         raise ValueError('靠近距离须大于0.02且不超过2米')
     if not math.isfinite(speed) or not 0 < speed <= .25:
         raise ValueError('靠近速度须在0到0.25米/秒之间')
-    use_intake = args.get('start_intake', False)
+    use_intake = args.get('start_intake', True)
     if not isinstance(use_intake, bool):
         raise ValueError('start_intake 须为布尔值')
     return ['--route-scoop-distance', str(distance), '--route-scoop-speed', str(speed),

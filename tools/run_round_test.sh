@@ -33,10 +33,10 @@ source install/setup.bash
 set -u
 export ROS_DOMAIN_ID=2
 if [[ "$round_mode" == collect ]]; then
-  echo '第一轮取球测试：找篮球 → 吸球 → 保持吸球到传球区停车；不自动放球和取第二颗。'
+  echo '第一轮取球测试：找篮球 → 靠近后自动铲球 → 等1秒放下 → 到传球区停车；不执行动作点出球和取第二颗。'
 else
   echo "整轮测试：第${round_number}轮 ${round_task}，两次处理球后回位。首球默认场上取球，规则模式加 --round-first-ball preloaded。"
 fi
 exec python3 tools/test_perimeter_ball.py --route "round${round_number}" \
   --round-task "$round_task" --round-mode "$round_mode" --round-release-kind drop \
-  --round-first-ball search --takeover --yes "${round_extra_args[@]}"
+  --round-first-ball search --takeover --yes ${round_extra_args[@]+"${round_extra_args[@]}"}

@@ -13,7 +13,7 @@ import match_round_steps as stages
 WS = Path(__file__).resolve().parents[3]
 
 
-def test_round1_pickup_stops_in_passing_zone_with_intake_held_and_no_release(monkeypatch):
+def test_round1_pickup_stops_in_passing_zone_without_zone_release(monkeypatch):
     cfg = load_config(); cfg['round1_first_ball'] = 'search'
     r, events = fake_runner(); r.pose = (1.5, 8., 0.)
     def detect(dets, centered=True):
@@ -26,7 +26,6 @@ def test_round1_pickup_stops_in_passing_zone_with_intake_held_and_no_release(mon
     assert RoundRoute(r, cfg, 1, 'pass', 'collect', release_kind='drop', emit=lambda m: None).execute()
     assert r.pose[:2] == pytest.approx((3.6, 4.5))
     assert ('scoop', 'ball_basketball', .70) in events
-    assert r.keep_intake_after_scoop
     assert not any(e[0] == 'text' for e in events)
     assert events[-1] == ('stop',)
 
@@ -165,3 +164,26 @@ def test_startup_shell_dispatches_selected_round_without_ros_or_hardware(tmp_pat
     enabled = subprocess.run(['bash', str(first_script), '--mechanism'], text=True, capture_output=True, check=True)
     enabled_args, _ = json.loads(enabled.stdout.splitlines()[-1])
     assert '--mechanism' in enabled_args and '--no-mechanism' not in enabled_args
+
+
+@pytest.mark.parametrize('number', [1, 2, 3])
+def test_whole_round_uses_post_approach_lift_hold_and_lower_for_each_collected_ball(tmp_path, monkeypatch, number):
+    from types import MethodType
+    from test_perimeter_ball import Runner
+    monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
+    cfg = load_config(); cfg['round1_first_ball'] = 'search'
+    r, events = fake_runner(); r.args.route_intake = True
+    r.rear_distance_scoop = r.aligned_intake_approach
+    r.aligned_intake_approach = MethodType(Runner.aligned_intake_approach, r)
+    original_spin = r.spin
+    def record_wait(sec):
+        original_spin(sec)
+        events.append(('wait', sec))
+    r.spin = record_wait
+    assert RoundRoute(r, cfg, number, 'pass', 'cycle', release_kind='drop', emit=lambda msg: None).execute()
+    scoop_indices = [i for i, e in enumerate(events) if e[0] == 'scoop']
+    assert len(scoop_indices) == 2
+    for i in scoop_indices:
+        assert events[i+1:i+9] == [
+            ('stop',), ('text', 'STOP'), ('wait', .3), ('text', 'ZERO'),
+            ('wait', .8), ('text', 'MOVE 1 90 5'), ('wait', 1.), ('text', 'MOVE 1 0 5')]

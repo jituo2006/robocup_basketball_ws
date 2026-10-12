@@ -878,32 +878,31 @@ class Runner:
         response = future.result()
         return bool(response.success), response.message
 
-    def aligned_intake_approach(self):
-        # 【后退前的机构开关】关闭机构仍执行底盘后退，不会跳过靠近动作。
-        use_intake = getattr(self.args, 'route_intake', False)
-        if not use_intake:
-            return self.rear_distance_scoop()
-        reached = False
-        try:
-            # 开启机构时先 STOP → 等0.3s → ZERO → 等0.8s → MOVE 1 90 5。
-            # 【会阻止后退】服务缺失、响应超时或任一命令返回失败，就返回 False；
-            # 此时 rear_distance_scoop 还没调用。机构未接时应关闭 route_intake。
-            ok, message = start_intake(self.intake_text,
-                                      wait=lambda delay: self.spin(delay))
-            log('启动吸球', message, C_OK if ok else C_BAD)
-            if not ok:
-                return False
-            reached = self.rear_distance_scoop()
-            if reached:
-                self.spin(2.)
-            return reached
-        finally:
+    def aligned_intake_approach(self, *, approach=True):
+        # 已完成180°转身和后摄横移对正；先按距离向球后退，再动作机构。
+        # 分阶段续跑若已走够距离，用 approach=False 只完成尚未执行的铲球。
+        if approach and not self.rear_distance_scoop():
             self.stop()
-            if not reached or not getattr(self, 'keep_intake_after_scoop', False):
-                ok, message = stop_intake(self.intake_text)
-                log('停止吸球', message, C_OK if ok else C_BAD)
-            else:
-                log('保持吸球', '回合取球已完成，保持机构直到动作点放球')
+            return False
+        self.stop()
+        # 关闭机构仍完成底盘靠近，跳过下面全部串口指令。
+        if not getattr(self.args, 'route_intake', False):
+            return True
+        raised = False
+        try:
+            # 靠近到位后：STOP → 等0.3s → ZERO → 等0.8s → MOVE 1 90 5。
+            raised, message = start_intake(self.intake_text,
+                                          wait=lambda delay: self.spin(delay))
+            log('自动铲球', message, C_OK if raised else C_BAD)
+            if raised:
+                # 从抬起指令成功发送后等待1秒；此时底盘保持停止。
+                self.spin(1.)
+        finally:
+            # 放下只发 MOVE 1 0 5，不再追加 STOP / ZERO。
+            # 抬起失败或等待被中断时，也尝试放下，异常仍由外层处理。
+            lowered, message = stop_intake(self.intake_text)
+            log('铲球后放下', message, C_OK if lowered else C_BAD)
+        return raised and lowered
 
     def _rear_visual_scoop(self, approach=True):
         """YOLO is used only to align laterally; approach then uses pose distance."""

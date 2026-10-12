@@ -67,7 +67,7 @@ def test_failed_stop_has_no_additional_commands():
 def test_route_ui_parameters_reach_script_without_requiring_unplugged_mechanism():
     args=console().fixed_seek_tool_args({'scoop_distance':.4,'scoop_speed':.08})
     assert args==['--route-scoop-distance','0.4','--route-scoop-speed','0.08',
-                  '--route-scoop-timeout','15.0','--no-route-intake']
+                  '--route-scoop-timeout','15.0','--route-intake']
     assert console().fixed_seek_tool_args({'start_intake':False})[-1]=='--no-route-intake'
     assert console().fixed_seek_tool_args({'start_intake':True})[-1]=='--route-intake'
     defaults=console().fixed_seek_tool_args({})
@@ -80,3 +80,10 @@ def test_route_ui_parameters_reach_script_without_requiring_unplugged_mechanism(
 def test_route_ui_rejects_invalid_parameters(args):
     with pytest.raises((ValueError,TypeError)):
         console().fixed_seek_tool_args(args)
+
+
+def test_fixed_route_ui_enables_automatic_scoop_by_default_but_retains_skip_switch():
+    ui = (WS/'tools/console_ui.html').read_text()
+    assert 'id="routeIntake" type="checkbox" checked' in ui
+    assert '等1秒放下' in ui
+    assert "start_intake: $('routeIntake').checked" in ui
