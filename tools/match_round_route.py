@@ -9,6 +9,7 @@ import json
 import math
 import time
 from pathlib import Path
+from visual_target_alignment import align_pillar
 
 CONFIG = Path(__file__).with_name('match_rounds.json')
 TASK_LABELS = {'pass': 'ball_basketball', 'shoot': 'ball_volleyball'}
@@ -55,6 +56,18 @@ def load_config(path=CONFIG):
         point(cfg[key])
     number(cfg['speed_mps'], .01, .25)
     number(cfg['start_delay_s'], 5, 15)
+    vision = cfg.get('pillar_alignment', {})
+    if vision:
+        if not isinstance(vision.get('enabled'), bool):
+            raise ValueError('pillar_alignment.enabled 须为布尔值')
+        for key, lo, hi in (('confidence', .25, 1), ('tolerance_deg', .2, 5),
+                            ('stable_frames', 1, 10), ('timeout_s', .5, 15),
+                            ('max_turn_deg', 1, 30), ('max_ang_rad_s', .02, .25),
+                            ('kp', .1, 3), ('camera_yaw_offset_rad', -math.pi, math.pi),
+                            ('launcher_yaw_offset_deg', -180, 180)):
+            number(vision[key], lo, hi)
+        if not isinstance(vision['stable_frames'], int):
+            raise ValueError('定位柱稳定帧数须为整数')
     m, a, i = cfg['middle'], cfg['arc'], cfg['inner']
     number(m['y'], 3.8, 6)
     number(m['left_x'], .3, 1.5)
@@ -84,6 +97,7 @@ def load_config(path=CONFIG):
             if action['aim'] == action['point']:
                 raise ValueError('动作点不能与瞄准目标重合')
         number(action['wait_s'], 0, 30)
+        number(action.get('search_heading_deg', 0), -180, 180)
         if not isinstance(action['commands'], list) or any(
                 not isinstance(c, str) or not c.strip() or '\n' in c or '\r' in c
                 for c in action['commands']):
@@ -149,6 +163,7 @@ class RoundRoute:
         runner.keep_intake_after_scoop = True
         self.trail = []
         self.search_origin = None
+        self.target_aligned = False
 
     def say(self, message):
         self.emit(f'第{self.round}回合/{self.task}/{self.mode}: {message}')
@@ -282,15 +297,29 @@ class RoundRoute:
         if not self.move(action['point']):
             return False
         if action['aim'] is not None:
-            dx = action['aim'][0]-action['point'][0]
-            dy = action['aim'][1]-action['point'][1]
-            if not self.turn(math.atan2(dy, dx)):
-                return False
+            target = self.frame.point(action['aim'])
+            heading = math.atan2(target[1]-self.r.pose[1], target[0]-self.r.pose[0])
+        else:
+            heading = self.frame.yaw(math.radians(action.get('search_heading_deg', 0)))
+        if not self.r.rotate_to(heading, timeout=45.):
+            return False
         self.r.stop()
+        self.target_aligned = False
+        vision = cfg.get('pillar_alignment', {})
+        if self.mode != 'drive' and vision.get('enabled', False):
+            self.say('雷达到动作点，前摄用定位柱微调出球方向')
+            self.target_aligned = align_pillar(self.r, vision, heading, emit=self.say)
+            if not self.target_aligned and self.release_kind == 'match':
+                self.say('正式出球须先对准目标柱；本次停车')
+                return False
         return True
 
     def release(self):
         action = self.cfg['release'][self.task]
+        if (self.release_kind == 'match' and self.cfg.get('pillar_alignment', {}).get('enabled')
+                and not self.target_aligned):
+            self.say('尚未对准定位柱，先完成动作点对准')
+            return False
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         self.r.stop()
         for command in commands:
@@ -314,6 +343,7 @@ class RoundRoute:
         self.r.args.ball_label = TASK_LABELS[self.task]
         self.r.args.speed = self.cfg['speed_mps']
         self.say('假定车已放回 A 区、面向篮筐；当前位姿作为本轮起点')
+        self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()
         self.r.spin(self.cfg['start_delay_s'])
         if not self.turn(-math.pi/2):

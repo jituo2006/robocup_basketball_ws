@@ -62,6 +62,7 @@ WS = Path("/home/user/robocup_basketball_ws")
 BALL_BOX_STYLES = {
     "ball_basketball": ("篮球", (0, 165, 255)),
     "ball_volleyball": ("排球", (255, 190, 0)),
+    "pillar": ("定位柱", (80, 230, 80)),
 }
 
 
@@ -1750,6 +1751,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                                             'preposition_m': cfg['middle']['right_x']-cfg['start'][0],
                                             'distance_m': cfg['middle']['right_x']-cfg['middle']['left_x']},
                             'scoop_m': {area: cfg[area]['scoop_m'] for area in ('middle', 'arc', 'inner')},
+                            'pillar_alignment': cfg.get('pillar_alignment', {}),
+                            'vision_classes': ['篮球', '排球', '定位柱'],
                             'release_ready': {task: bool(action['commands']) and action['aim'] is not None
                                               for task, action in cfg['release'].items()}})
         except (ValueError, KeyError, TypeError, OSError) as exc:

@@ -41,6 +41,13 @@ def fake_runner():
     r.aligned_intake_approach = scoop
     r.stop = lambda: events.append(('stop',))
     r.spin = lambda seconds: None
+    r.detection_fresh = lambda stamp: True
+    det = NS(label='pillar', source='camera', confidence=.9, bearing_rad=0.,
+             x_min=.45, x_max=.55, y_min=.2, y_max=.8, stamp=NS(sec=10, nanosec=0))
+    r.dets = [det]
+    def spin(seconds):
+        det.stamp.nanosec += 1_000_000
+    r.spin = spin
     r._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     def publish(tw):
         x, y, yaw = r.pose

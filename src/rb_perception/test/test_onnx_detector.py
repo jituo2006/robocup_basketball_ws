@@ -347,6 +347,28 @@ def test_cross_class_can_be_disabled():
     assert len(S()._suppress_cross_class(r)) == 2, "阈值=0 应关闭抑制"
 
 
+def test_three_class_model_maps_chinese_pillar_and_uses_width_for_distance():
+    d = _det(input_size=640, conf_threshold=.5, real_diameter_m=.24,
+             name_map={'篮球': 'ball_basketball', '排球': 'ball_volleyball', '定位柱': 'pillar'},
+             class_real_size={'pillar': .20})
+    d.model_names = {0: '篮球', 1: '排球', 2: '定位柱'}
+    d.session = _FakeSession(np.array([[[320.], [320.], [40.], [200.], [.01], [.02], [.9]]], np.float32))
+    cam = CameraModel.from_config({}, 640, 640)
+    dets = d.detect(np.zeros((640, 640, 3), np.uint8), cam)
+    assert len(dets) == 1 and dets[0].label == 'pillar'
+    assert dets[0].diameter_m == pytest.approx(.20)
+    assert dets[0].distance_m == pytest.approx(cam.fx * .20 / 40)
+
+
+def test_pillar_is_not_reclassified_as_ball_by_color():
+    d = _det(input_size=640, conf_threshold=.5, color_classify=True,
+             name_map={'定位柱': 'pillar'}, class_real_size={'pillar': .2})
+    d.model_names = {0: '篮球', 1: '排球', 2: '定位柱'}
+    d.session = _FakeSession(np.array([[[320.], [320.], [40.], [200.], [.01], [.02], [.9]]], np.float32))
+    d._classify_by_color = lambda *args: pytest.fail('柱不参与球颜色分类')
+    assert d.detect(np.zeros((640, 640, 3), np.uint8), CameraModel.from_config({}, 640, 640))[0].label == 'pillar'
+
+
 def test_containment_beats_iou_for_different_sizes():
     """同物体两框大小差很多时，包含度要能判成重复（IoU 会偏低）。"""
     big = (0.30, 0.30, 0.70, 0.70)     # 面积 0.16

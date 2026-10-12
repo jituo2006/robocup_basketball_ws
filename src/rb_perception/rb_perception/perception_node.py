@@ -151,6 +151,11 @@ class PerceptionNode(Node):
             self.cfg = {}
 
     def rebuild_detectors(self) -> None:
+        for detector in (self.cfg.get("perception", {}).get("detectors", []) or []):
+            path = detector.get("model_path", "")
+            if detector.get("type") == "onnx" and path and not os.path.isabs(path):
+                detector["model_path"] = os.path.normpath(os.path.join(
+                    os.path.dirname(os.path.abspath(self.config_file)), path))
         self.detectors, self.detector_notes = build_detectors(self.cfg.get("perception", {}))
 
     # -- 主回调 ------------------------------------------------------------

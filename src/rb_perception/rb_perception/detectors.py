@@ -799,7 +799,7 @@ class OnnxDetector(BaseDetector):
                 continue          # 丢弃没映射过的类别（如 person/chair）
             label = self._map_label(cid, cname)
             # 框内颜色分类：把"球候选"细分成篮球/排球
-            if self.color_classify:
+            if self.color_classify and label.startswith('ball'):
                 label = self._classify_by_color(frame_bgr, (x1, y1, x2, y2), label)
                 if self.only_mapped and label in self.color_rules:
                     pass          # 分类结果本身就是要的工程标签，直接放行
@@ -808,7 +808,8 @@ class OnnxDetector(BaseDetector):
             # 去畸变后再算方位角与像素尺寸（与颜色检测器一致）
             uw = cam.measure_size((x1, py), (x2, py))
             uh = cam.measure_size((px, y1), (px, y2))
-            size_px = max(uw, uh)
+            # 定位柱真实尺寸是横向直径，不能用一米高的竖向框套20cm直径测距。
+            size_px = uw if label == 'pillar' else max(uw, uh)
 
             results.append(Detection(
                 label=label,

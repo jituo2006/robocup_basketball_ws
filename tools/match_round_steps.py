@@ -142,7 +142,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         elif kind == 'carry':
             ok = plan.unwind() and plan.action_point()
         elif kind == 'release':
-            if release_kind == 'match' and not plan.action_point():
+            # 失败后重试 release 会新建 plan，补做对准；同次 carry 已完成则不重复走动作点。
+            if release_kind == 'match' and not plan.target_aligned and not plan.action_point():
                 return False
             ok = plan.release()
         elif kind == 'home':

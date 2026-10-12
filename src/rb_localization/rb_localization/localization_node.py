@@ -136,8 +136,11 @@ class LocalizationNode(Node):
 
         self.landmarks: list[tuple[float, float]] = []
         for item in self.cfg.get("landmarks", []) or []:
-            if "x" in item and "y" in item:
-                self.landmarks.append((float(item["x"]), float(item["y"])))
+            if item.get('enabled', True) and "x" in item and "y" in item:
+                xy = (float(item["x"]), float(item["y"]))
+                if all(math.isfinite(v) for v in xy):
+                    self.landmarks.append(xy)
+        self.last_pillar_stamp = 0.0
 
         self.create_subscription(Odometry, self.odom_topic, self.on_odom, 20)
         if self.abs_pose_topic:
@@ -325,15 +328,24 @@ class LocalizationNode(Node):
     def on_detections(self, msg: DetectionArray) -> None:
         if not self.landmarks:
             return
+        now = self.get_clock().now().nanoseconds * 1e-9
+        # 仅用时间接近当前雷达位姿的观测，不让历史框或跳帧缓存反复纠正定位。
+        if not self.source_freshness.valid(now, self.source_timeout_s):
+            return
         used = 0
+        used_landmarks = set()
+        newest_stamp = self.last_pillar_stamp
         for det in msg.detections:
-            if det.label != "pillar":
+            stamp = det.stamp.sec + det.stamp.nanosec * 1e-9
+            if (det.label != "pillar" or getattr(det, 'source', 'camera') != 'camera'
+                    or not .55 <= det.confidence <= 1
+                    or stamp <= self.last_pillar_stamp or not -.05 <= now-stamp <= .3
+                    or self.source_freshness.stamp is None
+                    or abs(stamp-self.source_freshness.stamp) > .15):
                 continue
-            if det.bearing_rad != det.bearing_rad:  # NaN
+            if not math.isfinite(det.bearing_rad):
                 continue
-            if det.distance_m == det.distance_m and det.distance_m > 0.0:
-                # 有距离估计时：直接按"距离+方位"反算地标位置做数据关联
-                pass
+            newest_stamp = max(newest_stamp, stamp)
             # 观测到的世界方位角（场地坐标系）
             # ⚠️ 符号易错：det.bearing_rad 是"右正左负"（相机约定），而场地坐标系是
             #    y 朝左、逆时针为正（ROS 约定），两者相反 —— 转换细节见
@@ -342,19 +354,23 @@ class LocalizationNode(Node):
                 self.ekf.pose[2], self.camera_yaw_offset, det.bearing_rad)
 
             # 数据关联：选预测方位角最接近的那个地标
-            best = None
-            best_err = float("inf")
+            matches = []
             for lm in self.landmarks:
+                if lm in used_landmarks:
+                    continue
                 dx, dy = lm[0] - self.ekf.pose[0], lm[1] - self.ekf.pose[1]
                 d = math.hypot(dx, dy)
                 if d < self.ekf.cfg.bearing_min_dist or d > self.ekf.cfg.bearing_max_dist:
                     continue
                 err = abs(wrap_pi(bearing_world - math.atan2(dy, dx)))
-                if err < best_err:
-                    best_err, best = err, lm
-            if best is None or best_err > 0.35:  # 关联门限 ~20°
+                matches.append((err, lm))
+            matches.sort()
+            if (not matches or matches[0][0] > .35
+                    or len(matches) > 1 and matches[1][0]-matches[0][0] < .05):
                 continue
+            best = matches[0][1]
             if self.ekf.update_bearing(best, bearing_world):
+                used_landmarks.add(best)
                 used += 1
                 # 限频日志：用来确认"视觉方位角更新真的生效了"（否则这项是黑盒，
                 # 只能看到定位变准/没变准，无法区分是没检出、没关联上、还是没更新）
@@ -364,6 +380,7 @@ class LocalizationNode(Node):
                     throttle_duration_sec=3.0)
         if used:
             self.pillar_updates += used
+        self.last_pillar_stamp = newest_stamp
 
     # -- 输出 --------------------------------------------------------------
     def publish_state(self, stamp) -> None:

@@ -156,7 +156,7 @@
         <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
         <option value="match">正式传球/投篮（需配置发射）</option>
       </select></label>
-      <div class="hint">每轮只有3个阶段，每阶段内部自动完成，结束停车再点下一阶段。第2、3阶段沿用本轮起点。取球后保持吸球，到动作点再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
+      <div class="hint">每轮只有3个阶段，每阶段内部自动完成，结束停车再点下一阶段。第2、3阶段沿用本轮起点。取球后保持吸球，到动作点后前摄对准定位柱，再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
       <h3>第1回合：预装1球，再取中线第2球</h3>
       <div class="step-buttons" id="round1Steps">阶段读取中</div>
       <div class="hint" id="round1Progress"></div>
@@ -187,6 +187,7 @@
         <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
       </details>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
+      <div class="hint" id="roundSensorHint">前摄：篮球、排球、定位柱；后摄：取球横移对正；雷达：行驶距离、转角、回位。</div>
       <div class="hint" id="roundReleaseState">放球联调已可用；正式传球/投篮需要配置发射指令和瞄准点。</div>
       <div class="hint">当前避障仍关闭。三轮实验共享上方运行状态和日志。</div>
     </div>
@@ -696,6 +697,8 @@ async function loadRoundConfig(){
     const cfg = await (await fetch('/api/round-config')).json();
     if(!cfg.ok){ $('roundReleaseState').textContent = cfg.msg; return; }
     window._roundConfig = cfg;
+    const pillar = cfg.pillar_alignment;
+    $('roundSensorHint').textContent = `模型：${cfg.vision_classes.join('、')}。雷达控制行驶/回位，前摄找球和定位柱，后摄只横移对球。出球柱对准：${pillar.enabled ? '已启用' : '已关闭'}，容差${pillar.tolerance_deg}°，最多等待${pillar.timeout_s}秒。`;
     $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
     const m = cfg.middle_scan;
     const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
