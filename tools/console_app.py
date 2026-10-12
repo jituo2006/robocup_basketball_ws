@@ -1600,6 +1600,11 @@ class ChassisManager:
 # 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
 # 所以页面上点之前必须确认：任务停了、急停手段就绪。
 DEBUG_TOOLS = {
+    "LINE_BALL": {
+        "script": "tools/line_ball_search.py",
+        "args": ["--takeover", "--yes"],
+        "label": "巡线找球（转90°→直行1m→横向找球→对准→70cm）",
+    },
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
         "args": ["--skip-perimeter", "--takeover", "--yes"],

@@ -33,7 +33,7 @@ camera:
   distortion: [0.018392, -0.525673, 0.015934, 0.004543, 0.808854]
 
 perception:
-  opencv_threads: 6             # 圆环等传统检测也限线程，避免拖慢 FAST-LIO
+  opencv_threads: 2             # 圆环等传统检测也限线程，避免拖慢 FAST-LIO
   detectors:
 
     # ---------- 目标球：篮球 ----------
@@ -87,7 +87,7 @@ perception:
       type: circle
       enabled: true
       hsv_ranges: []                    # 留空 = 直接在灰度图上找圆（环颜色不定时更稳）
-      dp: 1.2
+      dp: 2.0                 # ⚠️ 原 1.2：HoughCircles 代价≈1/dp²，2.0 只要 36%
       min_dist_ratio: 0.08
       param1: 120.0
       param2: 30.0
@@ -128,7 +128,7 @@ perception:
       input_size: 640
       # 每帧推理，避免相机新帧携带上一帧的缓存框；限制线程给 FAST-LIO 留出 CPU。
       every_n_frames: 1
-      intra_op_threads: 6
+      intra_op_threads: 2
       inter_op_threads: 1
       # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
       real_diameter_m: 0.24

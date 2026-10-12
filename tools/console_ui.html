@@ -277,6 +277,7 @@
 
     <div class="card">
       <h2>调试测试（整车脚本）</h2>
+      <button class="primary" onclick="toolRun('LINE_BALL')">🚗 巡线找球（转90°→直行1m→横向找球→70cm）</button>
       <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
       <button class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
       <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
@@ -768,12 +769,22 @@ function renderChecks(s){
 }
 
 const TOOL_LABEL = {
+  LINE_BALL:        '巡线找球',
   TEST_BALL:        '寻球+转身测试',
   TEST_PERIMETER:   '绕场+寻球测试',
   TEST_CHASSIS_DRY: '底盘干跑自检'
 };
 function toolRun(key){
   const warn = {
+    LINE_BALL:      '【巡线找球】车会按这个顺序真的动：\n' +
+                    '  ① 原地逆时针转 90°\n' +
+                    '  ② 朝车头方向直行 1.0 m\n' +
+                    '  ③ 横向直行搜索，直到看到篮球（最多 12 s）\n' +
+                    '  ④ 原地转，让球正对车头\n' +
+                    '  ⑤ 用视觉测距边走边收敛，停在【球离车中心 0.70 m】\n\n' +
+                    '全程只用视觉（不依赖雷达测距）。\n' +
+                    '会接管 /cmd_vel（mission 会被停掉）。\n\n' +
+                    '确认车周围清空、急停就绪？',
     TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
     TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'

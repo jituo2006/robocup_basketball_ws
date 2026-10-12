@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 import json
+from collections import deque
 
 import os
 import time
@@ -119,6 +120,13 @@ class PerceptionNode(Node):
         self._cloud = None
         self._cloud_stamp = 0.0
         self._cloud_frame = ""
+        # ⚠️ 点云环形缓存，用于【按时间戳配对】而不是只用"最新一帧" ✗
+        #    为什么必须缓存：本节点处理一帧图像要几百毫秒（HoughCircles 很贵），
+        #    等它处理到【采集于 T 的那张图】时，手里"最新点云"已经是 T+0.4s 的了 ✗
+        #    → |cloud_stamp - image_stamp| ≈ 0.4s > max_sync_s(0.10) ✗
+        #    → 精确测距永远判 stale_or_unsynchronised ✗（现场就是卡在这）
+        #    正确做法：处理图像时，从缓存里挑【时间戳最接近这张图】的那帧点云 ✓
+        self._cloud_buf = deque(maxlen=16)
         self._last_image_stamp = 0.0
         self._odom = None
         self._lidar_stats = {}
@@ -184,16 +192,33 @@ class PerceptionNode(Node):
 
     # -- 雷达找球 ----------------------------------------------------------
     def on_cloud(self, msg) -> None:
-        """只存最新一帧，转换放到算候选时做（省 CPU）。"""
+        """存最新一帧 + 放进环形缓存（供按时间戳配对 ✓）。
+
+        转换放到算候选时做（省 CPU），但缓存里存的是【已转换的 numpy】——
+        因为配对发生在处理图像时，那时再解析消息体来不及（几百毫秒级）✗
+        """
         try:
             from sensor_msgs_py import point_cloud2
             pts = point_cloud2.read_points_numpy(
                 msg, field_names=("x", "y", "z"), skip_nans=True)
+            ts = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
             self._cloud = pts
-            self._cloud_stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            self._cloud_stamp = ts
             self._cloud_frame = msg.header.frame_id
+            self._cloud_buf.append((ts, pts, msg.header.frame_id))
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f"读点云失败: {exc}", throttle_duration_sec=10.0)
+
+    def _cloud_for_stamp(self, image_stamp: float):
+        """挑出时间戳最接近 image_stamp 的点云 → (pts, stamp, frame)。
+
+        ⚠️ 不再直接用 self._cloud（那是"最新"的 ✗，会比图新几百毫秒）
+        没有缓存时退回最新一帧，让下游照常判 stale ✓
+        """
+        if not self._cloud_buf:
+            return self._cloud, self._cloud_stamp, self._cloud_frame
+        best = min(self._cloud_buf, key=lambda e: abs(e[0] - image_stamp))
+        return best[1], best[0], best[2]
 
     def on_odom(self, msg) -> None:
         p = msg.pose.pose
@@ -269,8 +294,12 @@ class PerceptionNode(Node):
                 pass
         if self.lidar_cfg.get("enabled", False):
             if self.lidar_cfg.get("mode") == "precision":
+                # ⚠️ 用【时间戳最接近这张图】的点云，而不是"最新一帧" ✗
+                #    本节点处理一帧要几百毫秒，用最新点云会比图新 0.4s，
+                #    直接超过 max_sync_s(0.10) → 永远 stale ✗（现场卡的就是这）
+                _pts, _cst, _cfr = self._cloud_for_stamp(image_stamp)
                 found, self._lidar_stats = fuse_precision(
-                    found, self._cloud, self._cloud_stamp, self._cloud_frame,
+                    found, _pts, _cst, _cfr,
                     image_stamp, self.get_clock().now().nanoseconds * 1e-9,
                     cam, self.cfg.get("camera", {}), self.lidar_cfg)
                 self.range_pub.publish(String(data=json.dumps(self._lidar_stats, allow_nan=False)))
