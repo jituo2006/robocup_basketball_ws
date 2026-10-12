@@ -96,6 +96,14 @@
   #proghead{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);
             margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-size:12px}
+  #matchRoundCard .row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  #matchRoundCard label{display:block;font-size:12px;margin:6px 0}
+  #matchRoundCard select,#matchRoundCard input[type=number]{width:100%;min-width:0;
+    background:var(--panel2);color:var(--tx);border:1px solid var(--line);
+    border-radius:5px;padding:6px;font-size:12px}
+  #matchRoundCard h3{font-size:13px;margin:14px 0 6px;color:var(--tx)}
+  #matchRoundCard .step-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+  #matchRoundCard .step-buttons button{font-size:12px;padding:8px;margin:0}
   td,th{padding:3px 6px;border-bottom:1px solid #262c37;text-align:left}
   th{color:var(--dim);font-weight:500}
 </style>
@@ -130,6 +138,56 @@
         <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
       <div class="hint">右转90° → 前进 → 左移找球 → 转180° → 后摄横移对正 → 向中线低速后退0.40米。<br>靠近期间不要求识球；上方参数下次启动时生效。</div>
+    </div>
+    <div class="card" id="matchRoundCard">
+      <h2>三回合分阶段实验</h2>
+      <div class="hint" id="roundStartHint">每次启动前把车放回 A 出发区，面向篮筐、平行中线。启动后静止5秒。</div>
+      <div class="row">
+        <label>比赛环节<select id="roundTask" onchange="roundReleaseState();loadRoundSteps()">
+          <option value="pass">传球：找篮球</option><option value="shoot">投篮：找排球</option>
+        </select></label>
+        <label>连续运行范围<select id="roundMode">
+          <option value="collect">取球/预装球 → 动作点停车</option>
+          <option value="drive">空场走路线 → 回起点</option>
+          <option id="roundCycleOption" value="cycle">两次放球联调 → 回起点</option>
+        </select></label>
+      </div>
+      <label>出球模式<select id="roundReleaseKind" onchange="roundReleaseState()">
+        <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
+        <option value="match">正式传球/投篮（需配置发射）</option>
+      </select></label>
+      <div class="hint">每一步结束停车，点亮下一步。第1步重新建立本轮起点；其它步骤沿用它。取球后保持吸球，到动作点再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
+      <h3>第1回合：预装1球，再取中线第2球</h3>
+      <div class="step-buttons" id="round1Steps">阶段读取中</div>
+      <div class="hint" id="round1Progress"></div>
+      <h3>第2回合：中线优先，三分弧补找</h3>
+      <div class="step-buttons" id="round2Steps">阶段读取中</div>
+      <div class="hint" id="round2Progress"></div>
+      <div class="hint" id="round2PathHint">右转90° → 前进3.2米 → 中线左右扫 → 取球 → 传球/投篮点。中线无球时补扫三分弧。</div>
+      <h3>第3回合：直接去三分区</h3>
+      <div class="step-buttons" id="round3Steps">阶段读取中</div>
+      <div class="hint" id="round3Progress"></div>
+      <div class="hint">经上侧通道进入三分区。传球先扫弧线，投篮先扫内侧线；找不到再换另一处。</div>
+      <details><summary>连续运行（按上方实验范围）</summary>
+        <button class="primary" onclick="roundRun(1)">▶ 第1回合连续实验</button>
+        <button class="primary" onclick="roundRun(2)">▶ 第2回合连续实验</button>
+        <button class="orange" onclick="roundRun(3)">▶ 第3回合连续实验</button>
+      </details>
+      <details><summary>靠近吸球参数</summary>
+        <div class="row">
+          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.03" max="2" step="0.05" value="0.40"></label>
+          <label>弧线后退（米）<input id="roundArcScoop" type="number" min="0.03" max="2" step="0.05" value="0.25"></label>
+        </div>
+        <div class="row">
+          <label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.03" max="2" step="0.05" value="0.15"></label>
+          <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+        </div>
+        <label><input id="roundIntake" type="checkbox" checked style="width:auto"> 对正后启动吸球</label>
+        <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
+      </details>
+      <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
+      <div class="hint" id="roundReleaseState">放球联调已可用；正式传球/投篮需要配置发射指令和瞄准点。</div>
+      <div class="hint">当前避障仍关闭。两轮实验共享上方运行状态和日志。</div>
     </div>
     <div class="card">
       <h2>吸球机构单独测试</h2>
@@ -614,10 +672,73 @@ function gpRun(dry){
   act('GRAB_PLACE', body);
 }
 const TOOL_LABEL = {
+  TEST_ROUND1:      '第1回合分阶段实验',
+  TEST_ROUND2:      '第2回合路线实验',
+  TEST_ROUND3:      '第3回合路线实验',
   TEST_BALL:        '固定路线铲球测试',
   TEST_PERIMETER:   '绕场+寻球测试',
   TEST_CHASSIS_DRY: '底盘干跑自检'
 };
+function roundReleaseState(){
+  const drop = $('roundReleaseKind').value === 'drop';
+  const ready = drop || !!(window._roundConfig && window._roundConfig.release_ready[$('roundTask').value]);
+  $('roundCycleOption').disabled = !ready;
+  if(!ready && $('roundMode').value === 'cycle') $('roundMode').value = 'collect';
+  $('roundCycleOption').textContent = drop ? '两次放球联调 → 回起点' : '两次正式出球 → 回起点（需配置）';
+  $('roundReleaseState').textContent = drop
+    ? '放球使用MOVE 1 0 5；可逐步或连续跑整轮联调，不能当作正式传球/投篮得分。'
+    : ready ? '已配置正式出球指令；仍需实物确认入仓和出球。'
+    : '出球指令未配置：可先测路线或取1球到动作点停车。';
+}
+async function loadRoundConfig(){
+  try{
+    const cfg = await (await fetch('/api/round-config')).json();
+    if(!cfg.ok){ $('roundReleaseState').textContent = cfg.msg; return; }
+    window._roundConfig = cfg;
+    $('roundStartHint').textContent = `每次启动前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
+    $('round2PathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → 中线左右扫 → 取球 → 传球/投篮点。中线无球时补扫三分弧。`;
+    $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
+    ['middle','arc','inner'].forEach(area => {
+      $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
+    });
+    roundReleaseState();
+  }catch(e){ $('roundReleaseState').textContent = '路线配置读取失败：'+e.message; }
+}
+function roundArgs(){
+  return {
+    task: $('roundTask').value,
+    mode: $('roundMode').value,
+    release_kind: $('roundReleaseKind').value,
+    middle_scoop: Number($('roundMiddleScoop').value),
+    arc_scoop: Number($('roundArcScoop').value),
+    inner_scoop: Number($('roundInnerScoop').value),
+    scoop_speed: Number($('roundScoopSpeed').value),
+    start_intake: $('roundIntake').checked
+  };
+}
+function roundRun(round){ act('TEST_ROUND'+round, roundArgs()); }
+function roundStep(round, step){
+  act('TEST_ROUND'+round, {...roundArgs(), mode:'collect', step});
+}
+async function loadRoundSteps(){
+  try{
+    const data = await (await fetch('/api/round-state?task='+$('roundTask').value)).json();
+    if(!data.ok){ $('roundReleaseState').textContent=data.msg; return; }
+    data.rounds.forEach(r => {
+      const running = !!(window._st && window._st.tool_running);
+      $('round'+r.round+'Steps').innerHTML = r.steps.map(s => {
+        const enabled = !running && (s.index === 1 || s.index === r.next_step);
+        const cls = s.index === r.next_step ? 'primary' : 'ghost';
+        const mark = s.done ? '✓ ' : '';
+        return `<button class="${cls}" ${enabled?'':'disabled'} onclick="roundStep(${r.round},${s.index})">${mark}${s.index}. ${s.label}</button>`;
+      }).join('');
+      $('round'+r.round+'Progress').textContent = r.finished
+        ? '本轮分步流程完成。重新测试先摆回起点，点第1步。'
+        : r.started ? `已完成${r.next_step-1}步，${running?'正在执行/等待':'下一步'}：第${r.next_step}步。`
+        : '尚未开始：摆好车，再点第1步。';
+    });
+  }catch(e){}
+}
 function toolRun(key){
   const warn = {
     TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 向车体左侧平移找篮球 → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
@@ -785,9 +906,10 @@ function render(s){
 }
 
 async function tick(){
-  try{ render(await (await fetch('/api/state')).json()); }catch(e){}
+  try{ render(await (await fetch('/api/state')).json()); await loadRoundSteps(); }catch(e){}
 }
 setView(LIDAR_VIEW, LIDAR_MIRROR, LIDAR_MIRY);
+loadRoundConfig();
 tick();
 setInterval(tick, 1000);
 </script>

@@ -167,7 +167,7 @@ def test_rear_lost_detection_stops_without_blind_backing():
     d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
     samples=iter([d,None]);events=[]
     run.spin=lambda sec:None
-    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.centered_target_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:events.append('stop')
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
@@ -182,7 +182,7 @@ def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,
     d=NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
     samples=iter([d,None]);commands=[]
     run.spin=lambda sec:None
-    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.centered_target_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y))
@@ -198,7 +198,7 @@ def test_rear_requires_unique_center_frames_then_approaches_without_more_yolo(he
                   confidence=.9,stamp=NS(sec=stamp,nanosec=0))
     samples=iter([det(10),det(10),det(11),det(12)])
     events=[];run.spin=lambda sec:None
-    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.centered_target_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:events.append('stop')
     run.rear_distance_scoop=lambda:events.append('distance') or True
     assert run.rear_visual_scoop()
@@ -210,7 +210,7 @@ def test_distance_scoop_moves_when_yolo_is_missing_and_stops_at_distance():
     mod=load();run=make_runner(mod)
     run.pose=(0.,0.,0.);run.pose_stamp=10.;run.yaw_rate=0.
     run.spin=lambda sec:None
-    run.centered_basketball_candidates=lambda *a,**kw:pytest.fail('approach must not read YOLO')
+    run.centered_target_candidates=lambda *a,**kw:pytest.fail('approach must not read YOLO')
     run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     commands=[]
@@ -239,7 +239,7 @@ def test_rear_accepts_observed_two_percent_offset_then_starts_approach():
     samples=iter([NS(x_min=.469,x_max=.569,confidence=.918,
                      stamp=NS(sec=10+i,nanosec=0)) for i in range(3)])
     run.spin=lambda sec:None
-    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.centered_target_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:None
     events=[]
     run.rear_distance_scoop=lambda:events.append('approach') or True
@@ -263,3 +263,23 @@ def test_unplugged_intake_does_not_start_approach_when_option_enabled():
     run.stop=lambda:None
     run.rear_distance_scoop=lambda:pytest.fail('must not approach after intake start fails')
     assert not run.aligned_intake_approach()
+
+
+def test_match_round_holds_intake_after_success_until_explicit_release():
+    mod=load();run=make_runner(mod);run.args.route_intake=True
+    run.keep_intake_after_scoop=True
+    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
+    run.spin=lambda sec:None;run.stop=lambda:None
+    run.rear_distance_scoop=lambda:events.append('approach') or True
+    assert run.aligned_intake_approach()
+    assert events==['STOP','ZERO','MOVE 1 90 5','approach']
+
+
+def test_match_round_stops_intake_when_approach_fails():
+    mod=load();run=make_runner(mod);run.args.route_intake=True
+    run.keep_intake_after_scoop=True
+    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
+    run.spin=lambda sec:None;run.stop=lambda:None
+    run.rear_distance_scoop=lambda:False
+    assert not run.aligned_intake_approach()
+    assert events[-1]=='MOVE 1 0 5'

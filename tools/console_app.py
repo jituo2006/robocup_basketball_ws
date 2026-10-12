@@ -35,6 +35,7 @@ import json
 import math
 import os
 import signal
+import shlex
 import subprocess
 import sys
 import threading
@@ -44,6 +45,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from intake_control import start_intake, stop_intake
+from match_round_route import load_config as load_round_config, validate_mode as validate_round_mode
+from match_round_steps import validate_step as validate_round_step, workflow_state
 
 import numpy as np
 
@@ -1513,6 +1516,21 @@ class ChassisManager:
 # 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
 # 所以页面上点之前必须确认：任务停了、急停手段就绪。
 DEBUG_TOOLS = {
+    "TEST_ROUND1": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round1", "--takeover", "--yes"],
+        "label": "第1回合：预装球 → 中线取第2球 → 回位",
+    },
+    "TEST_ROUND2": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round2", "--takeover", "--yes"],
+        "label": "第2回合：中线取球 → 动作点（可选双次流程）",
+    },
+    "TEST_ROUND3": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round3", "--takeover", "--yes"],
+        "label": "第3回合：三分区取球 → 动作点（可选双次流程）",
+    },
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
         "args": ["--route", "fixed", "--takeover", "--yes"],
@@ -1552,6 +1570,29 @@ def fixed_seek_tool_args(args):
             '--route-intake' if use_intake else '--no-route-intake']
 
 
+def match_round_tool_args(args, round_number=2):
+    task, mode = args.get('task', 'pass'), args.get('mode', 'collect')
+    cfg = load_round_config()
+    release_kind = args.get('release_kind', 'drop')
+    validate_round_mode(cfg, task, mode, release_kind)
+    step = args.get('step')
+    if step is not None:
+        validate_round_step(round_number, task, step, cfg, release_kind)
+    # 复用吸球速度/开关校验，各区域接近距离独立配置。
+    base = fixed_seek_tool_args({'scoop_speed': args.get('scoop_speed', .08),
+                                'start_intake': args.get('start_intake', True)})
+    result = ['--round-task', task, '--round-mode', mode,
+              '--round-release-kind', release_kind] + base
+    if step is not None:
+        result += ['--round-step', str(step)]
+    for area in ('middle', 'arc', 'inner'):
+        value = float(args.get(area+'_scoop', cfg[area]['scoop_m']))
+        if not math.isfinite(value) or not .02 < value <= 2:
+            raise ValueError('各区域靠近距离须大于0.02且不超过2米')
+        result += ['--round-'+area+'-scoop', str(value)]
+    return result
+
+
 class ToolRunner:
     """跑一个调试脚本，把它的输出流进页面日志面板。同一时刻只允许一个。"""
 
@@ -1588,9 +1629,9 @@ class ToolRunner:
             # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境
             cmd = ["bash", "-c",
                    "source /opt/ros/humble/setup.bash && "
-                   f"source {WS}/install/setup.bash && "
-                   f"exec python3 {spec['script']} " +
-                   " ".join(list(spec["args"]) + list(extra_args or []))]
+                   f"source {shlex.quote(str(WS / 'install/setup.bash'))} && "
+                   "exec " + shlex.join(['python3', spec['script']] +
+                                        list(spec["args"]) + list(extra_args or []))]
             self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))
             self.proc = subprocess.Popen(
                 cmd, cwd=str(WS), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1696,6 +1737,27 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     @app.route("/")
     def index():
         return send_file(str(Path(__file__).with_name("console_ui.html")))
+
+    @app.route('/api/round-config')
+    def round_config():
+        try:
+            cfg = load_round_config()
+            return jsonify({'ok': True, 'speed_mps': cfg['speed_mps'],
+                            'start_delay_s': cfg['start_delay_s'],
+                            'forward_m': cfg['start'][1]-cfg['middle']['y'],
+                            'scoop_m': {area: cfg[area]['scoop_m'] for area in ('middle', 'arc', 'inner')},
+                            'release_ready': {task: bool(action['commands']) and action['aim'] is not None
+                                              for task, action in cfg['release'].items()}})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
+    @app.route('/api/round-state')
+    def round_state():
+        try:
+            task = request.args.get('task', 'pass')
+            return jsonify({'ok': True, 'rounds': [workflow_state(n, task) for n in (1, 2, 3)]})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
 
     @app.route("/api/state")
     def api_state():
@@ -1933,6 +1995,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"), checks.startup_flow(stack))))
             if name in DEBUG_TOOLS:
                 extra = fixed_seek_tool_args(args) if name == 'TEST_BALL' else []
+                if name in ('TEST_ROUND1', 'TEST_ROUND2', 'TEST_ROUND3'):
+                    extra = match_round_tool_args(args, int(name[-1]))
                 return jsonify(dict(zip(("ok", "msg"), tool.start(name, extra))))
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001

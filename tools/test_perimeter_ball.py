@@ -436,10 +436,13 @@ class Runner:
         if getattr(self,"motion_fault",None):
             self.stop()
             raise RuntimeError(self.motion_fault)
-        if self.pose is not None and hasattr(self,"field_l") and not (
-                -2 <= self.pose[0] <= self.field_l+2 and -2 <= self.pose[1] <= self.field_w+2):
-            self.stop()
-            raise RuntimeError("定位已超出场地及出发区范围，需重新初始化定位")
+        if self.pose is not None and hasattr(self,"field_l"):
+            # 第2/3回合按起点建立规划坐标；传感器位姿可以从(0,0)开始。
+            frame = getattr(self, 'round_start_frame', None)
+            fx, fy = frame.nominal(self.pose) if frame else self.pose[:2]
+            if not (-2 <= fx <= self.field_l+2 and -2 <= fy <= self.field_w+2):
+                self.stop()
+                raise RuntimeError("定位已超出场地及出发区范围，需重新初始化定位")
         if self.pose is None or not all(math.isfinite(v) for v in self.pose):
             self.stop()
             raise RuntimeError("位姿缺失或非有限数，已请求停车")
@@ -756,11 +759,12 @@ class Runner:
                     f"→ ({tx:.2f},{ty:.2f})")
         return self.goto(tx, ty, timeout=timeout)
 
-    def centered_basketball_candidates(self, detections, centered=True):
-        """中心竖带中的新鲜视觉篮球，不依赖单目距离估计。"""
+    def centered_target_candidates(self, detections, centered=True, label=None):
+        """中心竖带中的新鲜目标球；类别按传球/投篮选择，不依赖单目距离。"""
         candidates = []
+        label = self.args.ball_label if label is None else label
         for d in detections:
-            if d.label != 'ball_basketball' or getattr(d, 'source', 'camera') != 'camera':
+            if d.label != label or getattr(d, 'source', 'camera') != 'camera':
                 continue
             values = [float(getattr(d, k, float('nan'))) for k in
                       ('confidence', 'x_min', 'y_min', 'x_max', 'y_max')]
@@ -777,13 +781,16 @@ class Runner:
                 candidates.append(d)
         return max(candidates, key=lambda d: d.confidence) if candidates else None
 
+    def centered_basketball_candidates(self, detections, centered=True):
+        return self.centered_target_candidates(detections, centered, 'ball_basketball')
+
     def centered_basketball(self):
         return self.centered_basketball_candidates(self.dets)
 
-    def rear_visual_scoop(self):
+    def rear_visual_scoop(self, approach=True):
         self.obstacle_scoop = True
         try:
-            return self._rear_visual_scoop()
+            return self._rear_visual_scoop(approach=approach)
         finally:
             self.obstacle_scoop = False
 
@@ -809,6 +816,7 @@ class Runner:
         use_intake = getattr(self.args, 'route_intake', False)
         if not use_intake:
             return self.rear_distance_scoop()
+        reached = False
         try:
             ok, message = start_intake(self.intake_text,
                                       wait=lambda delay: self.spin(delay))
@@ -821,10 +829,13 @@ class Runner:
             return reached
         finally:
             self.stop()
-            ok, message = stop_intake(self.intake_text)
-            log('停止吸球', message, C_OK if ok else C_BAD)
+            if not reached or not getattr(self, 'keep_intake_after_scoop', False):
+                ok, message = stop_intake(self.intake_text)
+                log('停止吸球', message, C_OK if ok else C_BAD)
+            else:
+                log('保持吸球', '回合取球已完成，保持机构直到动作点放球')
 
-    def _rear_visual_scoop(self):
+    def _rear_visual_scoop(self, approach=True):
         """YOLO is used only to align laterally; approach then uses pose distance."""
         self.stop()
         origin = self.pose[:2]
@@ -834,11 +845,11 @@ class Runner:
         last_center_stamp = None
         while time.monotonic() < deadline:
             self.spin(.03)
-            d = self.centered_basketball_candidates(getattr(self, 'dets_rear', []), centered=False)
+            d = self.centered_target_candidates(getattr(self, 'dets_rear', []), centered=False)
             if d is None:
                 self.stop()
                 if seen:
-                    log('后摄停车', '横移对准期间篮球丢失或过期，保持停车', C_WARN)
+                    log('后摄停车', '横移对准期间目标球丢失或过期，保持停车', C_WARN)
                     return False
                 continue
             seen = True
@@ -859,7 +870,7 @@ class Runner:
                 if centered_frames < self.args.route_rear_center_frames:
                     continue
                 log('后摄对准', '连续新帧居中，切换定位距离后退；接近期间不再要求YOLO')
-                return self.aligned_intake_approach()
+                return self.aligned_intake_approach() if approach else True
             centered_frames = 0
             last_center_stamp = None
             tw = self._Twist()
@@ -869,14 +880,14 @@ class Runner:
             tw.linear.y = math.copysign(speed, error)
             self.publish_command(tw)
         self.stop()
-        log('后摄停车', '等待篮球或横移对准超时', C_WARN)
+        log('后摄停车', '等待目标球或横移对准超时', C_WARN)
         return False
 
     def rear_distance_scoop(self):
         """After alignment: bounded reverse displacement, independent of YOLO."""
         self.stop()
         x0,y0,heading = self.pose
-        log('靠近篮球', f'后摄已对正，向中线方向后退 {self.args.route_scoop_distance:.2f}m，'
+        log('靠近目标球', f'后摄已对正，向目标球方向后退 {self.args.route_scoop_distance:.2f}m，'
                         f'速度 {self.args.route_scoop_speed:.2f}m/s；不再读取YOLO')
         deadline = time.monotonic() + self.args.route_scoop_timeout
         while time.monotonic() < deadline:
@@ -1102,7 +1113,15 @@ def takeover_mission() -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="整车测试：绕场 → 寻球 → 对准停车；转身需 --turn-back")
-    ap.add_argument("--route", choices=["fixed", "legacy"], default="fixed", help="默认固定出发寻球铲球路线")
+    ap.add_argument("--route", choices=["fixed", "legacy", "round1", "round2", "round3"], default="fixed", help="固定寻球或第1/2/3回合路线实验")
+    ap.add_argument('--round-task', choices=['pass', 'shoot'], default='pass', help='传球找篮球，投篮找排球')
+    ap.add_argument('--round-mode', choices=['drive', 'collect', 'cycle'], default='collect', help='空场路线/单次取球到动作点/双次出球指令流程')
+    ap.add_argument('--round-release-kind', choices=['drop', 'match'], default='drop', help='已验证的放球联调/待配置的正式出球')
+    ap.add_argument('--round-step', type=int, default=None, help='分阶段实验，阶段编号从1开始；第1步重新建立本轮起点')
+    ap.add_argument('--round-config', default=str(Path(__file__).with_name('match_rounds.json')))
+    ap.add_argument('--round-middle-scoop', type=float, default=None)
+    ap.add_argument('--round-arc-scoop', type=float, default=None)
+    ap.add_argument('--round-inner-scoop', type=float, default=None)
     ap.add_argument("--dry", action="store_true", help="只检查前置条件，不动车")
     ap.add_argument("--yes", action="store_true", help="跳过确认")
     ap.add_argument("--takeover", action="store_true",
@@ -1227,6 +1246,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--obstacle-lidar-cells', type=int, default=3,
                     help='危险区域内不同6cm体素数量阈值')
     args = ap.parse_args(argv)
+    round_cfg = None
+    if args.route in ('round1', 'round2', 'round3'):
+        from match_round_route import load_config, validate_mode, TASK_LABELS
+        try:
+            round_cfg = load_config(args.round_config)
+            validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind)
+            if args.round_step is not None:
+                from match_round_steps import validate_step
+                validate_step(int(args.route[-1]), args.round_task, args.round_step, round_cfg,
+                              args.round_release_kind)
+            for area in ('middle', 'arc', 'inner'):
+                value = getattr(args, f'round_{area}_scoop')
+                if value is not None:
+                    if not math.isfinite(value) or not .02 < value <= 2:
+                        raise ValueError('各区域靠近距离须大于0.02且不超过2米')
+                    round_cfg[area]['scoop_m'] = value
+            args.ball_label = TASK_LABELS[args.round_task]
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            ap.error(str(exc))
     if any(not math.isfinite(v) or v <= 0 for v in (
             args.obstacle_stop_gap,args.obstacle_half_length,args.obstacle_half_width,
             args.obstacle_side_margin,args.obstacle_timeout,args.obstacle_deceleration)):
@@ -1274,7 +1312,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
     os.chdir(WS)
-    print("🤖 固定路线：右转90° → 到中线附近 → 左移找篮球 → 停车 → 转180° → 后退铲球" if args.route == "fixed" else "🤖 绕场/视觉伺服测试")
+    if args.route in ('round1', 'round2', 'round3'):
+        print(f'🤖 第{args.route[-1]}回合路线实验：{args.round_task} / {args.round_mode}')
+    else:
+        print("🤖 固定路线：右转90° → 到中线附近 → 左移找篮球 → 停车 → 转180° → 后退铲球" if args.route == "fixed" else "🤖 绕场/视觉伺服测试")
 
     # ── [1/5] 节点 ──────────────────────────────────────────────────────
     print("\n[1/5] 检查节点")
@@ -1330,6 +1371,14 @@ def main(argv: list[str] | None = None) -> int:
         log("位姿", f"出发点 ({sx:+.2f}, {sy:+.2f}, {math.degrees(syaw):+.1f}°)")
         log("场地", f"{L:.1f} × {W:.1f} m，绕场 inset={args.inset:.2f}m")
 
+        if round_cfg is not None:
+            from match_round_route import StartFrame
+            anchor = run.pose
+            if args.round_step is not None and args.round_step != 1:
+                from match_round_steps import load_session
+                anchor = load_session(int(args.route[-1]), args.round_task)['start_pose']
+            run.round_start_frame = StartFrame(anchor, round_cfg['start'])
+
         run.wait_motion_ready()
 
         if args.dry:
@@ -1346,6 +1395,19 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.route == "fixed":
             return 0 if run.fixed_seek_and_scoop() else 1
+        if args.route in ('round1', 'round2', 'round3'):
+            from match_round_route import RoundRoute
+            if args.round_step is not None:
+                from match_round_steps import execute_step
+                return 0 if execute_step(run, round_cfg, int(args.route[-1]), args.round_task,
+                                         args.round_step, args.round_release_kind,
+                                         emit=lambda msg: log('分步路线', msg)) else 1
+            from match_round_steps import clear_session
+            clear_session(int(args.route[-1]), args.round_task)
+            plan = RoundRoute(run, round_cfg, int(args.route[-1]), args.round_task,
+                              args.round_mode, emit=lambda msg: log('回合路线', msg),
+                              release_kind=args.round_release_kind)
+            return 0 if plan.execute() else 1
 
         # ── [4/5] 绕场一圈 ──────────────────────────────────────────────
         if args.skip_perimeter:
