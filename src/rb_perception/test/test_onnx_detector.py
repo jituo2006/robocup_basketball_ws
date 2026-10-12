@@ -108,6 +108,31 @@ def test_nms_empty():
 # ---------------------------------------------------------------------------
 # letterbox
 # ---------------------------------------------------------------------------
+@pytest.mark.parametrize("scale", [0, -0.5, 1.1, float('nan'), float('inf')])
+def test_invalid_content_scale_is_rejected(scale):
+    with pytest.raises(ValueError, match="input_content_scale"):
+        _det(input_content_scale=scale)
+
+
+def test_shrunken_content_detection_maps_back_to_original_image():
+    from types import SimpleNamespace
+
+    d = _det(input_size=640, input_content_scale=.5,
+             class_map={0: 'ball_basketball'})
+    d.model_names = {0: 'basketball', 1: 'volleyball'}
+    # Original box (300,100)-(600,400), with scale=.5 and padding=(160,200).
+    pred = np.array([[[385], [325], [150], [150], [.9], [.01]]], np.float32)
+    d.session = SimpleNamespace(run=lambda *args: [pred])
+    frame = np.zeros((480, 640, 3), np.uint8)
+    tensor, scale, px, py = d._letterbox(frame)
+    assert (scale, px, py) == (.5, 160, 200)
+    assert tensor[0, 0, 0, 0] == pytest.approx(114/255)
+    result = d.detect(frame, CameraModel.from_config({}, 640, 480))
+    assert len(result) == 1
+    assert result[0].bbox == pytest.approx((300/640, 100/480, 600/640, 400/480))
+    assert result[0].px == pytest.approx(450)
+
+
 def test_letterbox_geometry_and_inverse():
     """16:9 的图放进 640 方框：宽度铺满、上下留灰边，反变换必须能还原。"""
     d = _det(input_size=640)

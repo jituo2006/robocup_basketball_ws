@@ -124,6 +124,8 @@ perception:
     - ball_volleyball
     iou_threshold: 0.45
     input_size: 640
+    # 后摄近球占画面很大；缩小补边适配模型，检测框仍还原到原图。
+    input_content_scale: 0.5
     every_n_frames: 2
     intra_op_threads: 2
     inter_op_threads: 1
