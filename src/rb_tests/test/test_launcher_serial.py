@@ -7,12 +7,14 @@ import subprocess
 import time
 import zlib
 
+import pytest
 import rclpy
 from ament_index_python.packages import get_package_prefix
 from rclpy.context import Context
 from rclpy.node import Node
 from rclpy.executors import SingleThreadedExecutor
-from rb_msgs.srv import Launch
+from rb_msgs.srv import Launch, SerialText
+from std_msgs.msg import Bool
 
 
 def test_actual_node_frames_stop_toggles_and_reconnect(tmp_path):
@@ -193,3 +195,76 @@ def test_shipped_config_starts_node(tmp_path):
         executor.shutdown()
         client_node.destroy_node()
         rclpy.shutdown(context=context)
+
+
+@pytest.mark.parametrize('disconnect_mode', ['write', 'idle'])
+def test_text_failure_reports_disconnected_and_replug_never_replays_commands(tmp_path, disconnect_mode):
+    """真实节点 + 隔离 ROS 域 + 虚拟串口：复现 FTDI 掉线，绝不打开机器人设备。"""
+    domain = 194 if disconnect_mode == 'write' else 195
+    master, slave = pty.openpty()
+    descriptors = [master, slave]
+    port = tmp_path / 'intake_test_port'
+    port.symlink_to(os.ttyname(slave))
+    context = Context()
+    rclpy.init(args=[], context=context, domain_id=domain)
+    node = Node('intake_disconnect_test', context=context)
+    executor = SingleThreadedExecutor(context=context)
+    executor.add_node(node)
+    client = node.create_client(SerialText, '/rb_launcher/text')
+    statuses = []
+    subscription = node.create_subscription(Bool, '/rb_launcher/ok', lambda m: statuses.append(m.data), 10)
+    executable = os.path.join(get_package_prefix('rb_launcher'), 'lib/rb_launcher/rb_launcher_node')
+    log = open(tmp_path / 'intake_disconnect.log', 'w')
+    process = subprocess.Popen([executable, '--ros-args', '-p', f'port:={port}',
+                                '-p', 'reconnect_period_s:=0.1'],
+                               env=dict(os.environ, ROS_DOMAIN_ID=str(domain)), stdout=log, stderr=log)
+    def call(command):
+        future = client.call_async(SerialText.Request(command=command))
+        executor.spin_until_future_complete(future, timeout_sec=5)
+        assert future.done(), 'text service timeout'
+        return future.result()
+    def wait_status(value, offset=0):
+        deadline = time.monotonic()+4
+        while value not in statuses[offset:] and time.monotonic()<deadline:
+            executor.spin_once(timeout_sec=.05)
+        assert value in statuses[offset:], f'missing launcher status {value}: {statuses}'
+    def receive(master_fd, expected):
+        data=b''
+        deadline=time.monotonic()+2
+        while len(data)<len(expected) and time.monotonic()<deadline:
+            if select.select([master_fd],[],[],.1)[0]:
+                data+=os.read(master_fd,4096)
+        assert data==expected
+    try:
+        assert client.wait_for_service(timeout_sec=8)
+        wait_status(True)
+        for command in ['STOP','ZERO','MOVE 1 90 5']:
+            assert call(command).success
+        receive(master,b'STOP\nZERO\nMOVE 1 90 5\n')
+        before_disconnect=len(statuses)
+        os.close(master); descriptors.remove(master)
+        os.close(slave); descriptors.remove(slave)
+        if disconnect_mode=='write':
+            # 旧 send_string() 吞掉 EIO，服务会错误返回 success=true。
+            response=call('MOVE 1 90 5')
+            assert not response.success
+            assert '已发送' not in response.message
+        wait_status(False,before_disconnect)
+        master2,slave2=pty.openpty();descriptors.extend([master2,slave2])
+        port.unlink();port.symlink_to(os.ttyname(slave2))
+        before_reconnect=len(statuses)
+        wait_status(True,before_reconnect)
+        assert not select.select([master2],[],[],.25)[0], 'reconnect replayed old command'
+        assert call('STOP').success
+        receive(master2,b'STOP\n')
+    finally:
+        process.terminate()
+        try:process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill();process.wait(timeout=5)
+        log.close()
+        executor.shutdown()
+        node.destroy_subscription(subscription)
+        node.destroy_node()
+        rclpy.shutdown(context=context)
+        for fd in descriptors:os.close(fd)

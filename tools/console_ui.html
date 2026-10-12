@@ -126,7 +126,7 @@
       <button class="danger" onclick="act('PANIC')">🛑 急停</button>
       <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
       <div class="row">
-        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.05" value="0.40"></label>
+        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.01" value="0.45"></label>
         <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
       </div>
       <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 对正后启动吸球再靠近</label>
@@ -367,7 +367,7 @@
     </div>
     <div class="card"><h2>后摄 YOLO：对准 / 铲球</h2>
       <img id="camRear" src="/api/camera.mjpg?slot=rear" alt="后摄像头">
-      <div class="hint">篮球在中心±2.5%内连续3个新帧后，低速向球靠近（默认0.40米）；靠近期间不再要求YOLO，按定位距离停车。</div>
+      <div class="hint">篮球在中心±2.5%内连续3个新帧后，低速向球靠近：固定路线默认0.45米，三回合使用各区域参数。靠近期间不再要求YOLO，按定位距离停车。</div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>

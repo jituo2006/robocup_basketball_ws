@@ -1235,7 +1235,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-ball-tol-deg", type=float, default=6.0, help="停车后球偏离铲口轴线最大角度")
     ap.add_argument("--route-ball-min-distance", type=float, default=0.45)
     ap.add_argument("--route-ball-max-distance", type=float, default=1.0)
-    ap.add_argument("--route-scoop-distance", type=float, default=0.40, help="后摄居中后独立后退距离 m，不含横移纠偏")
+    ap.add_argument("--route-scoop-distance", type=float, default=0.45, help="后摄居中后独立后退距离 m，不含横移纠偏")
     ap.add_argument("--route-scoop-speed", type=float, default=0.08)
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0)
     ap.add_argument('--route-intake', action=argparse.BooleanOptionalAction, default=True,
