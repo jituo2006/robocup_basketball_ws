@@ -293,3 +293,43 @@ setsid bash tools/console.sh > /tmp/console.log 2>&1 < /dev/null &
 
 **控制台的日志存在内存里**，重启就清空 —— 排障时如果重启过控制台，
 之前的证据就没了。看日志请**当场看**，或改脚本让它同时写文件。
+
+
+---
+
+## 10. 双摄与雷达：新工具速查（本次新增）
+
+### 双摄 + 分别调曝光
+
+```bash
+# 界面上：中列「📷 双摄画面」卡片 —— 左右两张实时画面，
+#         每张下面各有【自动】开关 + 目标亮度滑块 + 手动曝光滑块，拖了立刻生效 ✓
+curl -s http://127.0.0.1:8090/api/exposure | python3 -m json.tool     # 看两个相机的曝光状态
+curl -s 'http://127.0.0.1:8090/api/camera.mjpg'          -o /tmp/f.jpg # 前摄
+curl -s 'http://127.0.0.1:8090/api/camera.mjpg?rear=1'   -o /tmp/r.jpg # 后摄
+
+# 命令行下发（等价于拖滑块）
+ros2 topic pub --once /rb_camera/exposure_cmd      std_msgs/msg/String "{data: '{\"target\": 115}'}"
+ros2 topic pub --once /rb_camera_rear/exposure_cmd std_msgs/msg/String "{data: '{\"auto\": false, \"value\": 300}'}"
+ros2 topic echo /rb_camera/exposure_state --once      # 回报：auto/target/value/mean
+```
+
+### 雷达：网络体检 / 延迟验收 / 补丁
+
+```bash
+bash tools/lidar_net_check.sh              # 只看：carrier / operstate / IP / ping
+bash tools/lidar_net_check.sh --fix        # 拉起网卡 + 补 IP（物理断链时没用）
+
+python3 tools/check_lidar_latency.py       # 量化验收：消息年龄 + 云↔里程计时间差
+
+bash tools/apply_lidar_patch.sh            # dry-run：看雷达补丁要不要打
+bash tools/apply_lidar_patch.sh --apply    # 真的打补丁 + 重编译 fast_lio
+#   改动前自动备份；改完必须重启 FAST-LIO 才生效
+
+# 云点图上的小球标注：界面上开启「雷达找球」后，/api/lidar.mjpg 会画
+#   黄色圆环 + "雷达球 X.Xm" 文字（这条通路本次未改动 ✓）
+```
+
+> ⚠️ **现场最高频的"假软件故障"**：`carrier = 0`（NO-CARRIER）。
+> 那是网线那头没有设备在通电 —— 雷达没上电或网线松 ✗，软件修不了。
+> `boot.sh` 现在会自动拉起网卡并在日志里如实报告，但**电源和网线得人去查**。
