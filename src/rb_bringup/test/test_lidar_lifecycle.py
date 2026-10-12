@@ -11,10 +11,10 @@ import lidar_session
 
 
 @pytest.mark.parametrize('fault', ['link', 'imu_gap', 'odom_jump', 'mapping_exit',
-                                 'slow_lidar', 'slow_mapping'])
+                                 'slow_lidar', 'slow_mapping', 'sync_skew', 'driver_silence'])
 def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     runtime=NS(t=100.,tick=0,events=[],messages=[],processes=[],callbacks={})
-    def bad():return 102 < runtime.t < 102.7
+    def bad():return 102 < runtime.t < (104.3 if fault=='driver_silence' else 102.7)
     class Proc:
         def __init__(self,cmd,**kwargs):
             assert kwargs['start_new_session']
@@ -42,17 +42,17 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         def get_logger(self):return NS(info=lambda *a:None,warn=lambda *a:None)
         def destroy_node(self):pass
     n=Node()
-    def message(position=False):
-        t=runtime.t
+    def message(position=False, lidar=False):
+        t=runtime.t-(.4 if lidar and fault=='sync_skew' and bad() else 0.)
         m=NS(header=NS(stamp=NS(sec=int(t),nanosec=int((t-int(t))*1e9))))
         if position:
             m.pose=NS(pose=NS(position=NS(x=500 if fault=='odom_jump' and bad() else 0,y=0,z=0)))
         return m
     def spin(*args,**kwargs):
         runtime.tick+=1;runtime.t=100+runtime.tick*.01
-        if active('driver') and not (fault=='slow_lidar' and runtime.t<112):
+        if active('driver') and not (fault=='slow_lidar' and runtime.t<112) and not (fault=='driver_silence' and bad()):
             if not (fault=='imu_gap' and bad()):runtime.callbacks['/livox/imu'](message())
-            if runtime.tick%10==0:runtime.callbacks['/livox/lidar'](message())
+            if runtime.tick%10==0:runtime.callbacks['/livox/lidar'](message(lidar=True))
         slow = fault=='slow_mapping' and runtime.t<next(
             (p.started+12 for p in reversed(runtime.processes) if p.kind=='mapping'),float('inf'))
         if active('mapping') and not slow and runtime.tick%10==0:
@@ -85,6 +85,11 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         return
     assert len(starts)>=2
     assert ready and any(t<102 for t,s in ready) and any(t>103 for t,s in ready)
+    driver_starts=sum(a=='start' and k=='driver' for a,k,t in runtime.events)
+    if fault in ('sync_skew', 'imu_gap'):
+        assert driver_starts==1  # 短暂不同步/短丢帧只重建估计，不重启驱动。
+    if fault=='driver_silence':
+        assert driver_starts>=2
     first_gen=ready[0][1]['generation']
     assert ready[-1][1]['generation']>first_gen
     assert all(s['cutoff']>=starts[-1] for t,s in ready if t>starts[-1])

@@ -43,7 +43,10 @@ def main():
     parser.add_argument('--lidar-root', default='/home/user/lidar_360')
     parser.add_argument('--interface', default='enp114s0')
     parser.add_argument('--stable-seconds', type=float, default=1.)
+    parser.add_argument('--driver-silence-seconds', type=float, default=2.)
     args = parser.parse_args()
+    if args.driver_silence_seconds <= 0:
+        parser.error('driver-silence-seconds 必须大于零')
     if args.stable_seconds <= 0:
         parser.error('stable-seconds 必须大于零')
     rclpy.init()
@@ -92,7 +95,8 @@ def main():
             fault = health.fault_serial != serial
             # 没有首帧之前属于初始化，不用固定秒数中断它。
             # 曾经收到数据后再断流，才按既有连续性检查重建会话。
-            if driver is not None and health.inputs_live(wall, mono):
+            # 源帧暂时不同步只能阻止定位，不能因此反复打断驱动初始化。
+            if driver is not None and all(t is not None for t in health.input_received.values()):
                 driver_received = True
             if mapping is not None and health.odom.stamp is not None:
                 mapping_received = True
@@ -110,11 +114,10 @@ def main():
                 next_mapping = time.monotonic()+1.
             serial = health.fault_serial
             if driver is not None and (driver.poll() is not None or not link
-                    or driver_received and not health.inputs_live(wall, mono)):
+                    or driver_received and not health.inputs_receiving(mono, args.driver_silence_seconds)):
                 stop_process(driver)
                 driver = None
-                health.imu.clear()
-                health.lidar.clear()
+                health.reset_inputs()
                 next_driver = time.monotonic()+1.
             if link and driver is None and mono >= next_driver:
                 driver = subprocess.Popen(['ros2', 'launch', 'livox_ros_driver2',

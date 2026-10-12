@@ -40,8 +40,11 @@ class LidarHealth:
         self.last_position = None
         self.fault_serial = 0
         self.reason = '等待雷达和 IMU'
+        self.input_received = {'imu': None, 'lidar': None}
 
     def observe(self, name, stamp, wall, mono, position=None):
+        if name in self.input_received:
+            self.input_received[name] = mono  # 传输活跃与源时间是否有效分别判断。
         stream = getattr(self, name)
         previous = stream.stamp
         if not stream.observe(stamp, wall, mono):
@@ -65,6 +68,16 @@ class LidarHealth:
                     return False
             self.last_position = position
         return True
+
+    def inputs_receiving(self, mono, max_silence=2.):
+        """Only actual delivery silence restarts the driver, not PTP settling."""
+        return all(received is not None and mono-received <= max_silence
+                   for received in self.input_received.values())
+
+    def reset_inputs(self):
+        self.imu.clear()
+        self.lidar.clear()
+        self.input_received = {'imu': None, 'lidar': None}
 
     def inputs_live(self, wall, mono):
         return (self.imu.live(wall, mono) and self.lidar.live(wall, mono)

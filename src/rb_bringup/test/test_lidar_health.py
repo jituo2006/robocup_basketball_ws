@@ -73,3 +73,28 @@ def test_lidar_without_imu_is_never_ready():
         t=100+i*.1
         h.observe('lidar',t,t,t)
     assert not h.inputs_stable(t,t)
+
+
+def test_unsynchronised_arrivals_keep_transport_alive_without_accepting_localization():
+    h=LidarHealth()
+    for i in range(150):
+        t=100+i*.01
+        h.observe('imu',t,t,t)
+        h.observe('lidar',t-.4,t,t)
+    assert h.inputs_receiving(t)
+    assert not h.inputs_live(t,t)
+    assert not h.inputs_stable(t,t)
+    assert h.inputs_receiving(t+1.5)
+    assert not h.inputs_receiving(t+2.1)
+    h.reset_inputs()
+    assert not h.inputs_receiving(t)
+
+
+def test_duplicate_source_frames_cannot_authorize_pose_even_with_live_transport():
+    h=LidarHealth();t=feed(h)
+    for i in range(1,151):
+        now=t+i*.01
+        h.observe('imu',t,now,now)
+        h.observe('lidar',t,now,now)
+    assert h.inputs_receiving(now)
+    assert not h.inputs_stable(now,now)
