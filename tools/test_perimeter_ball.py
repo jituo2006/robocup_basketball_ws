@@ -41,6 +41,8 @@ import sys
 import time
 
 WS = str(Path(__file__).resolve().parents[1])
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import front_obstacle_guard as obstacle_guard
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
@@ -216,6 +218,7 @@ class Runner:
         from rb_msgs.msg import DetectionArray
         from nav_msgs.msg import Odometry
         from sensor_msgs.msg import PointCloud2
+        from rclpy.qos import qos_profile_sensor_data
 
         self.args = args
         self.rclpy = rclpy
@@ -230,6 +233,14 @@ class Runner:
         self.det_stamp = self.rear_det_stamp = 0.0
         self.motion_guard = False
         self.visual_guard = False
+        self.obstacle_body_cloud = None
+        self.obstacle_cloud_stamp = 0.0
+        self.obstacle_cloud_status = "not_received"
+        self.obstacle_scoop = False
+        self.obstacle_cloud_history = deque(maxlen=4)
+        from tf2_ros import Buffer, TransformListener
+        self.obstacle_tf = Buffer()
+        self.obstacle_tf_listener = TransformListener(self.obstacle_tf, self.node)
         self.pose_history = deque(maxlen=250)
         self.yaw_rate = float("inf")
 
@@ -241,7 +252,7 @@ class Runner:
         self.cloud = None          # Nx3 numpy（camera_init 系）
         self.odom_cam = None       # (x, y, yaw) in camera_init
         self.node.create_subscription(PointCloud2, self.args.lidar_cloud,
-                                      self._on_cloud, 5)
+                                      self._on_cloud, qos_profile_sensor_data)
         self.node.create_subscription(Odometry, self.args.lidar_odom,
                                       self._on_odom_cam, 10)
 
@@ -295,6 +306,9 @@ class Runner:
             from rb_perception.lidar_ball import pointcloud2_to_xyz
             pts = pointcloud2_to_xyz(m)
             self.cloud = pts
+            if pts is not None:
+                self.obstacle_cloud_history.append((
+                    pts, m.header.stamp, m.header.frame_id))
         except Exception:  # noqa: BLE001
             pass
 
@@ -451,10 +465,66 @@ class Runner:
         if getattr(self, "visual_guard", False) and self.best_ball() is None:
             self.stop()
             raise RuntimeError("接近期间球观测失效，已停车；需要重新确认")
+        if getattr(self.args, "obstacle_guard", False) and not getattr(self, "obstacle_scoop", False):
+            self.check_obstacle(msg)
         self.cmd_pub.publish(msg)
         trace("command", pose=list(self.pose) if self.pose else None,
               pose_stamp=self.pose_stamp, vx=float(msg.linear.x), vy=float(msg.linear.y),
               wz=float(msg.angular.z), yaw_rate=self.yaw_rate if math.isfinite(self.yaw_rate) else None)
+
+    def update_obstacle_cloud(self, now):
+        # TF for a new cloud can arrive a little later. Try recent source frames,
+        # never the latest TF with an old cloud and never renew its source stamp.
+        for pts, stamp_msg, frame in reversed(getattr(self,"obstacle_cloud_history", [])):
+            stamp = stamp_seconds(stamp_msg)
+            if not obstacle_guard.fresh(stamp,now,self.args.obstacle_timeout):
+                continue
+            if stamp == self.obstacle_cloud_stamp and self.obstacle_body_cloud is not None:
+                return
+            try:
+                from rclpy.time import Time
+                tf = self.obstacle_tf.lookup_transform("base_link",frame,Time.from_msg(stamp_msg))
+                t,q = tf.transform.translation,tf.transform.rotation
+                self.obstacle_body_cloud = obstacle_guard.transform_points(
+                    pts,(t.x,t.y,t.z),(q.x,q.y,q.z,q.w))
+                self.obstacle_cloud_stamp = stamp
+                self.obstacle_cloud_status = "transformed"
+                return
+            except Exception:
+                continue
+
+    def check_obstacle(self, msg):
+        vx, vy = float(msg.linear.x), float(msg.linear.y)
+        if not all(math.isfinite(v) for v in (vx,vy)):
+            self.stop()
+            raise RuntimeError("避障停车: 非有限速度")
+        # Front guard does not claim rear coverage or block in-place turns.
+        if vx < -.001 or math.hypot(vx,vy) < .001:
+            return
+        now = self.node.get_clock().now().nanoseconds*1e-9
+        reason = None
+        if not obstacle_guard.fresh(self.det_stamp, now, self.args.obstacle_timeout):
+            reason = "camera:stale_stream"
+        else:
+            reason = obstacle_guard.camera_hazard(self.dets,now,vx,vy,self.args)
+        self.update_obstacle_cloud(now)
+        lidar_status = getattr(self,"obstacle_cloud_status","not_received")
+        if self.obstacle_body_cloud is not None and obstacle_guard.fresh(
+                self.obstacle_cloud_stamp,now,self.args.obstacle_timeout):
+            hazard, lidar_status = obstacle_guard.lidar_hazard(
+                self.obstacle_body_cloud,vx,vy,self.args)
+            reason = reason or hazard
+        else:
+            lidar_status = "unavailable_or_stale"
+        # Sideways travel cannot be protected by a forward camera alone.
+        if abs(vy) > .001 and abs(vy)>abs(vx) and lidar_status != "usable":
+            reason = reason or "lidar:lateral_coverage_unavailable"
+        trace("obstacle_guard", reason=reason, lidar_status=lidar_status,
+              cloud_stamp=self.obstacle_cloud_stamp, vx=vx, vy=vy)
+        if reason:
+            self.stop()
+            log("避障停车", reason+"；本次运动中止，清障后重新启动", C_WARN)
+            raise RuntimeError("避障停车: "+reason)
 
     # -- 基本动作 -----------------------------------------------------------
     def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
@@ -689,6 +759,13 @@ class Runner:
         return self.centered_basketball_candidates(self.dets)
 
     def rear_visual_scoop(self):
+        self.obstacle_scoop = True
+        try:
+            return self._rear_visual_scoop()
+        finally:
+            self.obstacle_scoop = False
+
+    def _rear_visual_scoop(self):
         """后摄闭环：居中后退，偏离横移，丢球停车；限制总位移和时间。"""
         self.stop()
         origin = self.pose[:2]
@@ -1028,7 +1105,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settle-yaw-rate", type=float, default=0.08)
     ap.add_argument("--step-tol", type=float, default=0.02)
     ap.add_argument("--log-file", default="", help="JSONL 日志路径；默认 log/seek_ball_时间.jsonl")
-    # 默认 A 出发区 y=8.0，黄线 y=3.75；停在黄线北侧0.70m：8-3.75-0.70=3.55m。
+    # 默认 A 出发区 y=8.0；前进3.2m到y=4.8，位于黄线y=3.75北侧1.05m。
     ap.add_argument("--route-forward", type=float, default=3.2, help="右转后到中线附近的前进距离 m")
     ap.add_argument("--route-forward-speed", type=float, default=0.15)
     ap.add_argument("--route-forward-timeout", type=float, default=60.0)
@@ -1052,7 +1129,35 @@ def main(argv: list[str] | None = None) -> int:
                     help='后摄篮球中心容差，画面宽度比例')
     ap.add_argument('--route-rear-center-frames', type=int, default=3,
                     help='停车居中确认需要的连续新检测帧数')
+    ap.add_argument('--obstacle-guard', action=argparse.BooleanOptionalAction, default=True,
+                    help='前摄/雷达任一发现路径近障碍即停车，默认开启')
+    ap.add_argument('--obstacle-stop-gap', type=float, default=.25,
+                    help='车体包络外停车余量 m')
+    ap.add_argument('--obstacle-half-length', type=float, default=.50)
+    ap.add_argument('--obstacle-half-width', type=float, default=.50)
+    ap.add_argument('--obstacle-side-margin', type=float, default=.15)
+    ap.add_argument('--obstacle-timeout', type=float, default=.50)
+    ap.add_argument('--obstacle-confidence', type=float, default=.50)
+    ap.add_argument('--obstacle-camera-x', type=float, default=.33,
+                    help='前摄相对车中心向前偏移 m，需与实物一致')
+    ap.add_argument('--obstacle-depth-scale', type=float, default=.80,
+                    help='单目距离保守缩放系数，不是精确测距')
+    ap.add_argument('--obstacle-box-size', type=float, default=.22,
+                    help='前方球框宽或高达到画面比例时停车')
+    ap.add_argument('--obstacle-deceleration', type=float, default=.30,
+                    help='规划减速度 m/s²，需实车验证停车距离')
+    ap.add_argument('--obstacle-lidar-cells', type=int, default=3,
+                    help='危险区域内不同6cm体素数量阈值')
     args = ap.parse_args(argv)
+    if any(not math.isfinite(v) or v <= 0 for v in (
+            args.obstacle_stop_gap,args.obstacle_half_length,args.obstacle_half_width,
+            args.obstacle_side_margin,args.obstacle_timeout,args.obstacle_deceleration)):
+        ap.error('避障包络、余量、超时和减速度须为正有限数')
+    if not all(math.isfinite(v) and 0<v<=1 for v in (
+            args.obstacle_confidence,args.obstacle_depth_scale,args.obstacle_box_size)):
+        ap.error('避障置信度、距离系数、框阈值须在(0,1]')
+    if not math.isfinite(args.obstacle_camera_x) or args.obstacle_lidar_cells<1:
+        ap.error('相机偏移须有限，雷达体素阈值至少1')
     if not 0 < args.route_rear_center_tolerance < .5 or args.route_rear_center_frames < 1:
         ap.error('后摄中心容差须在0和0.5之间，确认帧数须至少1')
     if not 0 < args.route_rear_stop_height <= 1:
