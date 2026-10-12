@@ -3,15 +3,13 @@
 
 设计要点
 --------
-* **独立脚本**：直接发 /cmd_vel。但 rb_mission 在 IDLE 时也会 20Hz
+* **独立脚本，不改状态机**：直接发 /cmd_vel。但 rb_mission 在 IDLE 时也会 20Hz
   发零速，会和本脚本抢话题 —— 所以要先让 mission 闭嘴。用 `--takeover` 自动
   SIGTERM 掉它（优雅退出），也可手动 `pkill -f '[m]ission_node'`。
   不动底盘/定位/感知，它们照常工作。
 * **复用经过测试的运动学**：到点用 `rb_mission.geometry.goto_command`
   （任务侧在用的同一份，坐标系/单位约定一致）。
 * **安全兜底**：每步都有超时；超时/异常/Ctrl-C 一律发零速再退出。
-* **精确找球**：标定必须先通过，找球阶段委托 precision_ball_approach.py。
-  0.60m 定义为车尾导轨末端中点到球心；转身后必须用新后相机/雷达观测确认。
 
 用法
 ----
@@ -34,9 +32,8 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-WS = str(Path(__file__).resolve().parent.parent)
+WS = "/home/user/robocup_basketball_ws"
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
 
@@ -307,33 +304,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-ang", type=float, default=0.8, help="角速度上限 rad/s")
     ap.add_argument("--yaw-tol", type=float, default=0.05, help="朝向容差 rad")
     ap.add_argument("--tol", type=float, default=0.10, help="到点容差 m")
-    ap.add_argument("--approach-radius", type=float, default=0.45, help="绕场航点减速半径")
-    ap.add_argument("--approach-speed", type=float, default=0.12, help="绕场航点接近速度")
+    ap.add_argument("--approach-radius", type=float, default=0.45)
+    ap.add_argument("--approach-speed", type=float, default=0.12)
     ap.add_argument("--inset", type=float, default=0.70, help="绕场时离边界距离 m")
     ap.add_argument("--search-wz", type=float, default=0.4, help="找球自转角速度 rad/s")
-    ap.add_argument("--search-timeout", type=float, default=40.0,
-                    help="原地转圈找球的最长秒数（默认 40s，按 0.4rad/s 约转 1.6 圈）")
-    ap.add_argument("--no-search", action="store_true",
-                    help="跳过原地转圈找球，直接进精确流程（要求球已在车正前方）")
     ap.add_argument("--cam-yaw-offset", type=float, default=0.0,
-                    help="保留旧辅助函数参数；精确找球使用已验收的安装外参")
+                    help="相机光轴相对车头的偏置 rad")
     ap.add_argument("--stop-distance", type=float, default=0.60,
-                    help="固定 0.60m，车尾导轨末端中点到球心；容差在 ball_approach.yaml")
+                    help="走到离球多远停下 m")
+    ap.add_argument("--max-approaches", type=int, default=3, help="接近球最多试几次")
     args = ap.parse_args(argv)
 
-    from precision_ball_approach import validate
-    import yaml
-    from pathlib import Path
-    precision_path = Path(WS) / "src/rb_perception/config/ball_approach.yaml"
-    cfg = yaml.safe_load(precision_path.read_text())
-    if args.stop_distance != .60 or args.ball_label != cfg["ball_label"]:
-        print("REFUSED: use the configured ball class and 0.60 m rail-tip-to-ball-centre distance")
-        return 1
-    try:
-        validate(cfg)
-    except (ValueError, KeyError, TypeError) as exc:
-        print(f"REFUSED before motion: {exc}; see docs/ball_precision_setup.md")
-        return 1
     os.chdir(WS)
     print("🤖 整车测试：绕场一圈 → 回出发点 → 找篮球 → 走到球前 → 转身背对球")
 
@@ -407,49 +388,89 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
             log("绕场完成", "已回到出发点", C_OK)
 
-        # ── [4.5/5] 原地转圈找球（前置摄像头）
-        #
-        # ⚠️ 这一步原来是缺失的 ✗。
-        #
-        # 下面的 precision_ball_approach 第一步是 "Front approach"
-        # （见它的 docstring：Front approach -> relative 180 degree turn ->
-        #   NEW rear camera/LiDAR servo），它【假设球已经在车正前方】✗。
-        # 于是球在车后或侧面时，它只会一直刷
-        #     front: waiting for one valid front target (no_range_data); stopped
-        # 既不接近、也不旋转、更不会动 ✗ —— 现场实测就是这个现象。
-        #
-        # 而 find_ball()（原地慢转 + 前摄找球）本来就是为这一步写的 ✓，
-        # 却一直没人调用，成了死代码 ✗。这里把它接回来：
-        #   转圈找到球 → 车头正对球 → 再交给 precision 流程（它要的正是这个前提 ✓）。
-        if args.no_search:
-            log("跳过", "不转圈找球，直接进精确流程（要求球已在车正前方）")
-        else:
-            log("找球", f"原地转圈找 {args.ball_label}"
-                        f"（最多 {args.search_timeout:.0f}s，wz={args.search_wz:+.2f} rad/s）")
-            det = run.find_ball(timeout=args.search_timeout)
-            if det is None:
-                log("找球失败", f"转 {args.search_timeout:.0f}s 没看到 {args.ball_label}",
-                    C_BAD)
-                return 1
-            log("对准", "已停在球的正前方，交给精确流程（接近 → 转180° → 后摄精定位）")
+        # ── [5/5] 找球 → 走到球前 → 背对球 ──────────────────────────────
+        print("\n[5/5] 找球 → 走到球前 → 转身背对球")
+        det = run.find_ball(timeout=45.0)
+        if det is None:
+            return 1
 
-        # Precision flow replaces blind 0.5 m advances and +0.30 m arrival fudge.
-        run.stop()
-        run.close()
-        from precision_ball_approach import main as precision_main
-        return precision_main(["--config", str(precision_path), "--execute"])
+        arrived = False
+        for attempt in range(1, args.max_approaches + 1):
+            det = run.best_ball() or det
+            goal = run.ball_field_xy(det)
+            if goal is None:
+                # 没有距离估计：按方位角盲走近一点，再重看
+                log("无测距", "distance_m 无效，按方位角靠近后重看", C_WARN)
+                x, y, _ = run.pose
+                ang = run.ball_bearing_world(det)
+                step = 0.5
+                run.goto(x + step * math.cos(ang), y + step * math.sin(ang), timeout=25.0)
+                det = run.find_ball(timeout=15.0)
+                if det is None:
+                    break
+                continue
+
+            bx, by = goal
+            x, y, _ = run.pose
+            d = math.hypot(bx - x, by - y)
+            # 停在球前 stop_distance 处：从当前位置朝球走，但少走那一段
+            if d > args.stop_distance:
+                f = (d - args.stop_distance) / d
+                tx, ty = x + (bx - x) * f, y + (by - y) * f
+            else:
+                tx, ty = x, y
+            log("走向球", f"第 {attempt}/{args.max_approaches} 次：球≈({bx:.2f},{by:.2f})，"
+                          f"目标点 ({tx:.2f},{ty:.2f})，剩余 {d:.2f}m")
+            if not run.goto(tx, ty, timeout=45.0):
+                log("中止", "走到球前失败", C_BAD)
+                return 1
+
+            det2 = run.find_ball(timeout=12.0)
+            if det2 is not None:
+                det = det2
+                dm = det.distance_m
+                if dm == dm and dm <= args.stop_distance + 0.30:
+                    log("已到位", f"离球 {dm:.2f}m（目标 {args.stop_distance:.2f}m）", C_OK)
+                    arrived = True
+                    break
+            log("重试", "还没到球前，再修正一次", C_WARN)
+
+        # ── 转身：让背面对着球 ──────────────────────────────────────────
+        det = run.best_ball() or det
+        run.spin(0.3)
+        if run.pose is None:
+            log("失败", "位姿丢了", C_BAD)
+            return 1
+        if det is None:
+            log("丢球", "转身前看不到球，无法确定方向 → 停", C_WARN)
+            return 1
+
+        ball_ang = run.ball_bearing_world(det)
+        target_yaw = yaw_to_put_ball_behind(run.pose[2], det.bearing_rad,
+                                            args.cam_yaw_offset)
+        log("转身", f"球在场地系方位 {math.degrees(ball_ang):+.1f}° → "
+                    f"车头转到 {math.degrees(target_yaw):+.1f}°（背面朝球）")
+        ok = run.rotate_to(target_yaw, timeout=40.0)
+
+        print()
+        if ok and arrived:
+            log("完成", "绕场 ✓  找球 ✓  走到球前 ✓  背面朝球 ✓", C_OK)
+        elif ok:
+            log("部分完成", "绕场 ✓  找球 ✓  转身 ✓（但没确认走到球前）", C_WARN)
+        else:
+            log("部分完成", "转身没到位", C_WARN)
+        log("注意", "车已停。恢复任务：重启 boot.sh，或直接 set_mission")
+        return 0 if ok else 1
 
     except KeyboardInterrupt:
         print(f"\n  {C_WARN}Ctrl-C —— 发零速停车{C_OFF}")
+        run.stop()
         return 130
     except Exception as e:  # noqa: BLE001
         print(f"\n  {C_BAD}异常：{type(e).__name__}: {e}{C_OFF}")
+        run.stop()
         return 1
     finally:
-        try:
-            run.stop()
-        except Exception:
-            pass  # Precision flow has already closed this Runner and stopped itself.
         run.close()
 
 

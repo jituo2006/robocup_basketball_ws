@@ -46,25 +46,6 @@
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .row button{margin-bottom:0}
-  /* 双摄并排：两张画面等宽，窄屏（<900px）自动堆成一列 ✓ */
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
-  @media (max-width:900px){ .grid2{grid-template-columns:1fr} }
-  /* 数据新鲜度条：每路数据一格，显示"多少秒之前的" */
-  .freshbar{display:flex;flex-wrap:wrap;gap:6px;padding:7px 14px;background:#12151b;
-            border-bottom:1px solid var(--line);align-items:center}
-  .freshbar .lb{color:var(--dim);font-size:12px;margin-right:2px}
-  .fresh{font-size:11.5px;padding:2px 8px;border-radius:11px;border:1px solid var(--line);
-         background:var(--panel2);color:var(--dim);font-variant-numeric:tabular-nums;
-         white-space:nowrap}
-  .fresh.ok{color:var(--ok);border-color:#2a4a35;background:#12211a}
-  .fresh.warn{color:var(--warn);border-color:#4a4020;background:#211d12}
-  .fresh.bad{color:var(--bad);border-color:#4a2a2a;background:#211414;font-weight:600}
-  .fresh .v{color:inherit;font-weight:600}
-  /* 曝光控制条：紧凑一行，不把画面挤小 ✓ */
-  .exp{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--dim)}
-  .exp input[type=range]{flex:1;min-width:0;height:16px}
-  .exp span.v{min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--tx)}
-  .exp button{padding:2px 8px;font-size:12px;margin:0}
   .kv{display:flex;justify-content:space-between;gap:8px;padding:3px 0;
       border-bottom:1px dashed #262c37;font-size:13px}
   .kv:last-child{border:0}
@@ -125,28 +106,13 @@
   <div class="pills" id="pills"></div>
   <div style="margin-left:auto;display:flex;gap:8px">
     <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_START')">▶ 启动整套</button>
-    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>  </div>
+    <button class="ghost" style="width:auto;margin:0" onclick="act('STACK_STOP')">■ 停止整套</button>
+  </div>
 </header>
-
-<!-- ── 数据新鲜度条 ────────────────────────────────────────────────
-     每一路数据都标出"多少秒之前的"，超过阈值就标红置灰 ✓
-     ⚠️ 这是消灭"假信息"的关键：没有它，节点停掉后界面会一直显示
-        最后一帧的旧值，看着像"一切正常、车没动"，实际数据早断了 ✗ -->
-<div class="freshbar" id="freshbar"></div>
 
 <main>
   <!-- 左列：任务按钮 -->
   <div>
-    <!-- ── 找球全流程检查点（运动时实时看 ✓）────────────────────────── -->
-    <div class="card" id="cardBallFlow" style="border-color:#3a4a2a">
-      <h2>🎯 找球全流程（实时检查点）</h2>
-      <div id="ballflow"></div>
-      <div class="hint">
-        这里只显示【真正收到过的】数据：每一行都带年龄，超时就标红说"过期"，
-        <b>不会拿旧值假装正常</b> ✓<br>
-        点「🔍 寻球」后，下面会实时跟着脚本的 5 个阶段走。
-      </div>
-    </div>
     <div class="card" style="border-color:#2a3a55">
       <h2>系统（上电后先点这个）</h2>
       <button class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
@@ -277,7 +243,6 @@
 
     <div class="card">
       <h2>调试测试（整车脚本）</h2>
-      <button class="primary" onclick="toolRun('LINE_BALL')">🚗 巡线找球（转90°→直行1m→横向找球→70cm）</button>
       <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
       <button class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
       <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
@@ -346,52 +311,8 @@
   <!-- 中列：画面 -->
   <div>
     <div class="card">
-      <h2>📷 双摄画面（前 /camera · 后 /camera_rear）</h2>
-      <div class="grid2">
-        <div>
-          <div class="kv"><span>前摄</span><span id="camF_info">—</span></div>
-          <img id="cam" src="/api/camera.mjpg" alt="前摄">
-          <div class="kv"><span>曝光</span><span id="exF_now">—</span></div>
-          <div class="exp">
-            <label title="打开后按目标亮度自动调曝光">
-              <input type="checkbox" id="exF_auto" onchange="exSet('front')"> 自动
-            </label>
-            <input type="range" id="exF_target" min="20" max="220" value="115"
-                   oninput="$('exF_tv').textContent=this.value" onchange="exSet('front')">
-            <span class="v" id="exF_tv">115</span>
-          </div>
-          <div class="exp">
-            <span>手动</span>
-            <input type="range" id="exF_value" min="1" max="1200" value="150"
-                   oninput="$('exF_vv').textContent=this.value" onchange="exSet('front')">
-            <span class="v" id="exF_vv">150</span>
-          </div>
-        </div>
-        <div>
-          <div class="kv"><span>后摄</span><span id="camR_info">—</span></div>
-          <img id="cam_rear" src="/api/camera.mjpg?rear=1" alt="后摄">
-          <div class="kv"><span>曝光</span><span id="exR_now">—</span></div>
-          <div class="exp">
-            <label title="打开后按目标亮度自动调曝光">
-              <input type="checkbox" id="exR_auto" onchange="exSet('rear')"> 自动
-            </label>
-            <input type="range" id="exR_target" min="20" max="220" value="115"
-                   oninput="$('exR_tv').textContent=this.value" onchange="exSet('rear')">
-            <span class="v" id="exR_tv">115</span>
-          </div>
-          <div class="exp">
-            <span>手动</span>
-            <input type="range" id="exR_value" min="1" max="1200" value="150"
-                   oninput="$('exR_vv').textContent=this.value" onchange="exSet('rear')">
-            <span class="v" id="exR_vv">150</span>
-          </div>
-        </div>
-      </div>
-      <div class="hint">
-        <b>自动</b> = 按"目标亮度"闭环调曝光（画面平均亮度，0~255）；
-        <b>手动</b> = 关掉自动后用固定曝光值（1~1200）。两个相机各自独立 ✓<br>
-        拖动滑块即时下发；状态每秒回报一次，稍等一下就会刷新成相机实际值。
-      </div>
+      <h2>📷 相机画面（/camera/image_raw/compressed）</h2>
+      <img id="cam" src="/api/camera.mjpg" alt="相机">
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -769,22 +690,12 @@ function renderChecks(s){
 }
 
 const TOOL_LABEL = {
-  LINE_BALL:        '巡线找球',
   TEST_BALL:        '寻球+转身测试',
   TEST_PERIMETER:   '绕场+寻球测试',
   TEST_CHASSIS_DRY: '底盘干跑自检'
 };
 function toolRun(key){
   const warn = {
-    LINE_BALL:      '【巡线找球】车会按这个顺序真的动：\n' +
-                    '  ① 原地逆时针转 90°\n' +
-                    '  ② 朝车头方向直行 1.0 m\n' +
-                    '  ③ 横向直行搜索，直到看到篮球（最多 12 s）\n' +
-                    '  ④ 原地转，让球正对车头\n' +
-                    '  ⑤ 用视觉测距边走边收敛，停在【球离车中心 0.70 m】\n\n' +
-                    '全程只用视觉（不依赖雷达测距）。\n' +
-                    '会接管 /cmd_vel（mission 会被停掉）。\n\n' +
-                    '确认车周围清空、急停就绪？',
     TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
     TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
@@ -848,143 +759,6 @@ function renderProgress(s){
   $('progress').innerHTML = rows.join('');
 }
 
-// ── 双摄曝光控制 ────────────────────────────────────────────────
-// cam: 'front' | 'rear'。滑块/勾选框一变就下发，不要求点"应用" ✓
-// 后端 /api/exposure POST → std_msgs/String(JSON) → 相机节点 ~/exposure_cmd ✓
-async function exSet(cam){
-  const F = cam === 'front';
-  const auto  = $(F ? 'exF_auto'   : 'exR_auto').checked;
-  const target= parseInt($(F ? 'exF_target' : 'exR_target').value, 10);
-  const value = parseInt($(F ? 'exF_value'  : 'exR_value').value, 10);
-  // 只发用户刚动的那一项会造成歧义，直接两项都发：auto 决定用哪个 ✓
-  const body = {cam, auto};
-  if(auto) body.target = target; else body.value = value;
-  try{
-    const r = await fetch('/api/exposure', {method:'POST',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    const j = await r.json();
-    toast(`曝光(${F?'前':'后'}): ${j.msg || (j.ok?'已下发':'失败')}`, j.ok?'ok':'bad');
-  }catch(e){ toast(`曝光下发失败: ${e}`, 'bad'); }
-}
-
-function renderExposure(s){
-  const ex = s.exposure || {};
-  const one = (node, pfx, infoId) => {
-    const d = ex[node];
-    if(!d){ $(pfx + '_now').textContent = '（未收到状态）'; return; }
-    const v = d.value|0, mean = Math.round(d.mean||0), t = Math.round(d.target||0);
-    $(pfx + '_now').textContent =
-      `${d.auto?'自动':'手动'} · 曝光 ${v}` +
-      (d.mean ? ` · 亮度 ${mean}` : '') +
-      (d.auto ? ` · 目标 ${t}` : '');
-    // 只在用户没有正在拖动时才回写控件，否则会和手指"打架"✗
-    const el = (id) => $(id);
-    if(document.activeElement !== el(pfx + '_target')) el(pfx + '_target').value = t;
-    if(document.activeElement !== el(pfx + '_value'))  el(pfx + '_value').value  = v;
-    el(pfx + '_tv').textContent = t;
-    el(pfx + '_vv').textContent = v;
-    el(pfx + '_auto').checked = !!d.auto;
-    void infoId;
-  };
-  one('rb_camera',      'exF', 'camF_info');
-  one('rb_camera_rear', 'exR', 'camR_info');
-  // 两个画面的帧率，直接写在画面标题行 ✓
-  $('camF_info').textContent = fmt(s.cam_fps, 1) + ' Hz' + (s.has_cam ? '' : ' · 无画面');
-  $('camR_info').textContent = fmt(s.cam_rear_fps, 1) + ' Hz' + (s.has_cam_rear ? '' : ' · 无画面');
-}
-
-// ── 数据新鲜度条（消灭"假信息"的核心）────────────────────────────
-// 后端 s.fresh = {字段名: 多少秒之前}，s.fresh_limits = {字段名: 阈值}
-// 每路数据一格：绿=新鲜 ✓ / 黄=接近超时 / 红=过期（该路数据不可信 ✗）
-const FRESH_LABEL = {
-  pose: '定位位姿', dets: '视觉检测', cam: '前摄画面', cam_rear: '后摄画面',
-  cloud: '雷达点云', odom: '雷达里程计', mission: '任务状态',
-  loc_ok: '定位OK', launcher_ok: '机构OK', launcher_status: '机构状态',
-};
-function renderFreshness(s){
-  const f = s.fresh || {}, lim = s.fresh_limits || {};
-  const order = ['pose','dets','cam','cam_rear','cloud','odom','mission',
-                 'loc_ok','launcher_ok','launcher_status'];
-  const seen = {};
-  const parts = ['<span class="lb">数据新鲜度</span>'];
-  let nBad = 0;
-  for(const k of order){
-    const age = f[k];
-    const label = FRESH_LABEL[k] || k;
-    if(age === undefined){
-      // 从未收到 —— 明确说"从未"，不拿别的值糊弄 ✗
-      parts.push(`<span class="fresh bad" title="从未收到该话题">${label} <span class="v">从未</span></span>`);
-      nBad++;
-      seen[k] = 1;
-      continue;
-    }
-    seen[k] = 1;
-    const L = lim[k] || 2.0;
-    const cls = age > L ? 'bad' : (age > L*0.6 ? 'warn' : 'ok');
-    if(cls === 'bad') nBad++;
-    parts.push(`<span class="fresh ${cls}" title="阈值 ${L}s">${label} <span class="v">${age.toFixed(2)}s</span></span>`);
-  }
-  for(const k in f){ if(!seen[k])
-    parts.push(`<span class="fresh">${FRESH_LABEL[k]||k} <span class="v">${f[k].toFixed(2)}s</span></span>`); }
-  if(nBad) parts.push(`<span class="fresh bad">⚠ ${nBad} 路数据过期/缺失</span>`);
-  $('freshbar').innerHTML = parts.join('');
-}
-
-// ── 找球全流程检查点（运动时实时可见 ✓）──────────────────────────
-// 只反映【真实数据】：节点在不在、位姿/检测/雷达是否新鲜、球有没有认出来
-function renderBallFlow(s){
-  const hw = s.hw || {}, f = s.fresh || {}, lim = s.fresh_limits || {};
-  const live = (k) => {
-    const a = f[k];
-    if(a === undefined) return [false, '从未收到'];
-    const L = lim[k] || 2.0;
-    return [a <= L, `${a.toFixed(2)}s 前`];
-  };
-  const rows = [];
-  const add = (name, ok, detail) => {
-    const mk = ok === true ? '✓' : (ok === false ? '✗' : '·');
-    const cls = ok === true ? 'done' : (ok === false ? 'bad' : 'pend');
-    rows.push(`<div class="stage ${cls}"><span class="mk">${mk}</span>` +
-              `<span class="nm">${name}</span><span class="dt">${detail}</span></div>`);
-  };
-
-  const nc = hw.node_counts || {};
-  const need = ['定位','底盘','感知','任务'];
-  const miss = need.filter(k => !nc[k]);
-  add('① 节点', miss.length === 0 && !hw._pending,
-      hw._pending ? '体检中…' :
-      (miss.length ? `<span style="color:var(--bad)">缺 ${miss.join('/')}</span>` :
-       `定位/底盘/感知/任务 都在 ✓（相机 ${nc['相机']||0} 个）`));
-
-  const [pOk, pTxt] = live('pose');
-  add('② 定位', pOk, `${pTxt}${s.pose ? ` · (${s.pose[0].toFixed(2)}, ${s.pose[1].toFixed(2)}, ${(s.pose[2]*57.3).toFixed(1)}°)` : ''}`);
-
-  const [dOk, dTxt] = live('dets');
-  const balls = (s.dets||[]).filter(d => (d.label||'').startsWith('ball'));
-  add('③ 视觉', dOk && balls.length > 0,
-      dOk ? `${dTxt} · 共 ${(s.dets||[]).length} 个检出` +
-            (balls.length ? `，<span style="color:var(--ok)">球 ${balls.length} 个</span>` : '，未见球')
-          : `${dTxt}【过期】`);
-
-  const [cOk, cTxt] = live('cloud');
-  const [oOk, oTxt] = live('odom');
-  add('④ 雷达', cOk && oOk,
-      hw.lidar_carrier === false
-        ? '<span style="color:var(--bad)">网卡无载波（查雷达上电/网线）✗</span>'
-        : `点云 ${cTxt} · 里程计 ${oTxt}`);
-
-  const lb = s.lb_stats || {};
-  const nCand = (s.lb_cands||[]).length;
-  add('⑤ 雷达找球', s.lb_enabled ? (nCand > 0) : null,
-      s.lb_enabled ? `候选 ${nCand} 个${lb.reason ? ` · ${lb.reason}` : ''}` : '未启用（界面里打开）');
-
-  const run = s.tool_running && (s.tool_name||'').includes('寻球');
-  add('⑥ 找球脚本', run ? true : null,
-      run ? `<span style="color:var(--ok)">运行中：${s.tool_name}</span>` : '未运行（点下面「🔍 寻球」）');
-
-  $('ballflow').innerHTML = rows.join('');
-}
-
 function render(s){
   window._st = s;
   renderMissionNode(s);
@@ -992,9 +766,6 @@ function render(s){
   renderChassis(s);
   renderChecks(s);
   renderProgress(s);
-  renderExposure(s);
-  renderFreshness(s);
-  renderBallFlow(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
   p.push(`<span class="pill ${cls(s.loc_ok)}">定位 ${s.loc_ok?'OK':'不可用'}</span>`);

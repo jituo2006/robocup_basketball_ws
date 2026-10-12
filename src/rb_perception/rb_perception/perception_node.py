@@ -21,8 +21,6 @@
 from __future__ import annotations
 
 import math
-import json
-from collections import deque
 
 import os
 import time
@@ -37,14 +35,13 @@ from cv_bridge import CvBridge, CvBridgeError
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Image
-from std_msgs.msg import Header, String
+from std_msgs.msg import Header
 
 from rb_msgs.msg import Detection, DetectionArray
 
 from .lidar_ball import (body_frame_cloud, find_ball_candidates,
                             fuse as fuse_lidar_balls)
 from .detectors import BaseDetector, CameraModel, OnnxDetector, build_detectors
-from .precision_ball import fuse_precision
 
 # 不同类别用不同颜色画框，方便肉眼调参
 _DEBUG_COLORS = {
@@ -80,10 +77,6 @@ class PerceptionNode(Node):
 
         self.cfg: dict[str, Any] = {}
         self.load_config()
-        # OpenCV 的圆环检测同样会默认用满 CPU，需要给雷达处理留出余量。
-        cv_threads = max(1, int((self.cfg.get("perception") or {}).get("opencv_threads", 2)))
-        cv2.setNumThreads(cv_threads)
-        self.get_logger().info(f"OpenCV 线程数 {cv_threads}")
 
         self.detectors: list[BaseDetector] = []
         self.detector_notes: list[str] = []
@@ -118,20 +111,8 @@ class PerceptionNode(Node):
         # ── 雷达找球（默认关：连订阅都不建，行为与改动前完全一致）──
         self.lidar_cfg = dict((self.cfg.get("perception") or {}).get("lidar_ball") or {})
         self._cloud = None
-        self._cloud_stamp = 0.0
-        self._cloud_frame = ""
-        # ⚠️ 点云环形缓存，用于【按时间戳配对】而不是只用"最新一帧" ✗
-        #    为什么必须缓存：本节点处理一帧图像要几百毫秒（HoughCircles 很贵），
-        #    等它处理到【采集于 T 的那张图】时，手里"最新点云"已经是 T+0.4s 的了 ✗
-        #    → |cloud_stamp - image_stamp| ≈ 0.4s > max_sync_s(0.10) ✗
-        #    → 精确测距永远判 stale_or_unsynchronised ✗（现场就是卡在这）
-        #    正确做法：处理图像时，从缓存里挑【时间戳最接近这张图】的那帧点云 ✓
-        self._cloud_buf = deque(maxlen=16)
-        self._last_image_stamp = 0.0
         self._odom = None
         self._lidar_stats = {}
-        self.range_pub = self.create_publisher(String, self.declare_parameter(
-            "precision_topic", "/perception/ball_range").value, 1)
         if self.lidar_cfg.get("enabled", False):
             from nav_msgs.msg import Odometry
             from sensor_msgs.msg import PointCloud2
@@ -171,11 +152,6 @@ class PerceptionNode(Node):
 
     def rebuild_detectors(self) -> None:
         self.detectors, self.detector_notes = build_detectors(self.cfg.get("perception", {}))
-        for det in self.detectors:
-            if isinstance(det, OnnxDetector) and det.available:
-                self.get_logger().info(
-                    f"YOLO 已加载: {det.cfg['model_path']}, 输入 {det.input_size}, "
-                    f"类别 {det.model_names}, 每 {det.every_n} 帧推理")
 
     # -- 主回调 ------------------------------------------------------------
     def on_image(self, msg: Image) -> None:
@@ -183,42 +159,23 @@ class PerceptionNode(Node):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except CvBridgeError as exc:
-            self.get_logger().warn(f"图像转换失败: {exc}", throttle_duration_sec=5.0)
+            self.get_logger().warn(f"图像转换失败: {exc}")
             return
         except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(f"图像转换异常: {exc}", throttle_duration_sec=5.0)
+            self.get_logger().warn(f"图像转换异常: {exc}")
             return
         self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
 
     # -- 雷达找球 ----------------------------------------------------------
     def on_cloud(self, msg) -> None:
-        """存最新一帧 + 放进环形缓存（供按时间戳配对 ✓）。
-
-        转换放到算候选时做（省 CPU），但缓存里存的是【已转换的 numpy】——
-        因为配对发生在处理图像时，那时再解析消息体来不及（几百毫秒级）✗
-        """
+        """只存最新一帧，转换放到算候选时做（省 CPU）。"""
         try:
             from sensor_msgs_py import point_cloud2
             pts = point_cloud2.read_points_numpy(
                 msg, field_names=("x", "y", "z"), skip_nans=True)
-            ts = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
             self._cloud = pts
-            self._cloud_stamp = ts
-            self._cloud_frame = msg.header.frame_id
-            self._cloud_buf.append((ts, pts, msg.header.frame_id))
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f"读点云失败: {exc}", throttle_duration_sec=10.0)
-
-    def _cloud_for_stamp(self, image_stamp: float):
-        """挑出时间戳最接近 image_stamp 的点云 → (pts, stamp, frame)。
-
-        ⚠️ 不再直接用 self._cloud（那是"最新"的 ✗，会比图新几百毫秒）
-        没有缓存时退回最新一帧，让下游照常判 stale ✓
-        """
-        if not self._cloud_buf:
-            return self._cloud, self._cloud_stamp, self._cloud_frame
-        best = min(self._cloud_buf, key=lambda e: abs(e[0] - image_stamp))
-        return best[1], best[0], best[2]
 
     def on_odom(self, msg) -> None:
         p = msg.pose.pose
@@ -252,13 +209,6 @@ class PerceptionNode(Node):
         self.process_frame(frame, msg.header.stamp, msg.header.frame_id, _t0)
 
     def process_frame(self, frame, stamp, frame_id: str, _t0: float) -> None:
-        image_stamp = stamp.sec + stamp.nanosec * 1e-9
-        # 用 getattr 兜底：单元测试会直接构造一个不含 ROS 属性的假节点来调本函数
-        # （见 test_cached_observation_stamp.py），这里不能硬依赖 __init__ 跑过。
-        # 语义不变：时间戳不前进的帧（重放/缓存图）不能刷新测距观察。
-        if image_stamp <= getattr(self, "_last_image_stamp", 0.0):
-            return  # Replayed/cached frames cannot refresh a ranging observation.
-        self._last_image_stamp = image_stamp
         h, w = frame.shape[:2]
         cam = CameraModel.from_config(self.cfg.get("camera", {}) or {}, w, h)
 
@@ -268,15 +218,11 @@ class PerceptionNode(Node):
             try:
                 results = det.detect(frame, cam)
             except Exception as exc:  # noqa: BLE001
-                self.get_logger().warn(
-                    f"检测器 {det.label} 异常: {exc}", throttle_duration_sec=5.0)
+                self.get_logger().warn(f"检测器 {det.label} 异常: {exc}")
                 continue
             for r in results:
-                # 182f98d：跳帧复用的 YOLO 框，其时间戳属于【上次推理的那张图】，
-                # 不能当作本帧的观察时间戳 —— 否则前摄"新鲜度"会被旧框污染，
-                # 精确测距会误判 stale_or_unsynchronised。数组里可能同时含
-                # 其它检测器（本轮刚跑）的结果，所以只对"本帧真跑了推理"的
-                # OnnxDetector 结果打标。
+                # Reused YOLO boxes retain the timestamp of the inference image.
+                # The array may contain other detectors from the current frame.
                 if not isinstance(det, OnnxDetector) or det.inferred_this_frame:
                     r.observation_stamp = stamp
                 if per_label.get(r.label, 0) >= self.max_per_label:
@@ -293,19 +239,8 @@ class PerceptionNode(Node):
             except Exception:  # noqa: BLE001
                 pass
         if self.lidar_cfg.get("enabled", False):
-            if self.lidar_cfg.get("mode") == "precision":
-                # ⚠️ 用【时间戳最接近这张图】的点云，而不是"最新一帧" ✗
-                #    本节点处理一帧要几百毫秒，用最新点云会比图新 0.4s，
-                #    直接超过 max_sync_s(0.10) → 永远 stale ✗（现场卡的就是这）
-                _pts, _cst, _cfr = self._cloud_for_stamp(image_stamp)
-                found, self._lidar_stats = fuse_precision(
-                    found, _pts, _cst, _cfr,
-                    image_stamp, self.get_clock().now().nanoseconds * 1e-9,
-                    cam, self.cfg.get("camera", {}), self.lidar_cfg)
-                self.range_pub.publish(String(data=json.dumps(self._lidar_stats, allow_nan=False)))
-            else:
-                found, self._lidar_stats = fuse_lidar_balls(
-                    found, self.lidar_candidates(), self.lidar_cfg)
+            found, self._lidar_stats = fuse_lidar_balls(
+                found, self.lidar_candidates(), self.lidar_cfg)
 
         out = DetectionArray()
         out.header = Header()
@@ -321,8 +256,11 @@ class PerceptionNode(Node):
         out.detections = [self.to_msg(d, stamp) for d in found]
         self.pub.publish(out)
 
-        # 目标数量随框抖动频繁变化，只在周期统计中输出最新摘要。
-        self.last_summary = " ".join(f"{k}:{v}" for k, v in sorted(per_label.items())) or "无目标"
+        # 限频打印，避免日志洪泛
+        summary = " ".join(f"{k}:{v}" for k, v in sorted(per_label.items())) or "无目标"
+        if summary != self.last_summary or self.frame_count % 100 == 0:
+            self.get_logger().info(f"检测结果 {summary}")
+            self.last_summary = summary
 
         if self.publish_debug:
             self.publish_debug_image(frame, found, cam)
@@ -339,10 +277,7 @@ class PerceptionNode(Node):
         """
         now = time.time()
         dt = now - self._stats_t
-        if dt <= 1e-6:
-            return
-        if self._stats_n == 0:
-            self.get_logger().warn("视觉未收到可处理图像", throttle_duration_sec=10.0)
+        if dt <= 1e-6 or self._stats_n == 0:
             self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
             return
         self.last_fps = self._stats_n / dt
@@ -350,8 +285,7 @@ class PerceptionNode(Node):
         self._stats_t, self._stats_n, self._proc_ms_sum = now, 0, 0.0
         self.get_logger().info(
             f"视觉 {self.last_fps:.1f} fps，每帧 {self.last_proc_ms:.1f} ms"
-            f"（累计 {self.frame_count} 帧），目标 {self.last_summary}"
-            f"，测距 {self._lidar_stats.get('reason', 'disabled')}")
+            f"（累计 {self.frame_count} 帧）")
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()

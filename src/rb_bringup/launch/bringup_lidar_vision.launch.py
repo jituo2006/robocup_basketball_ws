@@ -112,31 +112,6 @@ def generate_launch_description():
         Node(package="rb_mission", executable="mission_node", name="rb_mission",
              output="screen",
              parameters=[{"config_file": _share("rb_mission", "config", "mission.yaml")}]),
-        # ── 后摄 + 后感知 ────────────────────────────────────────────────
-        #
-        # ⚠️ 整车启动【必须】带后摄。以前三个 bringup 文件都没有它，后摄只有
-        #    独立的 rb_perception/rear_ball.launch.py（那个故意不起底盘/任务，
-        #    是给标定和静止验收单独用的）。结果整车跑起来后
-        #    /camera_rear/... 与 /perception_rear/... 一直"没有数据"，
-        #    找球的【转180° → 后摄/雷达精定位】整段失效 ✗。
-        #
-        # ⚠️ 【不要】给相机传 device 覆盖：设备路径只由各自的 yaml 决定
-        #    （camera.yaml / camera_rear.yaml 里的 /dev/v4l/by-id/...）。
-        #    两个摄像头插不同 USB 口时枚举顺序会变（现场见过 HD→video2、
-        #    LRCP→video0），写死 /dev/videoN 会让前摄去开后摄的设备 ✗。
-        #    camera_node 现在支持 device_override：传空就用配置里的稳定路径 ✓。
-        Node(package="rb_camera", executable="camera_node", name="rb_camera_rear",
-             output="screen",
-             parameters=[{"config_file": _share("rb_camera", "config", "camera_rear.yaml")}]),
-        Node(package="rb_perception", executable="perception_node", name="rb_perception_rear",
-             output="screen",
-             parameters=[{"config_file": _share("rb_perception", "config", "perception_rear.yaml"),
-                          "image_topic": "/camera_rear/image_raw",
-                          "compressed_topic": "/camera_rear/image_raw/compressed",
-                          "output_topic": "/perception_rear/detections",
-                          "debug_image_topic": "/perception_rear/debug_image",
-                          "precision_topic": "/perception_rear/ball_range",
-                          "publish_debug_image": True}]),
     ]
 
     return LaunchDescription([

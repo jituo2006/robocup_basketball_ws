@@ -11,7 +11,8 @@ def generate_launch_description():
     share = Path(get_package_share_directory("rb_camera"))
     return LaunchDescription(
         [
-            DeclareLaunchArgument("device", default_value="/dev/video0"),
+            DeclareLaunchArgument("device", default_value="",
+                                 description="Empty uses camera.yaml stable device path"),
             DeclareLaunchArgument("width", default_value="1280"),
             DeclareLaunchArgument("height", default_value="720"),
             DeclareLaunchArgument("fps", default_value="30.0"),
