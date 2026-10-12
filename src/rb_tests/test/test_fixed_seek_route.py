@@ -1,0 +1,161 @@
+"""固定路线：方向、动作顺序、检测即停车、失败不转身后退。"""
+import importlib.util
+import math
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+import pytest
+
+
+def load():
+    path = Path(__file__).resolve().parents[3] / 'tools/test_perimeter_ball.py'
+    spec = importlib.util.spec_from_file_location('fixed_seek', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def make_runner(mod):
+    run = mod.Runner.__new__(mod.Runner)
+    run.pose = (1.5, 8.0, 0.0)
+    run.args = NS(ball_label='ball_basketball', route_forward=3.55, route_scan_distance=3.0,
+                  route_forward_speed=.12, route_scan_speed=.08, route_scoop_speed=.08,
+                  route_scoop_distance=.20, route_forward_timeout=60., route_scan_timeout=60.,
+                  route_scoop_timeout=15., route_heading_tol=.10, route_ball_tol_deg=6.,
+                  route_center_tolerance=.04, ball_confidence=.5,
+                  route_ball_min_distance=.45, route_ball_max_distance=1.0,
+                  speed=.25, approach_speed=.12, step_tol=.02, yaw_tol=.015,
+                  kp=1.5, kp_yaw=2., kd_yaw=.25, max_ang=.3)
+    return run
+
+
+def test_route_is_right_turn_then_forward_then_body_left():
+    mod = load()
+    heading, near, axis, end = mod.fixed_route_plan((1.5, 8., 0.), 3.55, 3.)
+    assert heading == pytest.approx(-math.pi/2)
+    assert near == pytest.approx((1.5, 4.45))
+    assert axis == pytest.approx((1., 0.))
+    assert end == pytest.approx((4.5, 4.45))
+    # 右转后的 +车体y 是 +场地x，不是朝场地左侧(-x)。
+    assert (-math.sin(heading), math.cos(heading)) == pytest.approx(axis)
+
+
+def test_route_respects_initial_heading_without_resetting_localization():
+    mod = load()
+    heading, near, axis, _ = mod.fixed_route_plan((1., 2., math.pi/2), 3., 2.)
+    assert heading == pytest.approx(0.)
+    assert near == pytest.approx((4., 2.))
+    assert axis == pytest.approx((0., 1.))
+
+
+def mock_motion(run, fail=None):
+    actions = []
+    def turn(yaw, **kw):
+        actions.append(('turn', yaw))
+        if fail == 'turn':
+            return False
+        run.pose = (*run.pose[:2], yaw)
+        return True
+    def goto(x, y, **kw):
+        actions.append(('move', x, y, run.args.speed, kw['tolerance']))
+        if fail == 'goto':
+            return False
+        run.pose = (x, y, run.pose[2])
+        return True
+    run.rotate_to, run.goto = turn, goto
+    run.stop = lambda: actions.append(('stop',))
+    def scan(*a):
+        actions.append(('scan',))
+        return (.0, .70, 3)
+    run.fixed_left_scan = scan
+    return actions
+
+
+def test_fixed_sequence_turns_180_and_backs_towards_ball_at_low_speed():
+    mod = load()
+    run = make_runner(mod)
+    actions = mock_motion(run)
+    assert run.fixed_seek_and_scoop()
+    assert [a[0] for a in actions] == ['turn', 'move', 'scan', 'turn', 'move', 'stop']
+    assert actions[0][1] == pytest.approx(-math.pi/2)
+    assert actions[3][1] == pytest.approx(math.pi/2)
+    assert actions[1][1:3] == pytest.approx((1.5, 4.45))
+    assert actions[4][1:3] == pytest.approx((1.5, 4.25))
+    assert actions[4][3] == .08 and actions[4][4] == .02
+    assert run.args.speed == .25 and run.args.approach_speed == .12
+
+
+@pytest.mark.parametrize('failure', ['turn', 'goto'])
+def test_route_failure_never_starts_search_or_scoop(failure):
+    mod = load()
+    run = make_runner(mod)
+    actions = mock_motion(run, fail=failure)
+    assert not run.fixed_seek_and_scoop()
+    assert not any(a[0] == 'scan' for a in actions)
+    assert run.args.speed == .25
+
+
+@pytest.mark.parametrize('found', [None])
+def test_unconfirmed_off_axis_or_out_of_range_ball_does_not_trigger_turn_or_scoop(found):
+    mod = load()
+    run = make_runner(mod)
+    actions = mock_motion(run)
+    run.fixed_left_scan = lambda *a: found
+    assert not run.fixed_seek_and_scoop()
+    assert sum(a[0] == 'turn' for a in actions) == 1
+    assert sum(a[0] == 'move' for a in actions) == 1
+
+
+def test_center_detection_stops_without_waiting_for_confirmation():
+    mod = load()
+    run = make_runner(mod)
+    events = []
+    run.spin = lambda sec: None
+    run.centered_basketball = lambda: NS(x_min=.45,x_max=.55,confidence=.9,
+        stamp=NS(sec=10,nanosec=0),bearing_rad=0.,distance_m=.7)
+    run.stop = lambda: events.append('stop')
+    run.measure_ball_stable = lambda **kw: events.append('confirm') or (0., .7, 3)
+    assert run.fixed_left_scan(-math.pi/2, (1, 0)) == (0., .7, 1)
+    assert events == ['stop']
+
+
+def test_scan_command_is_body_left_with_zero_forward_speed():
+    mod = load()
+    run = make_runner(mod)
+    run.pose, run.yaw_rate = (1.5, 4.45, -math.pi/2), 0.
+    run.args.route_scan_distance = .1
+    speeds, stops = [], []
+    run.spin = lambda sec: None
+    run.centered_basketball = lambda: None
+    run.stop = lambda: stops.append(True)
+    run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
+    def command(msg):
+        speeds.append((msg.linear.x, msg.linear.y, msg.angular.z))
+        run.pose = (run.pose[0]+.1, run.pose[1], run.pose[2])
+    run.publish_command = command
+    assert run.fixed_left_scan(-math.pi/2, (1., 0.)) is None
+    assert speeds[0] == pytest.approx((0., .08, 0.))
+    assert stops
+
+@pytest.mark.parametrize('label,center,source,fresh,conf,expected', [
+    ('ball_basketball',.5,'camera',True,.9,True),
+    ('ball_basketball',.7,'camera',True,.9,False),
+    ('ball_volleyball',.5,'camera',True,.9,False),
+    ('ball_basketball',.5,'camera',False,.9,False),
+    ('ball_basketball',.5,'lidar',True,.9,False),
+    ('ball_basketball',.5,'camera',True,.2,False),
+])
+def test_center_trigger_requires_fresh_confident_camera_basketball(label,center,source,fresh,conf,expected):
+    mod=load();run=make_runner(mod)
+    run.dets=[NS(label=label,source=source,confidence=conf,x_min=center-.05,
+        x_max=center+.05,y_min=.4,y_max=.6,stamp=NS(sec=10,nanosec=0))]
+    run.detection_fresh=lambda stamp:fresh
+    assert (run.centered_basketball() is not None)==expected
+
+@pytest.mark.parametrize('distance',[float('nan'),.2,3.])
+def test_centered_ball_rotates_before_depth_gate_but_does_not_back_up(distance):
+    mod=load();run=make_runner(mod);actions=mock_motion(run)
+    run.fixed_left_scan=lambda *a:(0.,distance,1)
+    assert not run.fixed_seek_and_scoop()
+    assert sum(a[0]=='turn' for a in actions)==2
+    assert sum(a[0]=='move' for a in actions)==1

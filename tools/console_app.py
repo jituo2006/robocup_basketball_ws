@@ -52,6 +52,58 @@ except Exception:                     # noqa: BLE001
 
 WS = Path("/home/user/robocup_basketball_ws")
 
+BALL_BOX_STYLES = {
+    "ball_basketball": ("篮球", (0, 165, 255)),
+    "ball_volleyball": ("排球", (255, 190, 0)),
+}
+
+
+def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
+    """Annotate camera-space boxes only; LiDAR candidates have no image box."""
+    import cv2
+    boxes = []
+    for detection in detections:
+        label = getattr(detection, "label", "")
+        if label not in BALL_BOX_STYLES or getattr(detection, "source", "camera") == "lidar":
+            continue
+        try:
+            confidence = float(detection.confidence)
+            coords = [float(getattr(detection, name))
+                      for name in ("x_min", "y_min", "x_max", "y_max")]
+            if not all(math.isfinite(v) for v in [confidence] + coords) or not min_confidence <= confidence <= 1:
+                continue
+            x1, y1, x2, y2 = [max(0, min(1, v)) for v in coords]
+            if x2 <= x1 or y2 <= y1:
+                continue
+            boxes.append((label, confidence, (x1, y1, x2, y2)))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    try:
+        frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return jpeg
+        height, width = frame.shape[:2]
+        # 与寻球脚本默认中心容差相同：画面宽度的 ±4%。
+        left, right, center = int(width*.46), int(width*.54), int(width*.5)
+        cv2.line(frame, (left, 0), (left, height-1), (0, 220, 0), 1)
+        cv2.line(frame, (right, 0), (right, height-1), (0, 220, 0), 1)
+        cv2.line(frame, (center, 0), (center, height-1), (0, 220, 0), 1)
+        text = []
+        for label, confidence, coords in boxes:
+            x1, y1, x2, y2 = coords
+            p1 = (int(x1 * (width - 1)), int(y1 * (height - 1)))
+            p2 = (int(x2 * (width - 1)), int(y2 * (height - 1)))
+            name, color = BALL_BOX_STYLES[label]
+            cv2.rectangle(frame, p1, p2, color, 2)
+            tx, ty = min(p1[0], max(0, width - 140)), max(0, p1[1] - 24)
+            cv2.rectangle(frame, (tx, ty), (min(width - 1, tx + 140), min(height - 1, ty + 24)), (20, 20, 20), -1)
+            text.append((f"{name} {confidence:.0%}", (tx + 3, ty + 2), color, 18))
+        frame = draw_texts(frame, text)
+        ok, output = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return output.tobytes() if ok else jpeg
+    except (cv2.error, ValueError, TypeError):
+        return jpeg
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 画图（雷达俯视图）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -729,6 +781,7 @@ class Bridge:
         with self.lock:
             self.state["dets"] = list(m.detections)
             self.state["dets_stamp"] = time.time()
+            self.state["dets_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec*1e-9
 
     def _on_image(self, m):
         now = time.time()
@@ -736,6 +789,7 @@ class Bridge:
         with self.lock:
             self.state["cam"] = bytes(m.data)
             self.state["cam_stamp"] = now
+            self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec*1e-9
             if len(self._cam_times) > 1:
                 dt = self._cam_times[-1] - self._cam_times[0]
                 self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -761,6 +815,7 @@ class Bridge:
                 if self.state["cam"] is None or now - self.state["cam_stamp"] > 1.0:
                     self.state["cam"] = jpg.tobytes()
                     self.state["cam_stamp"] = now
+                    self.state["cam_source_stamp"] = m.header.stamp.sec + m.header.stamp.nanosec*1e-9
                 if len(self._cam_times) > 1:
                     dt = self._cam_times[-1] - self._cam_times[0]
                     self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
@@ -950,6 +1005,32 @@ class Bridge:
         return {"camera_balls": len(balls), "lidar_cands": len(cands),
                 "matched": matched, "lidar_only": len(cands) - matched,
                 "camera_only": len(balls) - matched}
+
+    def camera_frame(self):
+        """复用画框帧；只叠加与画面时间接近的新鲜视觉检测。"""
+        with self.lock:
+            image = self.state.get('cam')
+            image_stamp = self.state.get('cam_source_stamp', 0)
+            det_stamp = self.state.get('dets_source_stamp', 0)
+            detections = list(self.state.get('dets', []))
+        if image is None:
+            return None
+        now = self.node.get_clock().now().nanoseconds*1e-9
+        if not (image_stamp > 0 and det_stamp > 0 and
+                -.05 <= now-det_stamp <= .5 and abs(image_stamp-det_stamp) <= .5):
+            detections = []
+        detections = [d for d in detections if
+                      -.05 <= now-(d.stamp.sec+d.stamp.nanosec*1e-9) <= .5]
+        key = (id(image), det_stamp, tuple((d.label, d.confidence, d.x_min,
+               d.y_min, d.x_max, d.y_max) for d in detections))
+        with self.lock:
+            cached = getattr(self, '_camera_overlay_cache', None)
+            if cached and cached[0] == key:
+                return cached[2]
+        output = draw_ball_boxes(image, detections)
+        with self.lock:
+            self._camera_overlay_cache = (key, image, output)
+        return output
 
     def snapshot(self):
         """返回可 JSON 化的快照。
@@ -1414,13 +1495,13 @@ class ChassisManager:
 DEBUG_TOOLS = {
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
-        "args": ["--skip-perimeter", "--takeover", "--yes"],
-        "label": "寻球 → 走到球前 50cm → 转身背对球",
+        "args": ["--route", "fixed", "--takeover", "--yes"],
+        "label": "右转90° → 中线附近 → 左移找球 → 转180°后退铲球",
     },
     "TEST_PERIMETER": {
         "script": "tools/test_perimeter_ball.py",
-        "args": ["--takeover", "--yes"],
-        "label": "绕场一圈 → 寻球 → 走到球前 → 转身背对球",
+        "args": ["--route", "legacy", "--takeover", "--yes"],
+        "label": "绕场一圈 → 寻球 → 对准并停车",
     },
     "TEST_GRAB_PLACE": {
         "script": "tools/test_grab_place.py",
@@ -1630,8 +1711,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             last = None
             idle = 0
             while True:
-                with bridge.lock:
-                    img = bridge.state["cam"]
+                img = bridge.camera_frame()
                 if img is not None and img is not last:
                     last = img
                     idle = 0

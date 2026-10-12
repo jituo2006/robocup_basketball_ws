@@ -113,48 +113,41 @@
 <main>
   <!-- 左列：任务按钮 -->
   <div>
-    <div class="card" style="border-color:#2a3a55">
-      <h2>系统（上电后先点这个）</h2>
-      <button class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
-      <div class="flowbox" id="flowbox" style="display:none"></div>
-      <div class="row">
-        <button onclick="act('CHECK_READY')">✓ 就绪检查</button>
-        <button onclick="act('CAN_RECOVER')">🔌 CAN 恢复</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button onclick="act('STACK_START')">▶ 只启动整套</button>
-        <button class="danger" onclick="if(confirm('停止整套软件？（会走优雅退出、先发零速）'))act('STACK_STOP')">⏹ 停止整套</button>
-      </div>
-
-      <div style="border-top:1px solid var(--line);margin:10px 0 8px"></div>
-      <button class="orange" onclick="chassisEnable()">🔌 CAN + 电机使能</button>
-      <div class="flowbox" id="chbox" style="display:none"></div>
-      <div class="row">
-        <button onclick="act('CHASSIS_STOP')">⏹ 停底盘节点</button>
-        <button onclick="act('CAN_RECOVER')">🔌 只恢复 CAN</button>
-      </div>
-      <div class="hint">
-        <b>🔌 CAN + 电机使能</b> = 查 PCAN 适配器 → 不行就恢复 can0 →
-        单起 rb_chassis（真下发 CAN）→ 等「底盘已使能 4 个电机」。<br>
-        只调底盘时用这个，不用起雷达/相机那一整套。
-      </div>
-      <div class="hint">
-        <b>⚡ 一键启动流程</b> = 跑 boot.sh → 等「底盘已使能 + mission 就绪」→ 自动做就绪检查。<br>
-        更细的手动排查用右边那两个按钮。
-      </div>
+    <div class="card">
+      <h2>固定路线实验</h2>
+      <button class="danger" onclick="act('PANIC')">🛑 急停</button>
+      <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
+      <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
+      <div class="hint" id="toolstate">未运行</div>
+      <div class="hint" id="missionstate">—</div>
+      <details><summary>任务节点管理</summary><div class="row">
+        <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
+        <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
+      </div></details>
+      <div class="hint">右转90° → 前进 → 左移找球 → 停车 → 转180° → 后退铲球。<br>定位有效后运行；测试结束后，如需传球或导航，重启任务节点。</div>
+    </div>
+    <div class="card">
+      <h2>系统控制</h2>
+      <div class="hint">已通过终端启动且定位有效时，直接运行寻球。</div>
+      <details><summary>底盘维护</summary>
+        <button onclick="act('CAN_RECOVER')">恢复 CAN</button>
+        <button class="orange" onclick="chassisEnable()">使能底盘</button>
+        <button onclick="act('CHASSIS_STOP')">停止底盘节点</button>
+        <div class="flowbox" id="chbox"></div>
+      </details>
     </div>
 
-    <div class="card">
-      <h2>起任务（一局）</h2>
+    <div class="card"><details>
+      <summary>传球 / 投篮任务</summary>
       <button class="primary" onclick="act('PASS')">🔵 传球 PASS</button>
       <button class="orange" onclick="act('SHOOT')">🟠 投篮 SHOOT</button>
       <button onclick="act('IDLE')">⏹ 停止任务（IDLE）</button>
       <button class="danger" onclick="if(confirm('确认急停？'))act('PANIC')">🛑 急停</button>
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
-    </div>
+    </details></div>
 
-    <div class="card" id="cardSerialText">
-      <h2>机构文本指令（这台机构的真实协议）</h2>
+    <div class="card" id="cardSerialText"><details>
+      <summary>机构文本控制</summary>
       <div class="row">
         <button class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
         <button class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
@@ -178,10 +171,10 @@
         行尾默认 <code>\n</code>；固件若要 <code>\r\n</code>，
         改 launcher.yaml 的 <code>line_ending</code>。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>机构（拿球 / 发球）</h2>
+    <div class="card"><details>
+      <summary>机构动作调试</summary>
       <div class="row">
         <button onclick="act('LAUNCH',{action:0})">🚀 发射</button>
         <button onclick="act('LAUNCH',{action:1})">⚡ 快发</button>
@@ -196,17 +189,17 @@
         <button onclick="act('LAUNCH',{action:7})">停</button>
       </div>
       <div class="hint">服务 /rb_launcher/launch；0=SHOOT 1=FAST 2=DRIBBLE 3=DBL 4=爪 5=滑道 7=STOP</div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>导航（仅 IDLE 下可用）</h2>
+    <div class="card"><details>
+      <summary>导航</summary>
       <button onclick="gotoNamed('pass_zone_target')">🎯 去传球点</button>
       <button onclick="gotoNamed('shoot_zone_target')">🎯 去投篮点</button>
       <button onclick="gotoNamed('home')">🏠 回出发点</button>
-    </div>
+    </details></div>
 
-    <div class="card" id="cardLidarBall">
-      <h2>雷达找球（粗）+ 相机精定位（细）</h2>
+    <div class="card" id="cardLidarBall"><details>
+      <summary>雷达找球参数</summary>
       <div class="row" style="margin-bottom:6px">
         <label style="flex:0 0 auto">
           <input type="checkbox" id="lbEnabled" onchange="lbSet()" style="width:auto;margin-right:6px">
@@ -239,25 +232,12 @@
         <b>调参顺序</b>：先看 z_min/z_max 能不能框住地面 → 再调球半径 → 最后调配对阈值。
         参数只作用于控制台这份，不写回 yaml；调好再手动填进 perception.yaml。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>调试测试（整车脚本）</h2>
-      <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
-      <button class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
-      <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
-      <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
-      <div class="hint" id="toolstate">未运行</div>
-      <div class="hint" id="missionstate">—</div>
-      <div class="row">
-        <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
-        <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
-      </div>
-      <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b> —— 做法是 <b>SIGTERM 掉任务节点</b>，所以跑完之后「回出发点 / 去投篮点 / 起任务」都会报"服务不可用" ✗。<b>跑完记得点「🔄 重启任务节点」</b>。<br>点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
-    </div>
 
-    <div class="card" id="cardGrabPlace">
-      <h2>抓球并放下（机构序列调试）</h2>
+
+    <div class="card" id="cardGrabPlace"><details>
+      <summary>机构序列调试</summary>
       <label>预设序列
         <select id="gpPreset" onchange="gpPreview()">
           <option value="grab_place">抓球 → 保持 → 放下（默认）</option>
@@ -288,10 +268,10 @@
         ⚠️ <b>会真动机构</b>：点之前确认机械周围没人、球在位、随时能断电。
         不确定就先点「🧪 干跑」把步骤表打印出来看看。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>点动（按住即走，自动停）</h2>
+    <div class="card"><details>
+      <summary>手动点动（每次0.4秒）</summary>
       <div class="row3">
         <span></span><button onclick="jog(0.12,0,0)">↑</button><span></span>
       </div>
@@ -305,14 +285,14 @@
         <button onclick="jog(0,0,-0.5)">↻ 右转</button>
       </div>
       <div class="hint">每次 0.4 秒后自动归零；底盘 200ms 超时是第二道保险。</div>
-    </div>
+    </details></div>
   </div>
 
   <!-- 中列：画面 -->
   <div>
     <div class="card">
-      <h2>📷 相机画面（/camera/image_raw/compressed）</h2>
-      <img id="cam" src="/api/camera.mjpg" alt="相机">
+      <h2>📷 YOLO 识别：篮球 / 排球</h2>
+      <img id="cam" src="/api/camera.mjpg" alt="相机"><div class="hint">橙框：篮球 · 蓝框：排球 · 绿线：中心触发区（左右各4%）。篮球框中心进入绿线区域即停车转身。</div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -342,20 +322,16 @@
 
   <!-- 右列：状态 + 日志 -->
   <div>
-    <div class="card" id="rdycard">
-      <h2>就绪状态（开车前必须全绿）</h2>
-      <div id="rdyverdict" style="color:var(--dim)">还没检查 —— 点左边「✓ 就绪检查」或「⚡ 一键启动流程」</div>
-      <div id="rdylist"></div>
-    </div>
 
-    <div class="card">
-      <h2>本轮进度（实时）</h2>
+
+    <div class="card"><details>
+      <summary>任务进度</summary>
       <div id="proghead">—</div>
       <div id="progress"><div class="hint">还没起任务</div></div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>小车情况（/mission/state）</h2>
+    <div class="card"><details>
+      <summary>任务详情</summary>
       <div class="big" id="phase">—</div>
       <div class="hint" id="detail"></div>
       <div style="margin-top:8px">
@@ -367,15 +343,15 @@
         <div class="kv"><span>在投篮线外</span><span id="in_shoot_out">—</span></div>
         <div class="kv"><span>急停</span><span id="estop">—</span></div>
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>子系统</h2>
+    <div class="card"><details>
+      <summary>机构与视觉状态</summary>
       <div class="kv"><span>定位 localization_ok</span><span id="loc_ok">—</span></div>
       <div class="kv"><span>机构 launcher_ok</span><span id="launcher_ok">—</span></div>
       <div class="kv"><span>视觉 perception_ok</span><span id="perception_ok">—</span></div>
       <div class="kv"><span>机构串口状态</span><span id="launcher_status">—</span></div>
-    </div>
+    </details></div>
 
     <div class="card">
       <h2>位姿与数据链</h2>
@@ -387,19 +363,19 @@
       <div class="kv"><span>点云帧率</span><span id="cloud_fps">—</span></div>
     </div>
 
-    <div class="card">
-      <h2>硬件链路</h2>
+    <div class="card"><details>
+      <summary>硬件诊断</summary>
       <div class="kv"><span>CAN can0</span><span id="hw_can">—</span></div>
       <div class="kv"><span>雷达网卡链路</span><span id="hw_link">—</span></div>
       <div class="kv"><span>雷达 ping</span><span id="hw_ping">—</span></div>
-      <div class="kv"><span>相机 /dev/video0</span><span id="hw_cam">—</span></div>
+      <div class="kv"><span>相机设备</span><span id="hw_cam">—</span></div>
       <div class="kv"><span>串口设备</span><span id="hw_serial">—</span></div>
       <div class="kv"><span>/dev/R1_usb2ttl</span><span id="hw_r1">—</span></div>
       <div class="kv"><span>关键节点数（应各 1）</span><span id="hw_nodes">—</span></div>
       <div class="kv"><span>PCAN 适配器 (0c72:000c)</span><span id="hw_pcan">—</span></div>
       <div class="kv"><span>底盘节点 / 电机使能</span><span id="hw_chassis">—</span></div>
       <div class="hint">机构配置要 /dev/R1_usb2ttl，但 udev 只生成 /dev/usb2ttl —— 若这里显示 ✗ 就需要补 udev 规则或改配置。</div>
-    </div>
+    </details></div>
 
     <div class="card">
       <h2>检测到的目标</h2>
@@ -412,8 +388,8 @@
       <div class="hint"><label><input type="checkbox" id="onlyWarn"> 只看 WARN/ERROR</label></div>
     </div>
 
-    <div class="card">
-      <h2>比赛轮次（2026 修订版）</h2>
+    <div class="card"><details>
+      <summary>比赛信息</summary>
       <details open><summary>每轮得分位置不同</summary>
         <table>
           <tr><th>轮</th><th>PASS（线/半场/三分）</th><th>SHOOT</th></tr>
@@ -430,7 +406,7 @@
           未满 2 次动作则回 SEEK_BALL → 满则 RETURN_HOME 回位 → DONE
         </div>
       </details>
-    </div>
+    </details></div>
   </div>
 </main>
 
@@ -516,31 +492,6 @@ function renderChassis(s){
       box.style.display = 'block';
       box.innerHTML = `<span style="color:var(--dim)">PCAN ${c.pcan_present?'✓':'✗'} · ` +
         `can0 ${c.can0_up?'UP':'未UP'} · USB掉线 ${c.usb_disconnects??'?'} 次</span>`;
-    }
-  }
-  // 顶部状态条：点云是否已变换到场地系（决定"雷达跟不跟箭头"）
-  const pl = $('pills');
-  if(pl){
-    const tfOk = !!s.odom_tf_ok;
-    const old = pl.querySelector('[data-k="tf"]');
-    const html = `<span class="pill ${tfOk?'ok':'bad'}" data-k="tf" title="点云需经 field←camera_init 变换才能和箭头对齐">` +
-                 `点云系 ${tfOk?'已对齐':'缺TF·会错位'}</span>`;
-    if(!old) pl.insertAdjacentHTML('beforeend', html);
-    else old.outerHTML = html;
-  }
-
-  // 顶部状态条加两个 pill
-  const p = $('pills');
-  if(p){
-    const has = [...p.children].some(el => el.dataset.k === 'chassis');
-    const html = `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>` +
-                 `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
-    if(!has) p.insertAdjacentHTML('beforeend', html);
-    else {
-      p.querySelector('[data-k="chassis"]').outerHTML =
-        `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>`;
-      p.querySelector('[data-k="motor"]').outerHTML =
-        `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
     }
   }
 }
@@ -646,58 +597,15 @@ function gpRun(dry){
   }
   act('GRAB_PLACE', body);
 }
-function flowRun(){
-  if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
-  act('STARTUP_FLOW');
-}
-
-const FLOW_TXT = {
-  running:  ['●', '进行中', 'var(--blue)'],
-  done:     ['✅', '可以开车了', 'var(--ok)'],
-  notready: ['⚠️', '没全就绪', 'var(--warn)'],
-  failed:   ['✗', '失败', 'var(--bad)']
-};
-
-function renderChecks(s){
-  // 流程状态框
-  const fb = $('flowbox');
-  if(s.flow && s.flow !== 'idle'){
-    const [mk, txt, col] = FLOW_TXT[s.flow] || ['·', s.flow, 'var(--dim)'];
-    fb.style.display = 'block';
-    fb.innerHTML = `<span style="color:${col}">${mk} ${txt}</span>` +
-                   (s.flow_step ? `　<span style="color:var(--dim)">${s.flow_step}</span>` : '');
-  } else { fb.style.display = 'none'; }
-
-  // 就绪面板
-  const r = s.readiness;
-  const v = $('rdyverdict'), list = $('rdylist'), card = $('rdycard');
-  if(!r){
-    if(s.checks_running){ v.textContent = '检查中…'; v.style.color = 'var(--blue)'; }
-    list.innerHTML = '';
-    card.style.borderColor = 'var(--line)';
-    return;
-  }
-  const nBad = (r.failed || []).length;
-  v.innerHTML = r.ok
-    ? '<span style="color:var(--ok)">✅ 全部就绪，可以开车</span>'
-    : `<span style="color:var(--bad)">⚠️ ${nBad} 项没就绪</span>`;
-  card.style.borderColor = r.ok ? '#245c3a' : '#5c2424';
-  const when = r.checked_at ? new Date(r.checked_at*1000).toTimeString().slice(0,8) : '';
-  list.innerHTML = `<div class="hint" style="margin-bottom:5px">检查于 ${when}</div>` +
-    (r.items || []).map(i =>
-      `<div class="rdy ${i.ok?'ok':'bad'}"><span class="m">${i.ok?'✓':'✗'}</span>` +
-      `<span class="t">${i.text.replace(/</g,'&lt;')}</span></div>`).join('');
-}
-
 const TOOL_LABEL = {
-  TEST_BALL:        '寻球+转身测试',
+  TEST_BALL:        '固定路线铲球测试',
   TEST_PERIMETER:   '绕场+寻球测试',
   TEST_CHASSIS_DRY: '底盘干跑自检'
 };
 function toolRun(key){
   const warn = {
-    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
-    TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 向车体左侧平移找篮球 → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
+    TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 对准停车。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';
   if(!confirm(warn)) return;
@@ -763,8 +671,6 @@ function render(s){
   window._st = s;
   renderMissionNode(s);
   renderLidarBall(s);
-  renderChassis(s);
-  renderChecks(s);
   renderProgress(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
@@ -773,11 +679,11 @@ function render(s){
   p.push(`<span class="pill ${cls(s.perception_ok)}">视觉 ${s.perception_ok?'OK':'异常'}</span>`);
   p.push(`<span class="pill ${cls(s.hw.can_up)}">CAN ${s.hw.can_up?'UP':'DOWN'}</span>`);
   p.push(`<span class="pill ${cls(s.hw.lidar_link)}">雷达 ${s.hw.lidar_link?'链路OK':'断开'}</span>`);
-  p.push(`<span class="pill ${s.stack_running?'ok':'warn'}">整套 ${s.stack_running?'运行中':'未由本页启动'}</span>`);
   const dup = s.hw.node_dup || {};
   const dupN = Object.keys(dup).length;
   if(dupN) p.push(`<span class="pill bad">⚠ 重复节点 ${Object.entries(dup).map(([k,v])=>k+'×'+v).join(' ')}</span>`);
   $('pills').innerHTML = p.join('');
+  renderChassis(s);
 
   $('phase').textContent = s.phase || '—';
   $('detail').textContent = s.detail || '';

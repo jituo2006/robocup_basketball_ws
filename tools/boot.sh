@@ -120,4 +120,18 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
-exec ros2 launch rb_bringup bringup_lidar_vision.launch.py
+# 保持足够的 CAN 发送队列，避免队列过小导致 ENOBUFS 丢指令。
+if ip link show can0 >/dev/null 2>&1; then
+  _q=$(cat /sys/class/net/can0/tx_queue_len 2>/dev/null || echo 0)
+  if [ "${_q:-0}" -lt 500 ] 2>/dev/null; then
+    if ! ip link set can0 txqueuelen 1000 2>/dev/null; then
+      if ! sudo -n ip link set can0 txqueuelen 1000; then
+        echo "CAN 发送队列调整失败，启动中止；请先设置 can0 txqueuelen 1000。" >&2
+        exit 1
+      fi
+    fi
+    echo "can0 txqueuelen: $_q -> $(cat /sys/class/net/can0/tx_queue_len)"
+  fi
+fi
+
+exec ros2 launch rb_bringup bringup_lidar_vision.launch.py "$@"
