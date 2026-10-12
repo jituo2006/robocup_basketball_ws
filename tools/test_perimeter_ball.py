@@ -1117,7 +1117,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--round-task', choices=['pass', 'shoot'], default='pass', help='传球找篮球，投篮找排球')
     ap.add_argument('--round-mode', choices=['drive', 'collect', 'cycle'], default='collect', help='空场路线/单次取球到动作点/双次出球指令流程')
     ap.add_argument('--round-release-kind', choices=['drop', 'match'], default='drop', help='已验证的放球联调/待配置的正式出球')
-    ap.add_argument('--round-step', type=int, default=None, help='分阶段实验，阶段编号从1开始；第1步重新建立本轮起点')
+    ap.add_argument('--round-step', type=int, default=None, help='分阶段实验，阶段编号1到3；阶段1建立起点或续做，完成后再次运行阶段1会重开')
     ap.add_argument('--round-config', default=str(Path(__file__).with_name('match_rounds.json')))
     ap.add_argument('--round-middle-scoop', type=float, default=None)
     ap.add_argument('--round-arc-scoop', type=float, default=None)
@@ -1374,9 +1374,11 @@ def main(argv: list[str] | None = None) -> int:
         if round_cfg is not None:
             from match_round_route import StartFrame
             anchor = run.pose
-            if args.round_step is not None and args.round_step != 1:
+            if args.round_step is not None:
                 from match_round_steps import load_session
-                anchor = load_session(int(args.route[-1]), args.round_task)['start_pose']
+                previous = load_session(int(args.route[-1]), args.round_task)
+                if previous is not None and (args.round_step != 1 or previous['next_step'] == 1):
+                    anchor = previous['start_pose']
             run.round_start_frame = StartFrame(anchor, round_cfg['start'])
 
         run.wait_motion_ready()

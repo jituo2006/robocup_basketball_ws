@@ -102,7 +102,7 @@
     background:var(--panel2);color:var(--tx);border:1px solid var(--line);
     border-radius:5px;padding:6px;font-size:12px}
   #matchRoundCard h3{font-size:13px;margin:14px 0 6px;color:var(--tx)}
-  #matchRoundCard .step-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+  #matchRoundCard .step-buttons{display:grid;grid-template-columns:1fr;gap:6px}
   #matchRoundCard .step-buttons button{font-size:12px;padding:8px;margin:0}
   td,th{padding:3px 6px;border-bottom:1px solid #262c37;text-align:left}
   th{color:var(--dim);font-weight:500}
@@ -156,7 +156,7 @@
         <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
         <option value="match">正式传球/投篮（需配置发射）</option>
       </select></label>
-      <div class="hint">每一步结束停车，点亮下一步。第1步重新建立本轮起点；其它步骤沿用它。取球后保持吸球，到动作点再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
+      <div class="hint">每轮只有3个阶段，每阶段内部自动完成，结束停车再点下一阶段。第2、3阶段沿用本轮起点。取球后保持吸球，到动作点再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
       <h3>第1回合：预装1球，再取中线第2球</h3>
       <div class="step-buttons" id="round1Steps">阶段读取中</div>
       <div class="hint" id="round1Progress"></div>
@@ -733,9 +733,9 @@ async function loadRoundSteps(){
         return `<button class="${cls}" ${enabled?'':'disabled'} onclick="roundStep(${r.round},${s.index})">${mark}${s.index}. ${s.label}</button>`;
       }).join('');
       $('round'+r.round+'Progress').textContent = r.finished
-        ? '本轮分步流程完成。重新测试先摆回起点，点第1步。'
-        : r.started ? `已完成${r.next_step-1}步，${running?'正在执行/等待':'下一步'}：第${r.next_step}步。`
-        : '尚未开始：摆好车，再点第1步。';
+        ? '本轮完成。重新测试先摆回起点，点第1阶段。'
+        : r.started ? `已完成${r.next_step-1}/3阶段，${running?'正在执行/等待':'下一阶段'}：第${r.next_step}阶段。`
+        : '尚未开始：摆好车，再点第1阶段。';
     });
   }catch(e){}
 }

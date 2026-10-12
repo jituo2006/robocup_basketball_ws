@@ -243,10 +243,10 @@ def test_every_stage_returns_stopped_and_preserves_initial_frame_across_new_runn
         state=stages.load_session(round_number,'pass')
         assert state['start_pose']==list(start) and state['next_step']==index+1
         assert r.round_start_frame.pose==start
-        if kind=='align':
-            assert ('align',) in events and not [e for e in events if e[0] in ('scoop','text')]
-        if kind=='release':
+        if kind in ('first','second'):
             assert [e for e in events if e[0]=='text']==[('text','MOVE 1 0 5')]
+            if kind=='second' or round_number!=1:
+                assert ('align',) in events and any(e[0]=='scoop' for e in events)
     assert r.pose==pytest.approx(start)
     assert stages.workflow_state(round_number,'pass')['finished']
 
@@ -255,11 +255,11 @@ def test_step_order_rejects_out_of_sequence_and_restart_invalidates_old_progress
     import match_round_steps as stages
     monkeypatch.setattr(stages,'STATE_DIR',tmp_path)
     cfg=load_config();r,events=fake_runner()
-    with pytest.raises(ValueError,match='第1步'):
+    with pytest.raises(ValueError,match='第1阶段'):
         stages.validate_step(2,'pass',2,cfg,'drop')
     assert stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
-    with pytest.raises(ValueError,match='第2步'):
-        stages.validate_step(2,'pass',4,cfg,'drop')
+    with pytest.raises(ValueError,match='第2阶段'):
+        stages.validate_step(2,'pass',3,cfg,'drop')
     r.goto=lambda *args,**kw:False
     assert not stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
     assert stages.load_session(2,'pass')['next_step']==1
@@ -270,6 +270,7 @@ def test_failed_stage_does_not_advance_or_release_ball(tmp_path,monkeypatch):
     monkeypatch.setattr(stages,'STATE_DIR',tmp_path)
     cfg=load_config();r,events=fake_runner()
     assert stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
+    events.clear()
     r.goto=lambda *args,**kw:False
     assert not stages.execute_step(r,cfg,2,'pass',2,emit=lambda msg:None)
     assert stages.load_session(2,'pass')['next_step']==2
@@ -280,15 +281,17 @@ def test_approach_retry_only_completes_remaining_distance_and_never_reads_yolo(t
     import match_round_steps as stages
     monkeypatch.setattr(stages,'STATE_DIR',tmp_path)
     cfg=load_config();r,events=fake_runner()
-    for index in (1,2,3):
-        assert stages.execute_step(r,cfg,2,'pass',index,emit=lambda msg:None)
+    r.aligned_intake_approach=lambda:False
+    assert not stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
+    original_start=stages.load_session(2,'pass')['start_pose']
     x,y,yaw=r.pose
     r.pose=(x-.12*math.cos(yaw),y-.12*math.sin(yaw),yaw)
     r.centered_target_candidates=lambda *args:pytest.fail('approach must not read YOLO')
     distances=[]
     r.aligned_intake_approach=lambda:distances.append(r.args.route_scoop_distance) or True
-    assert stages.execute_step(r,cfg,2,'pass',4,emit=lambda msg:None)
+    assert stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
     assert distances==pytest.approx([.28])
+    assert stages.load_session(2,'pass')['start_pose']==original_start
 
 
 def test_round_state_api_and_round1_first_button(tmp_path,monkeypatch):
@@ -298,6 +301,6 @@ def test_round_state_api_and_round1_first_button(tmp_path,monkeypatch):
     tool=NS(start=lambda key,args:calls.append((key,args)) or (True,'started'))
     client=mod.make_app(unused,unused,tool,unused,unused,unused,{}).test_client()
     status=client.get('/api/round-state?task=pass').get_json()
-    assert status['ok'] and [len(r['steps']) for r in status['rounds']]==[9,12,12]
+    assert status['ok'] and [len(r['steps']) for r in status['rounds']]==[3,3,3]
     response=client.post('/api/action',json={'name':'TEST_ROUND1','args':{'step':1}}).get_json()
     assert response['ok'] and '--round-step' in calls[0][1]
