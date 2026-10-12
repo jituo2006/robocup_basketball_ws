@@ -294,6 +294,10 @@
       <h2>📷 YOLO 识别：篮球 / 排球</h2>
       <img id="cam" src="/api/camera.mjpg" alt="相机"><div class="hint">橙框：篮球 · 蓝框：排球 · 绿线：中心触发区（左右各4%）。篮球框中心进入绿线区域即停车转身。</div>
     </div>
+    <div class="card"><h2>后摄 YOLO：对准 / 铲球</h2>
+      <img id="camRear" src="/api/camera.mjpg?slot=rear" alt="后摄像头">
+      <div class="hint">篮球在中心±1%内连续3帧后退；偏离先停再横移；丢球立即停车。框高度45%或移动距离达到上限时停止。</div>
+    </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
       <div class="row3" style="margin-bottom:6px">

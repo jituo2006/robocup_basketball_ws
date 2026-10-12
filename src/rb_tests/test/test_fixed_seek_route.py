@@ -23,6 +23,7 @@ def make_runner(mod):
                   route_scoop_distance=.20, route_forward_timeout=60., route_scan_timeout=60.,
                   route_scoop_timeout=15., route_heading_tol=.10, route_ball_tol_deg=6.,
                   route_center_tolerance=.04, ball_confidence=.5,
+                  route_rear_center_tolerance=.01, route_rear_center_frames=3,
                   route_ball_min_distance=.45, route_ball_max_distance=1.0,
                   speed=.25, approach_speed=.12, step_tol=.02, yaw_tol=.015,
                   kp=1.5, kp_yaw=2., kd_yaw=.25, max_ang=.3)
@@ -63,6 +64,12 @@ def mock_motion(run, fail=None):
         run.pose = (x, y, run.pose[2])
         return True
     run.rotate_to, run.goto = turn, goto
+    def rear():
+        x,y,yaw=run.pose
+        saved=run.args.speed;run.args.speed=run.args.route_scoop_speed
+        result=goto(x-run.args.route_scoop_distance*math.cos(yaw),y-run.args.route_scoop_distance*math.sin(yaw),tolerance=run.args.step_tol)
+        run.args.speed=saved;run.stop();return result
+    run.rear_visual_scoop=rear
     run.stop = lambda: actions.append(('stop',))
     def scan(*a):
         actions.append(('scan',))
@@ -152,10 +159,47 @@ def test_center_trigger_requires_fresh_confident_camera_basketball(label,center,
     run.detection_fresh=lambda stamp:fresh
     assert (run.centered_basketball() is not None)==expected
 
-@pytest.mark.parametrize('distance',[float('nan'),.2,3.])
-def test_centered_ball_rotates_before_depth_gate_but_does_not_back_up(distance):
-    mod=load();run=make_runner(mod);actions=mock_motion(run)
-    run.fixed_left_scan=lambda *a:(0.,distance,1)
-    assert not run.fixed_seek_and_scoop()
-    assert sum(a[0]=='turn' for a in actions)==2
-    assert sum(a[0]=='move' for a in actions)==1
+
+def test_rear_lost_detection_stops_without_blind_backing():
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
+    run.args.route_rear_align_speed=.04
+    d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
+    samples=iter([d,None]);events=[]
+    run.spin=lambda sec:None
+    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.stop=lambda:events.append('stop')
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
+    assert not run.rear_visual_scoop()
+    assert events==['stop','stop','stop']
+
+@pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04)),(.5,(-.08,0.))])
+def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected):
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
+    run.args.route_rear_align_speed=.04
+    d=NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
+    samples=iter([d,None]);commands=[]
+    run.spin=lambda sec:None
+    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.stop=lambda:None
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y))
+    assert not run.rear_visual_scoop()
+    assert commands==([] if cx==.5 else [expected])
+
+def test_rear_requires_unique_center_frames_and_stops_before_realigning():
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=.2;run.args.route_rear_stop_height=.45
+    run.args.route_rear_align_speed=.04
+    def det(cx,stamp):
+        return NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=stamp,nanosec=0))
+    samples=iter([det(.5,10),det(.5,10),det(.5,11),det(.5,12),det(.7,13),None])
+    events=[];run.spin=lambda sec:None
+    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.stop=lambda:events.append('stop')
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
+    assert not run.rear_visual_scoop()
+    assert events==['stop','stop',(-.08,0.),'stop',(0.,.04),'stop']

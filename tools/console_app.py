@@ -58,7 +58,7 @@ BALL_BOX_STYLES = {
 }
 
 
-def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
+def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85, center_tolerance=.04):
     """Annotate camera-space boxes only; LiDAR candidates have no image box."""
     import cv2
     boxes = []
@@ -84,7 +84,7 @@ def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
             return jpeg
         height, width = frame.shape[:2]
         # 与寻球脚本默认中心容差相同：画面宽度的 ±4%。
-        left, right, center = int(width*.46), int(width*.54), int(width*.5)
+        left, right, center = int(width*(.5-center_tolerance)), int(width*(.5+center_tolerance)), int(width*.5)
         cv2.line(frame, (left, 0), (left, height-1), (0, 220, 0), 1)
         cv2.line(frame, (right, 0), (right, height-1), (0, 220, 0), 1)
         cv2.line(frame, (center, 0), (center, height-1), (0, 220, 0), 1)
@@ -648,6 +648,8 @@ class Bridge:
         sub1(DetectionArray, t.get("dets", "/perception/detections"), self._on_dets, 10)
         sub1(CompressedImage, t.get("image", "/camera/image_raw/compressed"),
              self._on_image, self._sensor_qos)
+        sub1(CompressedImage, '/camera_rear/image_raw/compressed', self._on_rear_image, self._sensor_qos)
+        sub1(DetectionArray, '/perception/detections_rear', self._on_rear_dets, 10)
         # 原图兜底：离线仿真的 publish_test_image 发的是未压缩 /camera/image_raw，
         # 真机 camera_node 发 compressed。两个都订，谁先到用谁。
         sub1(Image, t.get("image_raw", "/camera/image_raw"), self._on_raw_image, self._sensor_qos)
@@ -776,6 +778,16 @@ class Bridge:
     def _on_lstatus(self, m):
         with self.lock:
             self.state["launcher_status"] = m.data
+
+    def _on_rear_image(self, m):
+        with self.lock:
+            self.state['cam_rear'] = bytes(m.data)
+            self.state['cam_rear_source_stamp'] = m.header.stamp.sec+m.header.stamp.nanosec*1e-9
+
+    def _on_rear_dets(self, m):
+        with self.lock:
+            self.state['dets_rear'] = list(m.detections)
+            self.state['dets_rear_source_stamp'] = m.header.stamp.sec+m.header.stamp.nanosec*1e-9
 
     def _on_dets(self, m):
         with self.lock:
@@ -1006,13 +1018,15 @@ class Bridge:
                 "matched": matched, "lidar_only": len(cands) - matched,
                 "camera_only": len(balls) - matched}
 
-    def camera_frame(self):
+    def camera_frame(self, slot="front"):
         """复用画框帧；只叠加与画面时间接近的新鲜视觉检测。"""
+        image_key = 'cam_rear' if slot == 'rear' else 'cam'
+        det_key = 'dets_rear' if slot == 'rear' else 'dets'
         with self.lock:
-            image = self.state.get('cam')
-            image_stamp = self.state.get('cam_source_stamp', 0)
-            det_stamp = self.state.get('dets_source_stamp', 0)
-            detections = list(self.state.get('dets', []))
+            image = self.state.get(image_key)
+            image_stamp = self.state.get(image_key+'_source_stamp', 0)
+            det_stamp = self.state.get(det_key+'_source_stamp', 0)
+            detections = list(self.state.get(det_key, []))
         if image is None:
             return None
         now = self.node.get_clock().now().nanoseconds*1e-9
@@ -1021,13 +1035,13 @@ class Bridge:
             detections = []
         detections = [d for d in detections if
                       -.05 <= now-(d.stamp.sec+d.stamp.nanosec*1e-9) <= .5]
-        key = (id(image), det_stamp, tuple((d.label, d.confidence, d.x_min,
+        key = (slot, id(image), det_stamp, tuple((d.label, d.confidence, d.x_min,
                d.y_min, d.x_max, d.y_max) for d in detections))
         with self.lock:
             cached = getattr(self, '_camera_overlay_cache', None)
             if cached and cached[0] == key:
                 return cached[2]
-        output = draw_ball_boxes(image, detections)
+        output = draw_ball_boxes(image, detections, center_tolerance=.01 if slot == "rear" else .04)
         with self.lock:
             self._camera_overlay_cache = (key, image, output)
         return output
@@ -1050,6 +1064,8 @@ class Bridge:
             s["round_stages"] = list(self.ROUND_STAGES)
             s["has_cam"] = s.get("cam") is not None
             s["cam"] = None
+            s.pop("cam_rear", None)
+            s.pop("dets_rear", None)
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
             # 检测过期就清空 —— 否则感知停了之后旧列表一直挂在页面上
             # （现场现象："雷达没开怎么还有 rack_ring"）
@@ -1705,13 +1721,14 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
 
     @app.route("/api/camera.mjpg")
     def api_camera():
+        slot = 'rear' if request.args.get('slot') == 'rear' else 'front'
         def gen():
             # ⚠️ 必须直接读 bridge.state["cam"]：snapshot() 为了 JSON 序列化
             # 会把 cam 置成 None，用 snapshot 拿画面会永远拿到空。
             last = None
             idle = 0
             while True:
-                img = bridge.camera_frame()
+                img = bridge.camera_frame(slot)
                 if img is not None and img is not last:
                     last = img
                     idle = 0

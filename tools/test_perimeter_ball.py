@@ -664,10 +664,10 @@ class Runner:
                     f"→ ({tx:.2f},{ty:.2f})")
         return self.goto(tx, ty, timeout=timeout)
 
-    def centered_basketball(self):
+    def centered_basketball_candidates(self, detections, centered=True):
         """中心竖带中的新鲜视觉篮球，不依赖单目距离估计。"""
         candidates = []
-        for d in self.dets:
+        for d in detections:
             if d.label != 'ball_basketball' or getattr(d, 'source', 'camera') != 'camera':
                 continue
             values = [float(getattr(d, k, float('nan'))) for k in
@@ -681,9 +681,79 @@ class Runner:
                 continue
             if not self.detection_fresh(stamp_seconds(d.stamp)):
                 continue
-            if abs((x1+x2)/2 - .5) <= self.args.route_center_tolerance:
+            if not centered or abs((x1+x2)/2 - .5) <= self.args.route_center_tolerance:
                 candidates.append(d)
         return max(candidates, key=lambda d: d.confidence) if candidates else None
+
+    def centered_basketball(self):
+        return self.centered_basketball_candidates(self.dets)
+
+    def rear_visual_scoop(self):
+        """后摄闭环：居中后退，偏离横移，丢球停车；限制总位移和时间。"""
+        self.stop()
+        origin = self.pose[:2]
+        deadline = time.monotonic() + self.args.route_rear_timeout
+        seen = False
+        centered_frames = 0
+        last_center_stamp = None
+        approaching = False
+        while time.monotonic() < deadline:
+            self.spin(.03)
+            d = self.centered_basketball_candidates(getattr(self, 'dets_rear', []), centered=False)
+            if d is None:
+                self.stop()
+                if seen:
+                    log('后摄停车', '篮球丢失或检测过期，保持停车', C_WARN)
+                    return False
+                continue
+            seen = True
+            error = (float(d.x_min)+float(d.x_max))/2 - .5
+            height = float(d.y_max)-float(d.y_min)
+            displacement = math.hypot(self.pose[0]-origin[0], self.pose[1]-origin[1])
+            trace('rear_scoop', cx=error+.5, bbox_height=height,
+                  displacement=displacement, confidence=float(d.confidence),
+                  stamp=stamp_seconds(d.stamp))
+            if (approaching and abs(error) <= self.args.route_rear_center_tolerance
+                    and height >= self.args.route_rear_stop_height):
+                self.stop()
+                log('后摄停车', '球框达到近距离阈值，停车；是否铲入需实物确认')
+                return True
+            if displacement >= self.args.route_scoop_distance:
+                self.stop()
+                log('后摄停车', '已达后摄辅助移动距离上限，停车')
+                return False
+            tw = self._Twist()
+            if abs(error) <= self.args.route_rear_center_tolerance:
+                if not approaching:
+                    if centered_frames == 0:
+                        self.stop()
+                    stamp = stamp_seconds(d.stamp)
+                    if last_center_stamp is None or stamp > last_center_stamp:
+                        centered_frames += 1
+                        last_center_stamp = stamp
+                    if centered_frames < self.args.route_rear_center_frames:
+                        continue
+                    approaching = True
+                    log('后摄对准', '连续新帧确认居中，开始朝球低速后退')
+                    # 球已到近距离阈值时，不再下发后退速度。
+                    if height >= self.args.route_rear_stop_height:
+                        self.stop()
+                        return True
+                tw.linear.x = -self.args.route_scoop_speed
+            else:
+                if approaching:
+                    self.stop()
+                    log('后摄纠偏', '接近时偏离中心，先停车再横移')
+                approaching = False
+                centered_frames = 0
+                last_center_stamp = None
+                # 后摄画面右侧是车体左侧（+y），误差越小横移越慢。
+                speed = min(self.args.route_rear_align_speed, max(.005, abs(error)*.4))
+                tw.linear.y = math.copysign(speed, error)
+            self.publish_command(tw)
+        self.stop()
+        log('后摄停车', '等待篮球或后退对准超时，保持停车', C_WARN)
+        return False
 
     def fixed_left_scan(self, heading, axis):
         """车体左移，篮球框中心进入中央竖带即停车。"""
@@ -753,26 +823,7 @@ class Runner:
         yaw_before = self.pose[2]
         if not self.rotate_to(wrap_pi(yaw_before+math.pi), timeout=45.0):
             return False
-        if not math.isfinite(distance) or not self.args.route_ball_min_distance <= distance <= self.args.route_ball_max_distance:
-            self.stop()
-            log("路线停车", f"已转身180°；球深度 {distance:.2f}m 不在铲球窗口，暂不后退", C_WARN)
-            return False
-        # 只执行车体后退；不调用抓取/发射机构，不声称已物理收球。
-        x, y, yaw = self.pose
-        target = (x-self.args.route_scoop_distance*math.cos(yaw),
-                  y-self.args.route_scoop_distance*math.sin(yaw))
-        saved_speed, saved_approach = self.args.speed, self.args.approach_speed
-        try:
-            self.args.speed = self.args.route_scoop_speed
-            self.args.approach_speed = self.args.route_scoop_speed
-            ok = self.goto(*target, timeout=self.args.route_scoop_timeout,
-                           tolerance=self.args.step_tol)
-        finally:
-            self.args.speed, self.args.approach_speed = saved_speed, saved_approach
-            self.stop()
-        log("固定路线", "后退铲球动作完成；是否铲入需实物确认" if ok else "后退未到位，已停车",
-            C_OK if ok else C_WARN)
-        return ok
+        return self.rear_visual_scoop()
 
     def _scan_for_ball(self, seconds: float, wz: float, tag: str):
         """原地按给定角速度转，边转边看摄像头。找到返回检测。"""
@@ -988,12 +1039,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-ball-tol-deg", type=float, default=6.0, help="停车后球偏离铲口轴线最大角度")
     ap.add_argument("--route-ball-min-distance", type=float, default=0.45)
     ap.add_argument("--route-ball-max-distance", type=float, default=1.0)
-    ap.add_argument("--route-scoop-distance", type=float, default=0.20, help="转180度后低速后退距离 m")
+    ap.add_argument("--route-scoop-distance", type=float, default=0.40, help="转180度后低速后退距离 m")
     ap.add_argument("--route-scoop-speed", type=float, default=0.08)
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0)
     ap.add_argument("--route-center-tolerance", type=float, default=0.04,
                     help="篮球框中心距画面中心允许偏差（画面宽度比例）")
+    ap.add_argument('--route-rear-timeout', type=float, default=15.0)
+    ap.add_argument('--route-rear-align-speed', type=float, default=.04)
+    ap.add_argument('--route-rear-stop-height', type=float, default=.45,
+                    help='后摄篮球框高度占画面比例达到此值即停车，需现场调整')
+    ap.add_argument('--route-rear-center-tolerance', type=float, default=.01,
+                    help='后摄篮球中心容差，画面宽度比例')
+    ap.add_argument('--route-rear-center-frames', type=int, default=3,
+                    help='停车居中确认需要的连续新检测帧数')
     args = ap.parse_args(argv)
+    if not 0 < args.route_rear_center_tolerance < .5 or args.route_rear_center_frames < 1:
+        ap.error('后摄中心容差须在0和0.5之间，确认帧数须至少1')
+    if not 0 < args.route_rear_stop_height <= 1:
+        ap.error('后摄停止框高度须在0和1之间')
+    if not all(math.isfinite(v) and v > 0 for v in (args.route_rear_timeout, args.route_rear_align_speed)):
+        ap.error('后摄超时和对准速度须为正且有限')
     if not math.isfinite(args.route_center_tolerance) or not 0 < args.route_center_tolerance < .5:
         ap.error("中心容差必须在0和0.5之间")
     positive = ("speed", "pose_timeout", "max_ang", "yaw_tol", "detection_timeout",

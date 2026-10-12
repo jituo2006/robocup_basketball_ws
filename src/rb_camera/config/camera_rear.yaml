@@ -1,0 +1,56 @@
+# 后摄未标定；独立LRCP设备，复用前摄采集代码。
+camera:
+  device: /dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0
+  width: 640
+  height: 480
+  fps: 30.0
+  fourcc: MJPG
+  buffersize: 1
+  flip: 0
+  publish_rate_hz: 0.0
+  reconnect_interval_s: 2.0
+  max_read_failures: 15
+  qos_reliability: reliable
+  qos_depth: 1
+  publish_compressed: true
+  publish_raw: false
+  jpeg_quality: 80
+controls:
+  enabled: false
+  lock_exposure: true
+  exposure: 150
+  auto_exposure:
+    enabled: true
+    target_brightness: 115
+    deadband: 14
+    gain: 0.5
+    tune_every_n: 15
+    settle_frames: 5
+    avg_frames: 8
+    min: 30
+    max: 3000
+  lock_white_balance: true
+  white_balance_temperature: 4600
+  power_line_frequency: 1
+  gain: null
+  brightness: null
+  contrast: null
+  saturation: null
+  sharpness: null
+output:
+  image_topic: /camera_rear/image_raw
+  compressed_topic: /camera_rear/image_raw/compressed
+  camera_info_topic: /camera_rear/camera_info
+  frame_id: camera_rear_link
+intrinsics:
+  fx: 0.0
+  fy: 0.0
+  cx: 0.0
+  cy: 0.0
+  assumed_hfov_deg: 60.0
+  distortion:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
