@@ -574,8 +574,14 @@ class Bridge:
             "lb_enabled": False, "lb_mode": "fuse", "lb_cands": [],
             "lb_stats": {}, "lb_ms": 0.0, "lb_cfg": {}, "cloud": None, "cam": None, "cam_stamp": 0.0,
             "cam_fps": 0.0, "cloud_fps": 0.0,
+            # ── 后摄画面（双摄界面用）──
+            "cam_rear": None, "cam_rear_stamp": 0.0, "cam_rear_fps": 0.0,
+            # ── 两个相机各自的曝光状态（来自 /rb_camera*/exposure_state）──
+            #    键是 ROS 节点名：rb_camera / rb_camera_rear
+            "exposure": {},
         }
         self._cam_times: deque = deque(maxlen=30)
+        self._cam_rear_times: deque = deque(maxlen=30)
         self._cloud_times: deque = deque(maxlen=30)
         self._last_odom_wall = 0.0
 
@@ -602,6 +608,18 @@ class Bridge:
         sub1(PointCloud2, t.get("cloud", "/cloud_registered"), self._on_cloud, self._sensor_qos)
         sub1(Log, "/rosout", self._on_log, 50)
 
+        # ── 双摄：后摄画面 ────────────────────────────────────────────────
+        # ⚠️ 话题写死 /camera_rear/...（和 bringup_lidar_vision.launch.py 里
+        #    rb_camera_rear 的 output.image_topic 一致）—— 配置里没有这个键时
+        #    不能用 t.get(...) 兜底成前摄的，否则两个画面会变成同一个 ✗
+        sub1(CompressedImage, "/camera_rear/image_raw/compressed",
+             self._on_image_rear, self._sensor_qos)
+        # ── 双摄：两个相机各自的曝光状态 ──────────────────────────────────
+        #    相机节点用节点私有话题 ~/exposure_state 周期发布（不用 latched，
+        #    避开 DDS writer/reader 匹配问题）✓
+        sub1(StringMsg, "/rb_camera/exposure_state", self._on_exposure, 5)
+        sub1(StringMsg, "/rb_camera_rear/exposure_state", self._on_exposure, 5)
+
         from rb_msgs.srv import SerialText
         self.cli_text = self.node.create_client(
             SerialText, t.get("launch_text", "/rb_launcher/text"))
@@ -610,6 +628,13 @@ class Bridge:
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
         self.pub_cmd = self.node.create_publisher(Twist, t.get("cmd_vel", "/cmd_vel"), 10)
         self.pub_goal = self.node.create_publisher(PoseStamped, t.get("goal_pose", "/goal_pose"), 5)
+        # 曝光指令发布者：后台只建【一个】，话题在 publish 时按前后摄切换不现实，
+        # 所以前后各建一个 ✓（两个发布者都常驻，但它们只发 std_msgs/String 的
+        # exposure_cmd，不碰 /cmd_vel，不会影响找球脚本的"独占 /cmd_vel"检查 ✓）
+        self.pub_exposure = {
+            "front": self.node.create_publisher(StringMsg, "/rb_camera/exposure_cmd", 5),
+            "rear": self.node.create_publisher(StringMsg, "/rb_camera_rear/exposure_cmd", 5),
+        }
 
         # tf2：点云要从 camera_init 变换到 field 才能和位姿对齐
         # （定位节点发 field→camera_init，是刚性变换，不是 EKF 位姿）
@@ -739,6 +764,32 @@ class Bridge:
             if len(self._cam_times) > 1:
                 dt = self._cam_times[-1] - self._cam_times[0]
                 self.state["cam_fps"] = (len(self._cam_times) - 1) / dt if dt > 0.05 else 0.0
+
+    def _on_image_rear(self, m):
+        """后摄画面（结构与 _on_image 完全对称，方便界面两张图并排）。"""
+        now = time.time()
+        self._cam_rear_times.append(now)
+        with self.lock:
+            self.state["cam_rear"] = bytes(m.data)
+            self.state["cam_rear_stamp"] = now
+            if len(self._cam_rear_times) > 1:
+                dt = self._cam_rear_times[-1] - self._cam_rear_times[0]
+                self.state["cam_rear_fps"] = ((len(self._cam_rear_times) - 1) / dt
+                                              if dt > 0.05 else 0.0)
+
+    def _on_exposure(self, m):
+        """相机节点的曝光状态（JSON）→ state['exposure'][节点名]。"""
+        try:
+            d = json.loads(m.data or "{}")
+        except Exception:  # noqa: BLE001
+            return
+        name = str(d.get("node") or "")
+        if not name:
+            return
+        with self.lock:
+            ex = dict(self.state.get("exposure") or {})
+            ex[name] = d
+            self.state["exposure"] = ex
 
     def _on_raw_image(self, m):
         """未压缩图 → JPEG（只在还没收到 compressed 时用，避免覆盖高质量源）。"""
@@ -968,7 +1019,9 @@ class Bridge:
                                   if self._phase_name and self._phase_enter else 0.0)
             s["round_stages"] = list(self.ROUND_STAGES)
             s["has_cam"] = s.get("cam") is not None
+            s["has_cam_rear"] = s.get("cam_rear") is not None
             s["cam"] = None
+            s["cam_rear"] = None
             s["cloud"] = None if s["cloud"] is None else len(s["cloud"])
             # 检测过期就清空 —— 否则感知停了之后旧列表一直挂在页面上
             # （现场现象："雷达没开怎么还有 rack_ring"）
@@ -1624,14 +1677,17 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
 
     @app.route("/api/camera.mjpg")
     def api_camera():
+        # ?rear=1 取后摄画面（两张图用同一条路由，逻辑完全一样，避免复制粘贴走样 ✓）
+        key = "cam_rear" if request.args.get("rear") in ("1", "true", "yes") else "cam"
+
         def gen():
-            # ⚠️ 必须直接读 bridge.state["cam"]：snapshot() 为了 JSON 序列化
-            # 会把 cam 置成 None，用 snapshot 拿画面会永远拿到空。
+            # ⚠️ 必须直接读 bridge.state[...]：snapshot() 为了 JSON 序列化
+            # 会把 cam/cam_rear 置成 None，用 snapshot 拿画面会永远拿到空。
             last = None
             idle = 0
             while True:
                 with bridge.lock:
-                    img = bridge.state["cam"]
+                    img = bridge.state.get(key)
                 if img is not None and img is not last:
                     last = img
                     idle = 0
@@ -1646,6 +1702,39 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     break
                 time.sleep(0.05)
         return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+    @app.route("/api/exposure", methods=["GET", "POST"])
+    def api_exposure():
+        """两个相机各自的曝光。
+
+        GET  → {"rb_camera": {...}, "rb_camera_rear": {...}}
+        POST → {"cam": "front"|"rear", "auto": bool?, "target": int?, "value": int?}
+               转发成 std_msgs/String(JSON) 发到相机节点的 ~/exposure_cmd ✓
+
+        ⚠️ 相机节点用【周期发布】回报状态（不用 latched），所以这里读到的
+           最多是 1 秒前的值；设置完之后界面稍等一下再刷新即可 ✓
+        """
+        if request.method == "GET":
+            with bridge.lock:
+                return jsonify(dict(bridge.state.get("exposure") or {}))
+        body = request.get_json(silent=True) or {}
+        cam = "rear" if str(body.get("cam") or "front").lower().startswith("rear") else "front"
+        topic = f"/rb_camera{'_rear' if cam == 'rear' else ''}/exposure_cmd"
+        cmd = {}
+        for k in ("auto", "target", "value"):
+            if k in body and body[k] is not None:
+                cmd[k] = body[k]
+        if not cmd:
+            return jsonify({"ok": False, "msg": "没有可用的字段（auto/target/value）"})
+        try:
+            msg = StringMsg()
+            msg.data = json.dumps(cmd)
+            with bridge.lock:
+                pub = bridge.pub_exposure[cam]
+            pub.publish(msg)
+            return jsonify({"ok": True, "msg": f"{cam} 曝光指令已发出 {cmd}", "topic": topic})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "msg": f"{type(exc).__name__}: {exc}"})
 
     @app.route("/api/lidar.mjpg")
     def api_lidar():

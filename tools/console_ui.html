@@ -46,6 +46,14 @@
   .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .row button{margin-bottom:0}
+  /* 双摄并排：两张画面等宽，窄屏（<900px）自动堆成一列 ✓ */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+  @media (max-width:900px){ .grid2{grid-template-columns:1fr} }
+  /* 曝光控制条：紧凑一行，不把画面挤小 ✓ */
+  .exp{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;color:var(--dim)}
+  .exp input[type=range]{flex:1;min-width:0;height:16px}
+  .exp span.v{min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--tx)}
+  .exp button{padding:2px 8px;font-size:12px;margin:0}
   .kv{display:flex;justify-content:space-between;gap:8px;padding:3px 0;
       border-bottom:1px dashed #262c37;font-size:13px}
   .kv:last-child{border:0}
@@ -311,8 +319,52 @@
   <!-- 中列：画面 -->
   <div>
     <div class="card">
-      <h2>📷 相机画面（/camera/image_raw/compressed）</h2>
-      <img id="cam" src="/api/camera.mjpg" alt="相机">
+      <h2>📷 双摄画面（前 /camera · 后 /camera_rear）</h2>
+      <div class="grid2">
+        <div>
+          <div class="kv"><span>前摄</span><span id="camF_info">—</span></div>
+          <img id="cam" src="/api/camera.mjpg" alt="前摄">
+          <div class="kv"><span>曝光</span><span id="exF_now">—</span></div>
+          <div class="exp">
+            <label title="打开后按目标亮度自动调曝光">
+              <input type="checkbox" id="exF_auto" onchange="exSet('front')"> 自动
+            </label>
+            <input type="range" id="exF_target" min="20" max="220" value="115"
+                   oninput="$('exF_tv').textContent=this.value" onchange="exSet('front')">
+            <span class="v" id="exF_tv">115</span>
+          </div>
+          <div class="exp">
+            <span>手动</span>
+            <input type="range" id="exF_value" min="1" max="1200" value="150"
+                   oninput="$('exF_vv').textContent=this.value" onchange="exSet('front')">
+            <span class="v" id="exF_vv">150</span>
+          </div>
+        </div>
+        <div>
+          <div class="kv"><span>后摄</span><span id="camR_info">—</span></div>
+          <img id="cam_rear" src="/api/camera.mjpg?rear=1" alt="后摄">
+          <div class="kv"><span>曝光</span><span id="exR_now">—</span></div>
+          <div class="exp">
+            <label title="打开后按目标亮度自动调曝光">
+              <input type="checkbox" id="exR_auto" onchange="exSet('rear')"> 自动
+            </label>
+            <input type="range" id="exR_target" min="20" max="220" value="115"
+                   oninput="$('exR_tv').textContent=this.value" onchange="exSet('rear')">
+            <span class="v" id="exR_tv">115</span>
+          </div>
+          <div class="exp">
+            <span>手动</span>
+            <input type="range" id="exR_value" min="1" max="1200" value="150"
+                   oninput="$('exR_vv').textContent=this.value" onchange="exSet('rear')">
+            <span class="v" id="exR_vv">150</span>
+          </div>
+        </div>
+      </div>
+      <div class="hint">
+        <b>自动</b> = 按"目标亮度"闭环调曝光（画面平均亮度，0~255）；
+        <b>手动</b> = 关掉自动后用固定曝光值（1~1200）。两个相机各自独立 ✓<br>
+        拖动滑块即时下发；状态每秒回报一次，稍等一下就会刷新成相机实际值。
+      </div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -759,6 +811,51 @@ function renderProgress(s){
   $('progress').innerHTML = rows.join('');
 }
 
+// ── 双摄曝光控制 ────────────────────────────────────────────────
+// cam: 'front' | 'rear'。滑块/勾选框一变就下发，不要求点"应用" ✓
+// 后端 /api/exposure POST → std_msgs/String(JSON) → 相机节点 ~/exposure_cmd ✓
+async function exSet(cam){
+  const F = cam === 'front';
+  const auto  = $(F ? 'exF_auto'   : 'exR_auto').checked;
+  const target= parseInt($(F ? 'exF_target' : 'exR_target').value, 10);
+  const value = parseInt($(F ? 'exF_value'  : 'exR_value').value, 10);
+  // 只发用户刚动的那一项会造成歧义，直接两项都发：auto 决定用哪个 ✓
+  const body = {cam, auto};
+  if(auto) body.target = target; else body.value = value;
+  try{
+    const r = await fetch('/api/exposure', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const j = await r.json();
+    toast(`曝光(${F?'前':'后'}): ${j.msg || (j.ok?'已下发':'失败')}`, j.ok?'ok':'bad');
+  }catch(e){ toast(`曝光下发失败: ${e}`, 'bad'); }
+}
+
+function renderExposure(s){
+  const ex = s.exposure || {};
+  const one = (node, pfx, infoId) => {
+    const d = ex[node];
+    if(!d){ $(pfx + '_now').textContent = '（未收到状态）'; return; }
+    const v = d.value|0, mean = Math.round(d.mean||0), t = Math.round(d.target||0);
+    $(pfx + '_now').textContent =
+      `${d.auto?'自动':'手动'} · 曝光 ${v}` +
+      (d.mean ? ` · 亮度 ${mean}` : '') +
+      (d.auto ? ` · 目标 ${t}` : '');
+    // 只在用户没有正在拖动时才回写控件，否则会和手指"打架"✗
+    const el = (id) => $(id);
+    if(document.activeElement !== el(pfx + '_target')) el(pfx + '_target').value = t;
+    if(document.activeElement !== el(pfx + '_value'))  el(pfx + '_value').value  = v;
+    el(pfx + '_tv').textContent = t;
+    el(pfx + '_vv').textContent = v;
+    el(pfx + '_auto').checked = !!d.auto;
+    void infoId;
+  };
+  one('rb_camera',      'exF', 'camF_info');
+  one('rb_camera_rear', 'exR', 'camR_info');
+  // 两个画面的帧率，直接写在画面标题行 ✓
+  $('camF_info').textContent = fmt(s.cam_fps, 1) + ' Hz' + (s.has_cam ? '' : ' · 无画面');
+  $('camR_info').textContent = fmt(s.cam_rear_fps, 1) + ' Hz' + (s.has_cam_rear ? '' : ' · 无画面');
+}
+
 function render(s){
   window._st = s;
   renderMissionNode(s);
@@ -766,6 +863,7 @@ function render(s){
   renderChassis(s);
   renderChecks(s);
   renderProgress(s);
+  renderExposure(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
   p.push(`<span class="pill ${cls(s.loc_ok)}">定位 ${s.loc_ok?'OK':'不可用'}</span>`);
