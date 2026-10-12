@@ -1574,6 +1574,10 @@ def fixed_seek_tool_args(args):
 def match_round_tool_args(args, round_number=2):
     task, mode = args.get('task', 'pass'), args.get('mode', 'collect')
     cfg = load_round_config()
+    first_ball = args.get('first_ball', 'search')
+    if first_ball not in ('preloaded', 'search'):
+        raise ValueError('首球方式须为 preloaded/search')
+    cfg['round1_first_ball'] = first_ball
     release_kind = args.get('release_kind', 'drop')
     validate_round_mode(cfg, task, mode, release_kind)
     step = args.get('step')
@@ -1583,7 +1587,7 @@ def match_round_tool_args(args, round_number=2):
     base = fixed_seek_tool_args({'scoop_speed': args.get('scoop_speed', .08),
                                 'start_intake': args.get('start_intake', True)})
     result = ['--round-task', task, '--round-mode', mode,
-              '--round-release-kind', release_kind] + base
+              '--round-release-kind', release_kind, '--round-first-ball', first_ball] + base
     if step is not None:
         result += ['--round-step', str(step)]
     for area in ('middle', 'arc', 'inner'):
@@ -1614,7 +1618,7 @@ class ToolRunner:
                                  raw.decode("utf-8", "replace").rstrip()))
             except Exception:  # noqa: BLE001
                 pass
-        code = proc.poll()
+        code = proc.wait()
         lvl = "TOOL" if code == 0 else "ERROR"
         self.log.append((time.time(), lvl, name, f"— {name} 结束，退出码 {code} —"))
 
@@ -1762,7 +1766,22 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     def round_state():
         try:
             task = request.args.get('task', 'pass')
-            return jsonify({'ok': True, 'rounds': [workflow_state(n, task) for n in (1, 2, 3)]})
+            first_ball = request.args.get('first_ball', 'search')
+            if first_ball not in ('search', 'preloaded'):
+                raise ValueError('首球方式无效')
+            return jsonify({'ok': True, 'rounds': [workflow_state(n, task, first_ball) for n in (1, 2, 3)]})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
+    @app.route('/api/round-reset', methods=['POST'])
+    def round_reset():
+        try:
+            if tool.running:
+                raise ValueError('实验正在执行，请先停止再重开')
+            from match_round_steps import clear_session
+            data = request.get_json() or {}
+            clear_session(data.get('round'), data.get('task', 'pass'))
+            return jsonify({'ok': True, 'msg': '本轮已重开，请摆回出发区再运行第1阶段'})
         except (ValueError, KeyError, TypeError, OSError) as exc:
             return jsonify({'ok': False, 'msg': str(exc)})
 

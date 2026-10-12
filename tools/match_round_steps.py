@@ -8,10 +8,10 @@ from match_round_route import RoundRoute, StartFrame, search_order, validate_mod
 STATE_DIR = Path('/tmp/rb_match_rounds')
 
 
-def steps(round_number):
+def steps(round_number, first_ball='preloaded'):
     if round_number not in (1, 2, 3):
         raise ValueError('回合须为1、2或3')
-    first = '入场 → 预装球到动作点 → 放球' if round_number == 1 else '入场 → 取第1球 → 到动作点放球'
+    first = '入场 → 预装球到动作点 → 放球' if round_number == 1 and first_ball == 'preloaded' else '入场 → 取第1球 → 到动作点放球'
     return [('first', first), ('second', '取第2球 → 到动作点放球'),
             ('home', '回出发区 → 恢复初始朝向')]
 
@@ -54,6 +54,11 @@ def validate_step(round_number, task, index, cfg, release_kind):
     if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= 3:
         raise ValueError('阶段编号须为1、2或3')
     validate_mode(cfg, task, 'collect', release_kind)
+    state = load_session(round_number, task)
+    first_ball = cfg.get('round1_first_ball', 'preloaded')
+    if (state and state['next_step'] <= 3 and round_number == 1
+            and state.get('first_ball', 'preloaded') != first_ball):
+        raise ValueError('首球方式已改变，请摆回出发区并点击“重开本轮”')
     if index != 1:
         state = load_session(round_number, task)
         if state is None:
@@ -64,13 +69,15 @@ def validate_step(round_number, task, index, cfg, release_kind):
         validate_mode(cfg, task, 'cycle', release_kind)
 
 
-def workflow_state(round_number, task):
+def workflow_state(round_number, task, first_ball='preloaded'):
     state = load_session(round_number, task)
     next_step = state['next_step'] if state else 1
     return {'round': round_number, 'started': state is not None, 'next_step': next_step,
-            'finished': next_step > 3,
+            'finished': next_step > 3, 'last_error': (state or {}).get('last_error', ''),
+            'active_action': (state or {}).get('active_action', ''),
+            'first_ball': (state or {}).get('first_ball', first_ball),
             'steps': [{'index': i, 'kind': kind, 'label': label, 'done': i < next_step}
-                      for i, (kind, label) in enumerate(steps(round_number), 1)]}
+                      for i, (kind, label) in enumerate(steps(round_number, (state or {}).get('first_ball', first_ball)), 1)]}
 
 
 def execute_step(runner, cfg, round_number, task, index, release_kind='drop', emit=print):
@@ -79,10 +86,12 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     if index == 1 and (previous is None or previous['next_step'] != 1):
         state = {'version': 2, 'round': round_number, 'task': task,
                  'start_pose': list(runner.pose), 'next_step': 1, 'substep': 0,
+                 'first_ball': cfg.get('round1_first_ball', 'preloaded'), 'last_error': '',
                  'trail': [], 'search_origin': None, 'area': None}
         save_session(state)
     else:
         state = previous
+    state.setdefault('first_ball', 'preloaded')
     plan = RoundRoute(runner, cfg, round_number, task, 'collect', emit=emit,
                       release_kind=release_kind)
     plan.frame = StartFrame(state['start_pose'], cfg['start'])
@@ -91,65 +100,74 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     runner.args.speed = cfg['speed_mps']
     plan.trail = [tuple(p) for p in state['trail']]
     plan.search_origin = state['search_origin']
-    plan.say(f'阶段 {index}：{steps(round_number)[index-1][1]}')
+    plan.say(f'阶段 {index}：{steps(round_number, state["first_ball"])[index-1][1]}')
     runner.stop()
     if index == 3:
         actions = ['home']
-    elif index == 1 and round_number == 1:
+    elif index == 1 and round_number == 1 and state['first_ball'] == 'preloaded':
         actions = ['entry', 'action', 'release']
     else:
         actions = (['entry'] if index == 1 else []) + ['search', 'align', 'approach', 'carry', 'release']
     for kind in actions[state['substep']:]:
+        state['active_action'], state['last_error'] = kind, ''
+        save_session(state)
         ok = False
-        if kind == 'entry':
-            runner.spin(cfg['start_delay_s'])
-            ok = plan.turn(-math.pi/2) and plan.move(cfg['entry'])
-        elif kind == 'action':
-            ok = plan.action_point()
-        elif kind == 'search':
-            cycle = 0 if round_number == 1 else index-1
-            if task == 'shoot' and index == 2:
-                if not plan.move(cfg['corridor']):
-                    return False
-            for area in search_order(round_number, task):
-                result = plan.search_area(area, cycle, search_only=True)
-                if result == 'failed':
-                    break
-                if result == 'found':
-                    state['area'] = area
+        try:
+            if kind == 'entry':
+                runner.spin(cfg['start_delay_s'])
+                ok = plan.turn(-math.pi/2) and plan.move(cfg['entry'])
+            elif kind == 'action':
+                ok = plan.action_point()
+            elif kind == 'search':
+                cycle = 0 if round_number == 1 else index-1
+                if task == 'shoot' and index == 2:
+                    if not plan.move(cfg['corridor']):
+                        raise RuntimeError('去搜索通道未完成')
+                for area in search_order(round_number, task):
+                    result = plan.search_area(area, cycle, search_only=True)
+                    if result == 'failed':
+                        break
+                    if result == 'found':
+                        state['area'] = area
+                        ok = True
+                        break
+            elif kind == 'align':
+                if plan.search_origin is None:
+                    raise ValueError('缺少前摄停车点，请重新开始本轮')
+                ok = runner.rotate_to(wrap(plan.search_origin[2]+math.pi), timeout=45.) and runner.rear_visual_scoop(approach=False)
+                if ok:
+                    state['aligned_pose'] = list(runner.pose)
+            elif kind == 'approach':
+                if state['area'] is None or 'aligned_pose' not in state:
+                    raise ValueError('尚未完成后摄对正')
+                ax, ay, heading = state['aligned_pose']
+                if abs(wrap(runner.pose[2]-heading)) > runner.args.route_heading_tol:
+                    raise ValueError('车头已偏离对正方向，请重新开始本轮')
+                travelled = -(runner.pose[0]-ax)*math.cos(heading)-(runner.pose[1]-ay)*math.sin(heading)
+                remaining = cfg[state['area']]['scoop_m']-travelled
+                if remaining <= runner.args.step_tol:
                     ok = True
-                    break
-        elif kind == 'align':
-            if plan.search_origin is None:
-                raise ValueError('缺少前摄停车点，请重新开始本轮')
-            ok = runner.rotate_to(wrap(plan.search_origin[2]+math.pi), timeout=45.) and runner.rear_visual_scoop(approach=False)
-            if ok:
-                state['aligned_pose'] = list(runner.pose)
-        elif kind == 'approach':
-            if state['area'] is None or 'aligned_pose' not in state:
-                raise ValueError('尚未完成后摄对正')
-            ax, ay, heading = state['aligned_pose']
-            if abs(wrap(runner.pose[2]-heading)) > runner.args.route_heading_tol:
-                raise ValueError('车头已偏离对正方向，请重新开始本轮')
-            travelled = -(runner.pose[0]-ax)*math.cos(heading)-(runner.pose[1]-ay)*math.sin(heading)
-            remaining = cfg[state['area']]['scoop_m']-travelled
-            if remaining <= runner.args.step_tol:
-                ok = True
-            else:
-                runner.args.route_scoop_distance = remaining
-                runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
-                ok = runner.aligned_intake_approach()
-        elif kind == 'carry':
-            ok = plan.unwind() and plan.action_point()
-        elif kind == 'release':
-            # 失败后重试 release 会新建 plan，补做对准；同次 carry 已完成则不重复走动作点。
-            if release_kind == 'match' and not plan.target_aligned and not plan.action_point():
-                return False
-            ok = plan.release()
-        elif kind == 'home':
-            ok = plan.home()
+                else:
+                    runner.args.route_scoop_distance = remaining
+                    runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
+                    ok = runner.aligned_intake_approach()
+            elif kind == 'carry':
+                ok = plan.unwind() and plan.action_point()
+            elif kind == 'release':
+                # 失败后重试 release 会新建 plan，补做对准；同次 carry 已完成则不重复走动作点。
+                if release_kind == 'match' and not plan.target_aligned and not plan.action_point():
+                    raise RuntimeError('动作点对准未完成')
+                ok = plan.release()
+            elif kind == 'home':
+                ok = plan.home()
+        except (RuntimeError, ValueError) as exc:
+            plan.last_error = str(exc)
+            ok = False
         runner.stop()
         if not ok:
+            state['trail'] = [list(p) for p in plan.trail]
+            state['last_error'] = plan.last_error or f'{kind} 未完成；请查看路线日志'
+            save_session(state)
             plan.say(f'{kind} 未完成，本阶段停车；重试会沿用本轮起点和已完成动作')
             return False
         state['substep'] += 1
@@ -158,6 +176,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         save_session(state)
     state['next_step'] = index+1
     state['substep'] = 0
+    state['active_action'], state['last_error'] = '', ''
     save_session(state)
     plan.say('本阶段完成，已停车，等待下一阶段按钮')
     return True

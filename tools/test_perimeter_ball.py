@@ -1140,6 +1140,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--round-mode', choices=['drive', 'collect', 'cycle'], default='collect', help='空场路线/单次取球到动作点/双次出球指令流程')
     ap.add_argument('--round-release-kind', choices=['drop', 'match'], default='drop', help='已验证的放球联调/待配置的正式出球')
     ap.add_argument('--round-step', type=int, default=None, help='分阶段实验，阶段编号1到3；阶段1建立起点或续做，完成后再次运行阶段1会重开')
+    ap.add_argument('--round-first-ball', choices=['preloaded', 'search'], default='search',
+                    help='第1轮首球：search按固定路线取球联调；preloaded按规则首球预装')
     ap.add_argument('--round-config', default=str(Path(__file__).with_name('match_rounds.json')))
     ap.add_argument('--round-middle-scoop', type=float, default=None)
     ap.add_argument('--round-arc-scoop', type=float, default=None)
@@ -1293,6 +1295,7 @@ def main(argv: list[str] | None = None) -> int:
         from match_round_route import load_config, validate_mode, TASK_LABELS
         try:
             round_cfg = load_config(args.round_config)
+            round_cfg['round1_first_ball'] = args.round_first_ball
             validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind)
             if args.round_step is not None:
                 from match_round_steps import validate_step

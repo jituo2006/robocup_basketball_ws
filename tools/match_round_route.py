@@ -56,6 +56,8 @@ def load_config(path=CONFIG):
         point(cfg[key])
     number(cfg['speed_mps'], .01, .25)
     number(cfg['start_delay_s'], 5, 15)
+    if cfg.get('round1_first_ball', 'preloaded') not in ('preloaded', 'search'):
+        raise ValueError('首球方式须为 preloaded/search')
     vision = cfg.get('pillar_alignment', {})
     if vision:
         if not isinstance(vision.get('enabled'), bool):
@@ -164,6 +166,11 @@ class RoundRoute:
         self.trail = []
         self.search_origin = None
         self.target_aligned = False
+        self.last_error = ''
+        if release_kind == 'match' and not getattr(runner.args, 'route_intake', True):
+            raise ValueError('正式出球不能关闭机构')
+        if round_number == 1 and release_kind == 'match' and cfg.get('round1_first_ball', 'preloaded') != 'preloaded':
+            raise ValueError('规则第1轮首球须预装；场上取首球仅用于放球联调')
 
     def say(self, message):
         self.emit(f'第{self.round}回合/{self.task}/{self.mode}: {message}')
@@ -228,10 +235,11 @@ class RoundRoute:
     def unwind(self):
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
         self.r.stop()
-        for p in reversed(self.trail):
+        while self.trail:
+            p = self.trail[-1]
             if not self.move_world(p):
                 return False
-        self.trail = []
+            self.trail.pop()
         return True
 
     def search_area(self, area, cycle, search_only=False):
@@ -316,6 +324,11 @@ class RoundRoute:
 
     def release(self):
         action = self.cfg['release'][self.task]
+        if not getattr(self.r.args, 'route_intake', True):
+            if self.release_kind == 'match':
+                raise ValueError('正式出球不能关闭机构')
+            self.say('机构已明确关闭：本次只测试运动，跳过放球指令')
+            return True
         if (self.release_kind == 'match' and self.cfg.get('pillar_alignment', {}).get('enabled')
                 and not self.target_aligned):
             self.say('尚未对准定位柱，先完成动作点对准')
@@ -326,6 +339,7 @@ class RoundRoute:
             ok, message = self.r.intake_text(command)
             self.say(f'出球指令 {command}: {message}')
             if not ok:
+                self.last_error = f'机构指令 {command} 失败：{message}'
                 return False
             self.r.spin(action['wait_s'])
         self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
@@ -348,7 +362,8 @@ class RoundRoute:
         self.r.spin(self.cfg['start_delay_s'])
         if not self.turn(-math.pi/2):
             return False
-        if self.round == 1:
+        preloaded = self.round == 1 and self.cfg.get('round1_first_ball', 'preloaded') == 'preloaded'
+        if preloaded:
             if not self.move(self.cfg['entry']) or not self.action_point():
                 return False
             if self.mode == 'collect':
@@ -360,7 +375,7 @@ class RoundRoute:
                 return False
             if not self.move(self.cfg['entry']):
                 return False
-        count = 1 if self.round == 1 else (2 if self.mode == 'cycle' else 1)
+        count = 1 if preloaded else (2 if self.mode == 'cycle' else 1)
         for cycle in range(count):
             found = False
             for area in search_order(self.round, self.task):

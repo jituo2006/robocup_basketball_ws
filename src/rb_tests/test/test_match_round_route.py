@@ -119,7 +119,7 @@ def test_middle_preposition_failure_does_not_inspect_or_acquire_target():
 
 
 @pytest.mark.parametrize('number,task,area,distance', [
-    (2, 'pass', 'middle', .4), (2, 'shoot', 'middle', .4),
+    (2, 'pass', 'middle', .45), (2, 'shoot', 'middle', .45),
     (3, 'pass', 'arc', .25), (3, 'shoot', 'inner', .15)])
 def test_collect_uses_correct_class_then_unwinds_to_entry_and_stops_at_action(number, task, area, distance):
     cfg = load_config(); r, events = fake_runner()
@@ -210,7 +210,7 @@ def test_frontend_reads_current_config_defaults_without_actuating():
     mod=console(); unused=NS()
     client=mod.make_app(unused,unused,unused,unused,unused,unused,{}).test_client()
     cfg=client.get('/api/round-config').get_json()
-    assert cfg['ok'] and cfg['scoop_m']=={'middle':.4,'arc':.25,'inner':.15}
+    assert cfg['ok'] and cfg['scoop_m']=={'middle':.45,'arc':.25,'inner':.15}
     assert cfg['release_ready']=={'pass':False,'shoot':False}
     assert cfg['forward_m']==pytest.approx(3.2)
     assert cfg['middle_scan']==pytest.approx({'start_x':4.4, 'end_x':.6,
@@ -344,7 +344,7 @@ def test_approach_retry_only_completes_remaining_distance_and_never_reads_yolo(t
     distances=[]
     r.aligned_intake_approach=lambda:distances.append(r.args.route_scoop_distance) or True
     assert stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
-    assert distances==pytest.approx([.28])
+    assert distances==pytest.approx([.33])
     assert stages.load_session(2,'pass')['start_pose']==original_start
 
 

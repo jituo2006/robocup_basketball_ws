@@ -157,7 +157,11 @@
         <option value="match">正式传球/投篮（需配置发射）</option>
       </select></label>
       <div class="hint">每轮只有3个阶段，每阶段内部自动完成，结束停车再点下一阶段。第2、3阶段沿用本轮起点。取球后保持吸球，到动作点后前摄对准定位柱，再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
-      <h3>第1回合：预装1球，再取中线第2球</h3>
+      <label>第1回合首球方式<select id="roundFirstBall" onchange="loadRoundSteps()">
+        <option value="search">场上取首球（调试，复用固定路线）</option>
+        <option value="preloaded">首球预装（赛事规则）</option>
+      </select></label>
+      <h3>第1回合：首球 → 中线第2球 → 回位</h3>
       <div class="step-buttons" id="round1Steps">阶段读取中</div>
       <div class="hint" id="round1Progress"></div>
       <div class="hint" id="round1PathHint">第2阶段：先到中线置球区图右端，再向图左端寻球。</div>
@@ -176,14 +180,14 @@
       </details>
       <details><summary>靠近吸球参数</summary>
         <div class="row">
-          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.03" max="2" step="0.05" value="0.40"></label>
+          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.03" max="2" step="0.01" value="0.45"></label>
           <label>弧线后退（米）<input id="roundArcScoop" type="number" min="0.03" max="2" step="0.05" value="0.25"></label>
         </div>
         <div class="row">
           <label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.03" max="2" step="0.05" value="0.15"></label>
           <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
         </div>
-        <label><input id="roundIntake" type="checkbox" checked style="width:auto"> 对正后启动吸球</label>
+        <label><input id="roundIntake" type="checkbox" checked style="width:auto"> 启用机构（吸球、放球）；取消勾选只测运动</label>
         <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
       </details>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
@@ -715,6 +719,7 @@ async function loadRoundConfig(){
 function roundArgs(){
   return {
     task: $('roundTask').value,
+    first_ball: $('roundFirstBall').value,
     mode: $('roundMode').value,
     release_kind: $('roundReleaseKind').value,
     middle_scoop: Number($('roundMiddleScoop').value),
@@ -725,12 +730,16 @@ function roundArgs(){
   };
 }
 function roundRun(round){ act('TEST_ROUND'+round, roundArgs()); }
+async function roundReset(round){
+  const data = await (await fetch('/api/round-reset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({round, task:$('roundTask').value})})).json();
+  toast(data.msg, data.ok?'ok':'bad'); await loadRoundSteps();
+}
 function roundStep(round, step){
   act('TEST_ROUND'+round, {...roundArgs(), mode:'collect', step});
 }
 async function loadRoundSteps(){
   try{
-    const data = await (await fetch('/api/round-state?task='+$('roundTask').value)).json();
+    const data = await (await fetch('/api/round-state?task='+$('roundTask').value+'&first_ball='+$('roundFirstBall').value)).json();
     if(!data.ok){ $('roundReleaseState').textContent=data.msg; return; }
     data.rounds.forEach(r => {
       const running = !!(window._st && window._st.tool_running);
@@ -739,11 +748,12 @@ async function loadRoundSteps(){
         const cls = s.index === r.next_step ? 'primary' : 'ghost';
         const mark = s.done ? '✓ ' : '';
         return `<button class="${cls}" ${enabled?'':'disabled'} onclick="roundStep(${r.round},${s.index})">${mark}${s.index}. ${s.label}</button>`;
-      }).join('');
+      }).join('') + `<button class="ghost" ${running?'disabled':''} onclick="roundReset(${r.round})">重开本轮（先摆回起点）</button>`;
       $('round'+r.round+'Progress').textContent = r.finished
         ? '本轮完成。重新测试先摆回起点，点第1阶段。'
         : r.started ? `已完成${r.next_step-1}/3阶段，${running?'正在执行/等待':'下一阶段'}：第${r.next_step}阶段。`
         : '尚未开始：摆好车，再点第1阶段。';
+      if(r.last_error) $('round'+r.round+'Progress').textContent += ' 上次失败：'+r.last_error+'；排除后重试本阶段。';
     });
   }catch(e){}
 }
