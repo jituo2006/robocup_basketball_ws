@@ -21,6 +21,4 @@ def start_intake(send, wait=time.sleep):
 
 
 def stop_intake(send, wait=time.sleep):
-    # Retain the old place_only preset's 1 s before stopping and re-zeroing.
-    return _sequence(send, [('MOVE 1 0 5', 1.), ('STOP', .3), ('ZERO', 0.)],
-                     wait, finish_on_error=True)
+    return _sequence(send, [('MOVE 1 0 5', 0.)], wait)

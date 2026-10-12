@@ -45,23 +45,23 @@ def test_intake_buttons_only_call_text_service_and_do_not_start_route():
     client=app.test_client()
     assert client.post('/api/action',json={'name':'INTAKE_START'}).get_json()['ok']
     assert client.post('/api/action',json={'name':'INTAKE_STOP'}).get_json()['ok']
-    assert events==['STOP','ZERO','MOVE 1 90 5','MOVE 1 0 5','STOP','ZERO']
+    assert events==['STOP','ZERO','MOVE 1 90 5','MOVE 1 0 5']
 
 
-def test_stop_intake_releases_then_stops_and_zeroes_in_order():
+def test_stop_intake_only_sends_move_zero_without_waiting():
     events=[]
     assert stop_intake(lambda cmd:events.append(cmd) or (True,'sent'),
                        wait=lambda sec:events.append(sec))[0]
-    assert events==['MOVE 1 0 5',1.,'STOP',.3,'ZERO']
+    assert events==['MOVE 1 0 5']
 
 
-def test_stop_still_sends_stop_and_zero_if_release_fails():
+def test_failed_stop_has_no_additional_commands():
     events=[]
     def send(cmd):
         events.append(cmd)
         return cmd!='MOVE 1 0 5','result'
     assert not stop_intake(send,wait=lambda sec:None)[0]
-    assert events==['MOVE 1 0 5','STOP','ZERO']
+    assert events==['MOVE 1 0 5']
 
 
 def test_route_ui_parameters_reach_script_and_start_intake_by_default():
