@@ -55,7 +55,8 @@ def main():
     ready = False
     cutoff = 0.
     serial = 0
-    driver_started = mapping_started = next_driver = next_mapping = 0.
+    next_driver = next_mapping = 0.
+    driver_received = mapping_received = False
     subscriptions = []
 
     def announce():
@@ -89,9 +90,15 @@ def main():
                 link = False
             # 源时间倒退、长间隔、断网、点云/IMU不同步、位置跳变都使旧会话作废。
             fault = health.fault_serial != serial
+            # 没有首帧之前属于初始化，不用固定秒数中断它。
+            # 曾经收到数据后再断流，才按既有连续性检查重建会话。
+            if driver is not None and health.inputs_live(wall, mono):
+                driver_received = True
+            if mapping is not None and health.odom.stamp is not None:
+                mapping_received = True
             if mapping is not None and (mapping.poll() is not None or not link
                     or not health.inputs_live(wall, mono) or fault
-                    or mono-mapping_started > 8 and not health.odom.live(wall, mono)):
+                    or mapping_received and not health.odom.live(wall, mono)):
                 ready = False
                 generation += 1
                 cutoff = 0.
@@ -103,7 +110,7 @@ def main():
                 next_mapping = time.monotonic()+1.
             serial = health.fault_serial
             if driver is not None and (driver.poll() is not None or not link
-                    or mono-driver_started > 8 and not health.inputs_live(wall, mono)):
+                    or driver_received and not health.inputs_live(wall, mono)):
                 stop_process(driver)
                 driver = None
                 health.imu.clear()
@@ -112,13 +119,13 @@ def main():
             if link and driver is None and mono >= next_driver:
                 driver = subprocess.Popen(['ros2', 'launch', 'livox_ros_driver2',
                                            'msg_MID360_launch.py'], start_new_session=True)
-                driver_started = mono
+                driver_received = False
             if mapping is None and mono >= next_mapping and health.inputs_stable(wall, mono):
                 health.reset_odom()
                 mapping = subprocess.Popen(['ros2', 'launch', 'fast_lio', 'mapping.launch.py',
                     'config_path:='+args.lidar_root+'/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config',
                     'config_file:=mid360.yaml', 'rviz:=false'], start_new_session=True)
-                mapping_started = mono
+                mapping_received = False
                 node.get_logger().info('雷达/IMU 已连续稳定，启动全新 FAST-LIO 会话')
             if mapping is not None and not ready and health.odom_stable(wall, mono):
                 cutoff = health.odom.stamp

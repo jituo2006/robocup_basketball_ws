@@ -10,7 +10,8 @@ sys.path.insert(0,str(scripts))
 import lidar_session
 
 
-@pytest.mark.parametrize('fault', ['link', 'imu_gap', 'odom_jump', 'mapping_exit'])
+@pytest.mark.parametrize('fault', ['link', 'imu_gap', 'odom_jump', 'mapping_exit',
+                                 'slow_lidar', 'slow_mapping'])
 def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     runtime=NS(t=100.,tick=0,events=[],messages=[],processes=[],callbacks={})
     def bad():return 102 < runtime.t < 102.7
@@ -18,6 +19,7 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         def __init__(self,cmd,**kwargs):
             assert kwargs['start_new_session']
             self.kind='mapping' if 'fast_lio' in cmd else 'driver'
+            self.started=runtime.t
             self.pid=1000+len(runtime.processes);self.stopped=False
             runtime.processes.append(self);runtime.events.append(('start',self.kind,runtime.t))
         def poll(self):
@@ -48,12 +50,17 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         return m
     def spin(*args,**kwargs):
         runtime.tick+=1;runtime.t=100+runtime.tick*.01
-        if active('driver'):
+        if active('driver') and not (fault=='slow_lidar' and runtime.t<112):
             if not (fault=='imu_gap' and bad()):runtime.callbacks['/livox/imu'](message())
             if runtime.tick%10==0:runtime.callbacks['/livox/lidar'](message())
-        if active('mapping') and runtime.tick%10==0:runtime.callbacks['/Odometry'](message(True))
+        slow = fault=='slow_mapping' and runtime.t<next(
+            (p.started+12 for p in reversed(runtime.processes) if p.kind=='mapping'),float('inf'))
+        if active('mapping') and not slow and runtime.tick%10==0:
+            runtime.callbacks['/Odometry'](message(True))
     modules={
-        'rclpy':dict(init=lambda:None,create_node=lambda *a:n,ok=lambda:runtime.tick<650,spin_once=spin,shutdown=lambda:None),
+        'rclpy':dict(init=lambda:None,create_node=lambda *a:n,
+                    ok=lambda:runtime.tick<(2300 if fault.startswith('slow_') else 650),
+                    spin_once=spin,shutdown=lambda:None),
         'rclpy.qos':dict(qos_profile_sensor_data=object()),
         'livox_ros_driver2.msg':dict(CustomMsg=object),
         'nav_msgs.msg':dict(Odometry=object),
@@ -69,8 +76,14 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     monkeypatch.setattr(sys,'argv',['lidar_session.py','--stable-seconds','.2'])
     lidar_session.main()
     starts=[t for action,kind,t in runtime.events if action=='start' and kind=='mapping']
-    assert len(starts)>=2
     ready=[(t,s) for t,s in runtime.messages if s['ready']]
+    if fault.startswith('slow_'):
+        assert len(starts)==1
+        assert sum(action=='start' and kind=='driver' for action,kind,t in runtime.events)==1
+        assert ready and ready[0][0]>112
+        assert all(p.stopped for p in runtime.processes)
+        return
+    assert len(starts)>=2
     assert ready and any(t<102 for t,s in ready) and any(t>103 for t,s in ready)
     first_gen=ready[0][1]['generation']
     assert ready[-1][1]['generation']>first_gen

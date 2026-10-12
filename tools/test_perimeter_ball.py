@@ -13,7 +13,7 @@
   不动底盘/定位/感知，它们照常工作。
 * **复用经过测试的运动学**：到点用 `rb_mission.geometry.goto_command`
   （任务侧在用的同一份，坐标系/单位约定一致）。
-* **安全兜底**：每步都有超时；超时/异常/Ctrl-C 一律发零速再退出。
+* 启动持续等待定位就绪，没有启动等待超时；动作异常/Ctrl-C 发零速退出。
 
 用法
 ----
@@ -497,17 +497,16 @@ class Runner:
             self.cmd_pub.publish(self._Twist())
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
 
-    def wait_pose(self, timeout: float = 8.0) -> bool:
-        t0 = time.time()
-        while time.time() - t0 < timeout and self.pose is None:
+    def wait_pose(self) -> bool:
+        # 定位初始化可能很慢；持续接收，直到第一帧有效定位或用户停止。
+        while self.rclpy.ok() and self.pose is None:
             self.rclpy.spin_once(self.node, timeout_sec=0.05)
         return self.pose is not None
 
-    def wait_motion_ready(self, timeout: float = 8.0) -> None:
-        # 开始路线前最多等 8 秒，重试定位检查；运行中不会走这个重试入口。
+    def wait_motion_ready(self) -> None:
+        # 启动时不因等得久而退出；真正收到可用定位/里程计后才开始路线。
         # 只有显式开启 obstacle_guard 才要求前摄流就绪，避障默认关闭。
-        deadline = time.monotonic() + timeout
-        while True:
+        while self.rclpy.ok():
             self.spin(0.05)
             try:
                 self.require_fresh_pose()
@@ -517,8 +516,8 @@ class Runner:
                         raise RuntimeError("前摄新数据尚未就绪，保持停车")
                 return
             except RuntimeError:
-                if time.monotonic() >= deadline:
-                    raise
+                continue
+        raise RuntimeError("ROS 已停止，取消等待定位")
 
     def observation_pose(self, det):
         return pose_at(self.pose_history, stamp_seconds(det.stamp), self.args.pose_match_gap)
@@ -1485,8 +1484,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── [1/5] 节点 ──────────────────────────────────────────────────────
     print("\n[1/5] 检查节点")
+    # FAST-LIO 由雷达管理器按数据就绪启动，点击时尚未出现不代表故障。
+    # 不用进程快照拒绝测试；下面持续等待真正的定位/里程计数据。
     need = {"底盘": "[c]hassis_node", "定位": "[l]ocalization_node",
-            "感知": "[p]erception_node", "FAST-LIO": "[f]astlio_mapping"}
+            "感知": "[p]erception_node"}
     miss = []
     for n, pat in need.items():
         ok = subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
@@ -1522,9 +1523,9 @@ def main(argv: list[str] | None = None) -> int:
     run = Runner(args)
     try:
         # ── [3/5] 位姿 + 场地 ───────────────────────────────────────────
-        print("\n[3/5] 读位姿与场地")
-        if not run.wait_pose(8.0):
-            print(f"      {C_BAD}✗ 读不到 /localization/pose{C_OFF}")
+        print("\n[3/5] 等待定位就绪（无启动超时，可点击停止取消）", flush=True)
+        if not run.wait_pose():
+            print(f"      {C_BAD}ROS 已停止，取消等待定位{C_OFF}")
             return 1
         sx, sy, syaw = run.pose
         import yaml
