@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import struct
 from types import ModuleType, SimpleNamespace as NS
 import pytest
 
@@ -37,7 +38,16 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         def create_publisher(self,*args):
             import json
             return NS(publish=lambda m:runtime.messages.append((runtime.t,json.loads(m.data))))
-        def create_subscription(self,typ,topic,cb,qos):runtime.callbacks[topic]=cb;return cb
+        def create_subscription(self,typ,topic,cb,qos,**kwargs):
+            if topic=='/livox/lidar':
+                assert kwargs.get('raw') is True
+                def deliver(msg):
+                    stamp=msg.header.stamp
+                    cb(b'\x00\x01\x00\x00'+struct.pack('<iI',stamp.sec,stamp.nanosec))
+                runtime.callbacks[topic]=deliver
+            else:
+                runtime.callbacks[topic]=cb
+            return cb
         def create_timer(self,*args):pass
         def get_clock(self):return NS(now=lambda:NS(nanoseconds=int(runtime.t*1e9)))
         def get_logger(self):return NS(info=lambda *a:None,warn=lambda *a:None)

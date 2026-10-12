@@ -1,4 +1,6 @@
 import importlib.util
+import struct
+import pytest
 from pathlib import Path
 
 path = Path(__file__).parents[1] / 'scripts' / 'lidar_health.py'
@@ -6,6 +8,19 @@ spec = importlib.util.spec_from_file_location('lidar_health', path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 LidarHealth = module.LidarHealth
+
+
+@pytest.mark.parametrize('endian,encapsulation', [('<', b'\x00\x01'), ('>', b'\x00\x00')])
+def test_raw_header_stamp_without_decoding_point_array(endian, encapsulation):
+    data=encapsulation+b'\x00\x00'+struct.pack(endian+'iI',100,123456789)+b'ignored point array'
+    assert module.cdr_header_stamp(data)==pytest.approx(100.123456789)
+
+
+@pytest.mark.parametrize('data', [b'', b'\x00\x01', b'\x00\x03'+b'\x00'*10,
+    b'\x00\x01\x00\x00'+struct.pack('<iI',100,1000000000)])
+def test_invalid_raw_header_is_rejected(data):
+    with pytest.raises(ValueError):
+        module.cdr_header_stamp(data)
 
 
 def feed(h, start=100., duration=1.2):

@@ -8,7 +8,7 @@ import signal
 import subprocess
 import time
 
-from lidar_health import LidarHealth
+from lidar_health import LidarHealth, cdr_header_stamp
 
 
 def stop_process(proc):
@@ -76,8 +76,19 @@ def main():
         health.observe(name, stamp, node.get_clock().now().nanoseconds*1e-9,
                        time.monotonic(), position)
 
+    # 每帧约两万 CustomPoint，Python 展开数组实测耗时约 60～87ms。
+    # 管理器只需要 Header；使用 raw 避免阻塞 IMU/里程计及会话心跳。
+    def receive_lidar(data):
+        try:
+            stamp = cdr_header_stamp(data)
+        except ValueError:
+            return
+        health.observe('lidar', stamp, node.get_clock().now().nanoseconds*1e-9,
+                       time.monotonic())
+
+    subscriptions.append(node.create_subscription(
+        CustomMsg, '/livox/lidar', receive_lidar, qos_profile_sensor_data, raw=True))
     for name, typ, topic in [('imu', Imu, '/livox/imu'),
-                             ('lidar', CustomMsg, '/livox/lidar'),
                              ('odom', Odometry, '/Odometry')]:
         subscriptions.append(node.create_subscription(
             typ, topic, lambda msg, name=name: receive(name, msg), qos_profile_sensor_data))

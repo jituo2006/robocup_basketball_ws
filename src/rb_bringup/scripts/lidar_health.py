@@ -1,5 +1,16 @@
 """连续输入检测；不依赖 ROS，方便重放断电和时间跳变。"""
 import math
+import struct
+
+
+def cdr_header_stamp(data):
+    """只读取 ROS2 CDR 的 Header 时间，不展开后面的点云点数组。"""
+    if len(data) < 12 or data[:2] not in (b'\x00\x00', b'\x00\x01'):
+        raise ValueError('无效的 CDR Header')
+    sec, nanosec = struct.unpack_from('<iI' if data[1] == 1 else '>iI', data, 4)
+    if nanosec >= 1000000000:
+        raise ValueError('无效的 Header 纳秒')
+    return sec + nanosec * 1e-9
 
 
 class Stream:
