@@ -1,0 +1,70 @@
+# 后相机独立内参；同一新 YOLO 模型，禁止复制前相机安装参数。
+camera:
+  fx: 794.16
+  fy: 793.9
+  cx: 577.4
+  cy: 378.38
+  distortion:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  calibrated: true
+  calibration_size:
+  - 1280
+  - 720
+perception:
+  opencv_threads: 2
+  detectors:
+  - label: yolo
+    type: onnx
+    enabled: true
+    model_path: /home/user/robocup_basketball_ws/models/ball_20261011_v5.onnx
+    conf_threshold: 0.25
+    cross_class_overlap: 0.55
+    cross_class_labels:
+    - ball_basketball
+    - ball_volleyball
+    iou_threshold: 0.45
+    input_size: 640
+    every_n_frames: 1
+    intra_op_threads: 2
+    inter_op_threads: 1
+    real_diameter_m: 0.24
+    class_real_size:
+      ball_basketball: 0.24
+      ball_volleyball: 0.21
+      pillar: 0.2
+    class_size_axis:
+      pillar: width
+    only_mapped: true
+    name_map:
+      篮球: ball_basketball
+      排球: ball_volleyball
+      定位柱: pillar
+      basketball: ball_basketball
+      volleyball: ball_volleyball
+      pillar: pillar
+  lidar_ball:
+    enabled: true
+    mode: precision
+    cloud_topic: /cloud_registered_body
+    cloud_frame: body
+    odom_topic: /Odometry
+    extrinsics_confirmed: true
+    base_from_cloud: [[0.0871557427,-0.9961946981,0.0,0.2377573387],[0.9961946981,0.0871557427,0.0,0.0129879989],[0.0,0.0,1.0,0.28588],[0.0,0.0,0.0,1.0]]
+    base_from_camera: [[0.0,0.0,-1.0,-0.2714213562],[1.0,0.0,0.0,0.0],[0.0,-1.0,0.0,0.21],[0.0,0.0,0.0,1.0]]
+    max_age_s: 0.3
+    max_sync_s: 0.1
+    min_confidence: 0.6
+    min_points: 12
+    max_range_m: 6.0
+    cluster_tolerance_m: 0.065
+    radii_m:
+      ball_basketball: 0.12
+      ball_volleyball: 0.105
+    sensor_noise_m: 0.01
+    max_residual_m: 0.012
+    max_condition: 8.0
+    max_uncertainty_m: 0.02

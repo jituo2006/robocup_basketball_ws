@@ -1,0 +1,18 @@
+# 仅上层控制；不会配置、使能或重启底盘。
+ball_label: ball_basketball
+target_center_distance_m: 0.60  # 导轨最外端中点到球心的三维距离，不减球半径
+intake_confirmed: true
+intake_position_base_m: [-0.65, 1.356236776502151e-06, 0.016499999999992382]  # x采用现场实测-0.65m；高度为CAD候选，未独立验收
+intake_outward_xy: [-1.0, 0.0]
+distance_tolerance_m: 0.02
+lateral_tolerance_m: 0.02
+heading_tolerance_rad: 0.035
+settle_s: 0.50
+max_age_s: 0.30
+speed_limit_mps: 0.08
+stage_timeout_s: 45.0
+odom_topic: /Odometry
+front_range_topic: /perception/ball_range
+rear_range_topic: /perception_rear/ball_range
+front_perception_config: src/rb_perception/config/perception.yaml
+rear_perception_config: src/rb_perception/config/perception_rear.yaml

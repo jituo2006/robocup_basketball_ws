@@ -1,0 +1,61 @@
+# 2026-10-12 现场确认：LRCP V1080P 为车尾相机，使用固定 USB 路径。
+# 2026-10-12 现场安装：横梁正中、朝车尾、水平（俯角 0°），中心离地 0.21 m。
+# 旧版已有水平安装标注；完整外参见 docs/ball_precision_setup.md。
+camera:
+  device: /dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0
+  width: 1280
+  height: 720
+  fps: 15.0
+  fourcc: MJPG
+  buffersize: 1
+  flip: 0
+  publish_rate_hz: 0.0
+  reconnect_interval_s: 2.0
+  max_read_failures: 15
+  qos_reliability: reliable
+  qos_depth: 1
+  publish_compressed: true
+  publish_raw: false
+  jpeg_quality: 80
+controls:
+  enabled: false
+  lock_exposure: true
+  exposure: 150
+  auto_exposure:
+    enabled: false
+    target_brightness: 115
+    deadband: 14
+    gain: 0.5
+    tune_every_n: 15
+    settle_frames: 5
+    avg_frames: 8
+    min: 30
+    max: 3000
+  lock_white_balance: true
+  white_balance_temperature: 4600
+  power_line_frequency: 1
+  gain: null
+  brightness: null
+  contrast: null
+  saturation: null
+  sharpness: null
+output:
+  image_topic: /camera_rear/image_raw
+  compressed_topic: /camera_rear/image_raw/compressed
+  camera_info_topic: /camera_rear/camera_info
+  frame_id: camera_rear_optical
+  health_topic: /rb_camera_rear/ok
+intrinsics:
+  # ⚠️ 现场确认前后两个相机是同一型号（HD USB Camera / LRCP V1080P 同为 1080P 模组），
+  #    因此沿用【之前那套相机标定配置】—— 与 camera.yaml 的数值保持一致。
+  #    这不是"猜一个数":数值来自 4dc1131 那次实拍棋盘格标定，一直沿用到 9b83a0a。
+  #    若之后用 tools/calibrate_camera.py --camera-role rear 重新标定，
+  #    工具会把新值写回这里并置 calibrated: true。
+  calibrated: true
+  calibration_size: [1280, 720]
+  fx: 794.16
+  fy: 793.9
+  cx: 577.4
+  cy: 378.38
+  assumed_hfov_deg: 60.0
+  distortion: [0.018392, -0.525673, 0.015934, 0.004543, 0.808854]
