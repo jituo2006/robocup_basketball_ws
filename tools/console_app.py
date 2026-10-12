@@ -43,7 +43,7 @@ from collections import deque
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from intake_control import start_intake
+from intake_control import start_intake, stop_intake
 
 import numpy as np
 
@@ -1823,7 +1823,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 ok, msg = start_intake(bridge.launcher_text)
                 return jsonify({'ok': ok, 'msg': f'吸球测试：{msg}'})
             if name == 'INTAKE_STOP':
-                ok, msg = bridge.launcher_text('STOP')
+                ok, msg = stop_intake(bridge.launcher_text)
                 return jsonify({'ok': ok, 'msg': f'停止吸球：{msg}'})
             if name == "LAUNCH_INIT":
                 # 现场要的开机顺序：先 STOP，再 ZERO 初始化

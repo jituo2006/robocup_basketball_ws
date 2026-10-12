@@ -43,7 +43,7 @@ import time
 WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
-from intake_control import start_intake
+from intake_control import start_intake, stop_intake
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
@@ -821,7 +821,8 @@ class Runner:
             return reached
         finally:
             self.stop()
-            self.intake_text('STOP')
+            ok, message = stop_intake(self.intake_text)
+            log('停止吸球', message, C_OK if ok else C_BAD)
 
     def _rear_visual_scoop(self):
         """YOLO is used only to align laterally; approach then uses pose distance."""

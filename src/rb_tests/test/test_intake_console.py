@@ -8,7 +8,7 @@ import pytest
 
 WS=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(WS/'tools'))
-from intake_control import start_intake
+from intake_control import start_intake, stop_intake
 
 
 def console():
@@ -38,13 +38,30 @@ def test_intake_sequence_stops_on_failed_initialization():
 def test_intake_buttons_only_call_text_service_and_do_not_start_route():
     mod=console();events=[]
     mod.start_intake=lambda send:start_intake(send,wait=lambda sec:None)
+    mod.stop_intake=lambda send:stop_intake(send,wait=lambda sec:None)
     bridge=NS(launcher_text=lambda cmd:events.append(cmd) or (True,'sent'))
     unused=NS()
     app=mod.make_app(bridge,unused,unused,unused,unused,unused,{})
     client=app.test_client()
     assert client.post('/api/action',json={'name':'INTAKE_START'}).get_json()['ok']
     assert client.post('/api/action',json={'name':'INTAKE_STOP'}).get_json()['ok']
-    assert events==['STOP','ZERO','MOVE 1 90 5','STOP']
+    assert events==['STOP','ZERO','MOVE 1 90 5','MOVE 1 0 5','STOP','ZERO']
+
+
+def test_stop_intake_releases_then_stops_and_zeroes_in_order():
+    events=[]
+    assert stop_intake(lambda cmd:events.append(cmd) or (True,'sent'),
+                       wait=lambda sec:events.append(sec))[0]
+    assert events==['MOVE 1 0 5',1.,'STOP',.3,'ZERO']
+
+
+def test_stop_still_sends_stop_and_zero_if_release_fails():
+    events=[]
+    def send(cmd):
+        events.append(cmd)
+        return cmd!='MOVE 1 0 5','result'
+    assert not stop_intake(send,wait=lambda sec:None)[0]
+    assert events==['MOVE 1 0 5','STOP','ZERO']
 
 
 def test_route_ui_parameters_reach_script_and_start_intake_by_default():

@@ -254,7 +254,7 @@ def test_optional_intake_starts_before_approach_and_stops_afterwards(approach_re
     run.spin=lambda sec:None;run.stop=lambda:None
     run.rear_distance_scoop=lambda:events.append('approach') or approach_result
     assert run.aligned_intake_approach() is approach_result
-    assert events==['STOP','ZERO','MOVE 1 90 5','approach','STOP']
+    assert events==['STOP','ZERO','MOVE 1 90 5','approach','MOVE 1 0 5','STOP','ZERO']
 
 
 def test_unplugged_intake_does_not_start_approach_when_option_enabled():
