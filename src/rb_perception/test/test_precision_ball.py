@@ -250,8 +250,17 @@ def test_camera_publishes_each_acquisition_once_with_original_stamp():
     exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])), '<camera>', 'exec'), ns)
     capture_stamp = NS(sec=10, nanosec=10)
     messages = []
+    # ⚠️ 属性名必须与【当前】camera_node.publish_latest 的实现一致 ✗
+    #    本文件来自"双摄/精确找球"那一版，当时属性叫
+    #        _latest_ros_stamp / _published_seq
+    #    而 182f98d（"correct ... front camera freshness"）把 camera_node 改成
+    #        _latest_stamp / _last_pub_seq
+    #    两者只能留一个：182f98d 那版是【必须保留】的 ✓
+    #      * device_override —— 修"前摄被写死的 device 覆盖、去开后摄的设备"✗
+    #      * 用【接收时刻】当时间戳，而不是处理完的时刻 ✓
+    #    所以这里改测试去适配实现 ✓，而不是把实现退回旧属性名 ✗
     n = NS(_lock=threading.Lock(), _latest=np.zeros((2, 2, 3)), _seq=1,
-           _latest_ros_stamp=capture_stamp, _published_seq=-1, _frames_published=0,
+           _latest_stamp=capture_stamp, _last_pub_seq=-1, _frames_published=0,
            bridge=NS(cv2_to_imgmsg=lambda *a, **k: NS(header=NS())), frame_id='camera',
            publish_raw=True, image_pub=NS(publish=messages.append),
            info_pub=NS(publish=lambda m: None), _make_info=lambda s: s,
@@ -259,6 +268,6 @@ def test_camera_publishes_each_acquisition_once_with_original_stamp():
     ns['publish_latest'](n)
     ns['publish_latest'](n)
     assert len(messages)==1 and messages[0].header.stamp is capture_stamp
-    n._seq=2; n._latest_ros_stamp=NS(sec=11, nanosec=0)
+    n._seq=2; n._latest_stamp=NS(sec=11, nanosec=0)
     ns['publish_latest'](n)
     assert len(messages)==2 and messages[1].header.stamp.sec==11
