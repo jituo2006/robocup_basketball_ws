@@ -120,6 +120,20 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
+# ⚠️ CAN 发送队列。现场实测（2026-10-12）:
+#    队列 20 时底盘日志里 "Error writing to CAN bus" 累计到 125954 条 ✗
+#    改成 1000 后【新增 0 条】✓（CAN 状态 ERROR-ACTIVE、tx 错误计数 0）
+#    队列太小 → write 返回 ENOBUFS → 底盘丢指令 → 电机板收不到有效指令
+#                → 锁存故障态（软件清不掉，必须给电机板断电 10 秒）✗
+#    所以启动时确保一个够用的队列 ✓
+if ip link show can0 >/dev/null 2>&1; then
+  _q=$(cat /sys/class/net/can0/tx_queue_len 2>/dev/null || echo 0)
+  if [ "${_q:-0}" -lt 500 ] 2>/dev/null; then
+    ip link set can0 txqueuelen 1000 2>/dev/null
+    echo "  ✓ can0 txqueuelen $_q → $(cat /sys/class/net/can0/tx_queue_len 2>/dev/null)"
+  fi
+fi
+
 # ⚠️ 雷达网卡必须确保 UP 且有 IP ——
 #    机器人断电时雷达断电 → 网卡失去载波自动 DOWN ✗，
 #    雷达再上电时【网卡不会自己回来】✗ → Livox SDK 报
