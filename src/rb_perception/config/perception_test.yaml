@@ -117,7 +117,7 @@ perception:
       enabled: false   # 合成测试图用颜色检测；实车前后配置启用下方三类模型
       #   ⚠️ 输入是**固定 640x640**（元数据 imgsz=[640,640]，非动态），
       #      所以 input_size 必须也给 640；填小值会因形状不匹配直接报错。
-      model_path: "../models/ball_pillar_20261012.onnx"
+      model_path: "../models/ball_pillar_20261013.onnx"
       conf_threshold: 0.35
       iou_threshold: 0.45
       input_size: 640
