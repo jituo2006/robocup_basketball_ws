@@ -97,7 +97,7 @@ def test_first_competition_round_can_skip_all_mechanisms_but_complete_entire_rou
 
 
 def test_first_competition_button_with_mechanism_off_accepts_unconfigured_release():
-    mod = console(); calls = []; unused = NS()
+    mod = console(); calls = []; unused = NS(log_line=lambda *args: None)
     tool = NS(start=lambda key, args: calls.append(args) or (True, 'started'))
     client = mod.make_app(unused, unused, tool, unused, unused, unused, {}).test_client()
     args = {'whole_round': True, 'first_ball': 'preloaded', 'release_kind': 'match', 'start_intake': False}
