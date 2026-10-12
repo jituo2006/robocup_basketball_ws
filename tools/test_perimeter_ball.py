@@ -43,6 +43,7 @@ import time
 WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
+from intake_control import start_intake
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
@@ -786,6 +787,42 @@ class Runner:
         finally:
             self.obstacle_scoop = False
 
+    def intake_text(self, command):
+        from rb_msgs.srv import SerialText
+        if not hasattr(self, 'intake_client'):
+            self.intake_client = self.node.create_client(SerialText, '/rb_launcher/text')
+        if not self.intake_client.wait_for_service(timeout_sec=1.):
+            return False, '机构服务未启动'
+        req = SerialText.Request()
+        req.command = command
+        future = self.intake_client.call_async(req)
+        deadline = time.monotonic()+3.
+        while not future.done() and time.monotonic() < deadline:
+            self.rclpy.spin_once(self.node, timeout_sec=.03)
+        if not future.done():
+            self.intake_client.remove_pending_request(future)
+            return False, '机构指令无响应'
+        response = future.result()
+        return bool(response.success), response.message
+
+    def aligned_intake_approach(self):
+        use_intake = getattr(self.args, 'route_intake', False)
+        if not use_intake:
+            return self.rear_distance_scoop()
+        try:
+            ok, message = start_intake(self.intake_text,
+                                      wait=lambda delay: self.spin(delay))
+            log('启动吸球', message, C_OK if ok else C_BAD)
+            if not ok:
+                return False
+            reached = self.rear_distance_scoop()
+            if reached:
+                self.spin(2.)
+            return reached
+        finally:
+            self.stop()
+            self.intake_text('STOP')
+
     def _rear_visual_scoop(self):
         """YOLO is used only to align laterally; approach then uses pose distance."""
         self.stop()
@@ -821,12 +858,13 @@ class Runner:
                 if centered_frames < self.args.route_rear_center_frames:
                     continue
                 log('后摄对准', '连续新帧居中，切换定位距离后退；接近期间不再要求YOLO')
-                return self.rear_distance_scoop()
+                return self.aligned_intake_approach()
             centered_frames = 0
             last_center_stamp = None
             tw = self._Twist()
             # Rear image right corresponds to body +y.
-            speed = min(self.args.route_rear_align_speed, max(.005, abs(error)*.4))
+            # 5 mm/s often cannot overcome chassis friction near the centre.
+            speed = min(self.args.route_rear_align_speed, max(.015, abs(error)*.4))
             tw.linear.y = math.copysign(speed, error)
             self.publish_command(tw)
         self.stop()
@@ -837,6 +875,8 @@ class Runner:
         """After alignment: bounded reverse displacement, independent of YOLO."""
         self.stop()
         x0,y0,heading = self.pose
+        log('靠近篮球', f'后摄已对正，向中线方向后退 {self.args.route_scoop_distance:.2f}m，'
+                        f'速度 {self.args.route_scoop_speed:.2f}m/s；不再读取YOLO')
         deadline = time.monotonic() + self.args.route_scoop_timeout
         while time.monotonic() < deadline:
             self.spin(.03)
@@ -1153,6 +1193,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-scoop-distance", type=float, default=0.40, help="后摄居中后独立后退距离 m，不含横移纠偏")
     ap.add_argument("--route-scoop-speed", type=float, default=0.08)
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0)
+    ap.add_argument('--route-intake', action=argparse.BooleanOptionalAction, default=False,
+                    help='对正后启动文本吸球机构再靠近；默认仅测试底盘靠近')
     ap.add_argument("--route-center-tolerance", type=float, default=0.04,
                     help="篮球框中心距画面中心允许偏差（画面宽度比例）")
     ap.add_argument('--route-rear-timeout', type=float, default=15.0)
@@ -1160,7 +1202,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--route-rear-align-speed', type=float, default=.04)
     ap.add_argument('--route-rear-stop-height', type=float, default=.45,
                     help='兼容旧参数；距离铲球模式不再使用球框高度停车')
-    ap.add_argument('--route-rear-center-tolerance', type=float, default=.01,
+    ap.add_argument('--route-rear-center-tolerance', type=float, default=.025,
                     help='后摄篮球中心容差，画面宽度比例')
     ap.add_argument('--route-rear-center-frames', type=int, default=3,
                     help='停车居中确认需要的连续新检测帧数')

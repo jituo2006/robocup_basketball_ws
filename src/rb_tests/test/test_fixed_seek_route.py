@@ -23,7 +23,7 @@ def make_runner(mod):
                   route_scoop_distance=.20, route_forward_timeout=60., route_scan_timeout=60.,
                   route_scoop_timeout=15., route_heading_tol=.10, route_ball_tol_deg=6.,
                   route_center_tolerance=.04, ball_confidence=.5,
-                  route_rear_center_tolerance=.01, route_rear_center_frames=3,
+                  route_rear_center_tolerance=.025, route_rear_center_frames=3,
                   route_ball_min_distance=.45, route_ball_max_distance=1.0,
                   speed=.25, approach_speed=.12, step_tol=.02, yaw_tol=.015,
                   kp=1.5, kp_yaw=2., kd_yaw=.25, max_ang=.3)
@@ -231,3 +231,35 @@ def test_distance_scoop_aborts_if_heading_changes():
     run.publish_command=lambda tw:pytest.fail('wrong heading must stop before command')
     assert not run.rear_distance_scoop()
     assert stops
+
+
+def test_rear_accepts_observed_two_percent_offset_then_starts_approach():
+    mod=load();run=make_runner(mod)
+    run.args.route_rear_timeout=.2
+    samples=iter([NS(x_min=.469,x_max=.569,confidence=.918,
+                     stamp=NS(sec=10+i,nanosec=0)) for i in range(3)])
+    run.spin=lambda sec:None
+    run.centered_basketball_candidates=lambda *a,**kw:next(samples)
+    run.stop=lambda:None
+    events=[]
+    run.rear_distance_scoop=lambda:events.append('approach') or True
+    assert run.rear_visual_scoop()
+    assert events==['approach']
+
+
+@pytest.mark.parametrize('approach_result',[True,False])
+def test_optional_intake_starts_before_approach_and_stops_afterwards(approach_result):
+    mod=load();run=make_runner(mod);run.args.route_intake=True
+    events=[];run.intake_text=lambda cmd:events.append(cmd) or (True,'sent')
+    run.spin=lambda sec:None;run.stop=lambda:None
+    run.rear_distance_scoop=lambda:events.append('approach') or approach_result
+    assert run.aligned_intake_approach() is approach_result
+    assert events==['STOP','ZERO','MOVE 1 90 5','approach','STOP']
+
+
+def test_unplugged_intake_does_not_start_approach_when_option_enabled():
+    mod=load();run=make_runner(mod);run.args.route_intake=True
+    run.intake_text=lambda cmd:(False,'串口未打开')
+    run.stop=lambda:None
+    run.rear_distance_scoop=lambda:pytest.fail('must not approach after intake start fails')
+    assert not run.aligned_intake_approach()

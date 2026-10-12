@@ -117,6 +117,11 @@
       <h2>固定路线实验</h2>
       <button class="danger" onclick="act('PANIC')">🛑 急停</button>
       <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
+      <div class="row">
+        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.05" value="0.40"></label>
+        <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+      </div>
+      <label><input id="routeIntake" type="checkbox" style="width:auto"> 靠近时启动吸球（接上机构后勾选）</label>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
       <div class="hint" id="missionstate">—</div>
@@ -124,7 +129,13 @@
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
         <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
-      <div class="hint">右转90° → 前进 → 左移找球 → 停车 → 转180° → 后退铲球。<br>定位有效后运行；测试结束后，如需传球或导航，重启任务节点。</div>
+      <div class="hint">右转90° → 前进 → 左移找球 → 转180° → 后摄横移对正 → 向中线低速后退0.40米。<br>靠近期间不要求识球；上方参数下次启动时生效。</div>
+    </div>
+    <div class="card">
+      <h2>吸球机构单独测试</h2>
+      <button class="primary" onclick="act('INTAKE_START')">▶ 单独测试吸球</button>
+      <button class="danger" onclick="act('INTAKE_STOP')">■ 停止吸球</button>
+      <div class="hint">仅控制机构，车不移动。测试执行 STOP → ZERO → MOVE 1 90 5；结束时点击停止吸球。</div>
     </div>
     <div class="card">
       <h2>系统控制</h2>
@@ -613,7 +624,12 @@ function toolRun(key){
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';
   if(!confirm(warn)) return;
-  act(key);
+  const args = key === 'TEST_BALL' ? {
+    scoop_distance: Number($('scoopDistance').value),
+    scoop_speed: Number($('scoopSpeed').value),
+    start_intake: $('routeIntake').checked
+  } : undefined;
+  act(key, args);
 }
 
 function gotoNamed(key){

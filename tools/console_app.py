@@ -36,10 +36,14 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from intake_control import start_intake
 
 import numpy as np
 
@@ -1041,7 +1045,7 @@ class Bridge:
             cached = getattr(self, '_camera_overlay_cache', None)
             if cached and cached[0] == key:
                 return cached[2]
-        output = draw_ball_boxes(image, detections, center_tolerance=.01 if slot == "rear" else .04)
+        output = draw_ball_boxes(image, detections, center_tolerance=.025 if slot == "rear" else .04)
         with self.lock:
             self._camera_overlay_cache = (key, image, output)
         return output
@@ -1532,6 +1536,22 @@ DEBUG_TOOLS = {
 }
 
 
+def fixed_seek_tool_args(args):
+    """Front-end adjustments for the final approach only."""
+    distance = float(args.get('scoop_distance', .40))
+    speed = float(args.get('scoop_speed', .08))
+    if not math.isfinite(distance) or not .02 < distance <= 2:
+        raise ValueError('靠近距离须大于0.02且不超过2米')
+    if not math.isfinite(speed) or not 0 < speed <= .25:
+        raise ValueError('靠近速度须在0到0.25米/秒之间')
+    use_intake = args.get('start_intake', False)
+    if not isinstance(use_intake, bool):
+        raise ValueError('start_intake 须为布尔值')
+    return ['--route-scoop-distance', str(distance), '--route-scoop-speed', str(speed),
+            '--route-scoop-timeout', str(max(15., distance/speed+5.)),
+            '--route-intake' if use_intake else '--no-route-intake']
+
+
 class ToolRunner:
     """跑一个调试脚本，把它的输出流进页面日志面板。同一时刻只允许一个。"""
 
@@ -1799,6 +1819,12 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"),
                                         bridge.launcher_text(
                                             str(src.get("command") or "").strip()))))
+            if name == 'INTAKE_START':
+                ok, msg = start_intake(bridge.launcher_text)
+                return jsonify({'ok': ok, 'msg': f'吸球测试：{msg}'})
+            if name == 'INTAKE_STOP':
+                ok, msg = bridge.launcher_text('STOP')
+                return jsonify({'ok': ok, 'msg': f'停止吸球：{msg}'})
             if name == "LAUNCH_INIT":
                 # 现场要的开机顺序：先 STOP，再 ZERO 初始化
                 seq = [("STOP", 0.25), ("ZERO", 0.6)]
@@ -1906,7 +1932,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             if name == "STARTUP_FLOW":
                 return jsonify(dict(zip(("ok", "msg"), checks.startup_flow(stack))))
             if name in DEBUG_TOOLS:
-                return jsonify(dict(zip(("ok", "msg"), tool.start(name))))
+                extra = fixed_seek_tool_args(args) if name == 'TEST_BALL' else []
+                return jsonify(dict(zip(("ok", "msg"), tool.start(name, extra))))
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001
             return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"})
