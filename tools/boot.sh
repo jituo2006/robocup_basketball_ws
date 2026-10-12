@@ -19,6 +19,19 @@
 #   （只要雷达不是"上一个会话残留的流状态"）。
 set -o pipefail
 
+# Initialise Livox/FAST-LIO only after the boot-time wall-clock correction.
+# A later clock step can leave buffered LiDAR/IMU timestamps inconsistent.
+if command -v timedatectl >/dev/null 2>&1; then
+  for (( _sync_wait=0; _sync_wait<45; _sync_wait++ )); do
+    [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ] && break
+    sleep 1
+  done
+  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; then
+    echo "系统校时未完成，请先完成校时再启动雷达。" >&2
+    exit 1
+  fi
+fi
+
 WS=/home/user/robocup_basketball_ws
 cd "$WS" || exit 1
 
