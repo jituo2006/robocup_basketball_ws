@@ -140,43 +140,44 @@
       <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 转180° → 后摄横移对正 → 低速后退吸球。<br>预移途中不触发取球；靠近期间不要求识球。</div>
     </div>
     <div class="card" id="matchRoundCard">
-      <h2>三回合分阶段实验</h2>
+      <h2>按轮完整测试</h2>
       <div class="hint" id="roundStartHint">每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止5秒。</div>
-      <div class="row">
         <label>比赛环节<select id="roundTask" onchange="roundReleaseState();loadRoundSteps()">
           <option value="pass">传球：找篮球</option><option value="shoot">投篮：找排球</option>
         </select></label>
-        <label>连续运行范围<select id="roundMode">
-          <option value="collect">取球/预装球 → 动作点停车</option>
-          <option value="drive">空场走路线 → 回起点</option>
-          <option id="roundCycleOption" value="cycle">两次放球联调 → 回起点</option>
-        </select></label>
-      </div>
       <label>出球模式<select id="roundReleaseKind" onchange="roundReleaseState()">
         <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
         <option value="match">正式传球/投篮（需配置发射）</option>
       </select></label>
-      <div class="hint">每轮只有3个阶段，每阶段内部自动完成，结束停车再点下一阶段。第2、3阶段沿用本轮起点。取球后保持吸球，到动作点后前摄对准定位柱，再放球。上方“连续运行范围”仅用于下方连续运行入口。</div>
+      <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。取球后保持吸球，到动作点放球。</div>
       <label>第1回合首球方式<select id="roundFirstBall" onchange="loadRoundSteps()">
         <option value="search">场上取首球（调试，复用固定路线）</option>
         <option value="preloaded">首球预装（赛事规则）</option>
       </select></label>
-      <h3>第1回合：首球 → 中线第2球 → 回位</h3>
-      <div class="step-buttons" id="round1Steps">阶段读取中</div>
+      <button id="round1Pickup" class="primary" onclick="round1PickupRun()">▶ 第1轮：找篮球 → 吸球 → 传球区停车</button>
+      <div class="hint">先测这一段：中线图右端向左找球 → 转180° → 后摄对正 → 后退45厘米吸球 → 保持吸球到传球区。到位停车，手动点“停止吸球”放球。</div>
+      <button id="wholeRound1" class="primary" onclick="wholeRoundRun(1)">▶ 第1轮完整测试</button>
+      <div class="hint">首球预装或中线取球 → 放球 → 中线再取一球 → 放球 → 回位。</div>
       <div class="hint" id="round1Progress"></div>
-      <div class="hint" id="round1PathHint">第2阶段：先到中线置球区图右端，再向图左端寻球。</div>
-      <h3>第2回合：中线优先，三分弧补找</h3>
-      <div class="step-buttons" id="round2Steps">阶段读取中</div>
+      <button id="wholeRound2" class="primary" onclick="wholeRoundRun(2)">▶ 第2轮完整测试</button>
+      <div class="hint" id="round2PathHint">中线右端向左找，没找到补扫三分弧；两次取球、放球后回位。</div>
       <div class="hint" id="round2Progress"></div>
-      <div class="hint" id="round2PathHint">到中线附近 → 预移到规则图右端 → 向图左端寻球 → 取球 → 动作点。中线无球时补扫三分弧。</div>
-      <h3>第3回合：直接去三分区</h3>
-      <div class="step-buttons" id="round3Steps">阶段读取中</div>
+      <button id="wholeRound3" class="orange" onclick="wholeRoundRun(3)">▶ 第3轮完整测试</button>
+      <div class="hint">跳过中线，经上侧通道去三分区；传球先找弧线，投篮先找内侧线。两次取球、放球后回位。</div>
       <div class="hint" id="round3Progress"></div>
-      <div class="hint">经上侧通道进入三分区。传球先扫弧线，投篮先扫内侧线；找不到再换另一处。</div>
-      <details><summary>连续运行（按上方实验范围）</summary>
-        <button class="primary" onclick="roundRun(1)">▶ 第1回合连续实验</button>
-        <button class="primary" onclick="roundRun(2)">▶ 第2回合连续实验</button>
-        <button class="orange" onclick="roundRun(3)">▶ 第3回合连续实验</button>
+      <details id="roundStageDetails"><summary>分阶段排错 / 空场路线</summary>
+        <div class="hint">每轮仍保留3个阶段用于排错，阶段结束停车。阶段2、3沿用本轮起点；整轮按钮始终从当前位置重新开本轮。</div>
+        <h3>第1轮</h3><div class="step-buttons" id="round1Steps">阶段读取中</div>
+        <div class="hint" id="round1PathHint">中线搜索先到规则图右端，再向左寻找。</div>
+        <h3>第2轮</h3><div class="step-buttons" id="round2Steps">阶段读取中</div>
+        <h3>第3轮</h3><div class="step-buttons" id="round3Steps">阶段读取中</div>
+        <label>辅助实验范围<select id="roundMode">
+          <option value="collect">取一球 → 动作点停车</option>
+          <option value="drive">空场走路线 → 回起点</option>
+        </select></label>
+        <button onclick="roundRun(1)">第1轮辅助实验</button>
+        <button onclick="roundRun(2)">第2轮辅助实验</button>
+        <button onclick="roundRun(3)">第3轮辅助实验</button>
       </details>
       <details><summary>靠近吸球参数</summary>
         <div class="row">
@@ -688,11 +689,10 @@ const TOOL_LABEL = {
 function roundReleaseState(){
   const drop = $('roundReleaseKind').value === 'drop';
   const ready = drop || !!(window._roundConfig && window._roundConfig.release_ready[$('roundTask').value]);
-  $('roundCycleOption').disabled = !ready;
-  if(!ready && $('roundMode').value === 'cycle') $('roundMode').value = 'collect';
-  $('roundCycleOption').textContent = drop ? '两次放球联调 → 回起点' : '两次正式出球 → 回起点（需配置）';
+  [1,2,3].forEach(n => $('wholeRound'+n).disabled = !ready || !!(window._st && window._st.tool_running));
+  $('round1Pickup').disabled = !!(window._st && window._st.tool_running);
   $('roundReleaseState').textContent = drop
-    ? '放球使用MOVE 1 0 5；可逐步或连续跑整轮联调，不能当作正式传球/投篮得分。'
+    ? '当前整轮按放球联调运行：MOVE 1 0 5。正式传球/投篮发射指令仍待配置。'
     : ready ? '已配置正式出球指令；仍需实物确认入仓和出球。'
     : '出球指令未配置：可先测路线或取1球到动作点停车。';
 }
@@ -707,8 +707,8 @@ async function loadRoundConfig(){
     const m = cfg.middle_scan;
     const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
     $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 转180° → 后摄横移对正 → 低速后退吸球。预移途中不触发取球；靠近期间不要求YOLO。`;
-    $('round1PathHint').textContent = `第2阶段：${sweep}；对正后靠近吸球，到动作点放球。`;
-    $('round2PathHint').textContent = `每次中线寻球：${sweep} → 取球 → 动作点。中线无球时补扫三分弧。`;
+    $('round1PathHint').textContent = `中线搜索：${sweep}；对正后靠近吸球，到动作点放球。`;
+    $('round2PathHint').textContent = `中线从图右端向左找球，没找到补扫三分弧；两次取球、放球后回位。`;
     $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
     ['middle','arc','inner'].forEach(area => {
       $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
@@ -730,6 +730,8 @@ function roundArgs(){
   };
 }
 function roundRun(round){ act('TEST_ROUND'+round, roundArgs()); }
+function round1PickupRun(){ act('TEST_ROUND1', {...roundArgs(), task:'pass', first_ball:'search', mode:'collect', release_kind:'drop'}); }
+function wholeRoundRun(round){ act('TEST_ROUND'+round, {...roundArgs(), mode:'cycle', whole_round:true}); }
 async function roundReset(round){
   const data = await (await fetch('/api/round-reset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({round, task:$('roundTask').value})})).json();
   toast(data.msg, data.ok?'ok':'bad'); await loadRoundSteps();
@@ -741,8 +743,11 @@ async function loadRoundSteps(){
   try{
     const data = await (await fetch('/api/round-state?task='+$('roundTask').value+'&first_ball='+$('roundFirstBall').value)).json();
     if(!data.ok){ $('roundReleaseState').textContent=data.msg; return; }
+    roundReleaseState();
     data.rounds.forEach(r => {
       const running = !!(window._st && window._st.tool_running);
+      const current = running && window._st.tool_name === 'TEST_ROUND'+r.round;
+      const actions = {entry:'入场', search:'寻球', align:'后摄对正', approach:'靠近吸球', carry:'带球到动作点', action:'到动作点', release:'放球', home:'回位'};
       $('round'+r.round+'Steps').innerHTML = r.steps.map(s => {
         const enabled = !running && (s.index === 1 || s.index === r.next_step);
         const cls = s.index === r.next_step ? 'primary' : 'ghost';
@@ -750,9 +755,9 @@ async function loadRoundSteps(){
         return `<button class="${cls}" ${enabled?'':'disabled'} onclick="roundStep(${r.round},${s.index})">${mark}${s.index}. ${s.label}</button>`;
       }).join('') + `<button class="ghost" ${running?'disabled':''} onclick="roundReset(${r.round})">重开本轮（先摆回起点）</button>`;
       $('round'+r.round+'Progress').textContent = r.finished
-        ? '本轮完成。重新测试先摆回起点，点第1阶段。'
-        : r.started ? `已完成${r.next_step-1}/3阶段，${running?'正在执行/等待':'下一阶段'}：第${r.next_step}阶段。`
-        : '尚未开始：摆好车，再点第1阶段。';
+        ? '本轮完成。重新测试先摆回起点，再点整轮按钮。'
+        : r.started ? `已完成${r.next_step-1}/3阶段，${current?'正在执行':'下一阶段'}：第${r.next_step}阶段${current && r.active_action ? ' · '+(actions[r.active_action] || r.active_action) : ''}。`
+        : '尚未开始：摆好车，点击本轮完整测试。';
       if(r.last_error) $('round'+r.round+'Progress').textContent += ' 上次失败：'+r.last_error+'；排除后重试本阶段。';
     });
   }catch(e){}

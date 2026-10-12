@@ -80,7 +80,8 @@ def workflow_state(round_number, task, first_ball='preloaded'):
                       for i, (kind, label) in enumerate(steps(round_number, (state or {}).get('first_ball', first_ball)), 1)]}
 
 
-def execute_step(runner, cfg, round_number, task, index, release_kind='drop', emit=print):
+def execute_step(runner, cfg, round_number, task, index, release_kind='drop', emit=print,
+                 continuous=False):
     validate_step(round_number, task, index, cfg, release_kind)
     previous = load_session(round_number, task)
     if index == 1 and (previous is None or previous['next_step'] != 1):
@@ -178,5 +179,26 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     state['substep'] = 0
     state['active_action'], state['last_error'] = '', ''
     save_session(state)
-    plan.say('本阶段完成，已停车，等待下一阶段按钮')
+    plan.say('本阶段完成，自动进入下一阶段' if continuous and index < 3
+             else '本轮完成，已回出发区并恢复初始朝向' if continuous
+             else '本阶段完成，已停车，等待下一阶段按钮')
     return True
+
+
+def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=print):
+    """从本轮起点连续处理两颗球并回位，与三个阶段按钮共用动作实现。"""
+    validate_mode(cfg, task, 'cycle', release_kind)
+    steps(round_number, cfg.get('round1_first_ball', 'preloaded'))
+    clear_session(round_number, task)
+    emit(f'第{round_number}回合整轮开始：以当前位姿建立起点；两次处理球后回位')
+    try:
+        for index in (1, 2, 3):
+            emit(f'整轮进度 {index}/3：{steps(round_number, cfg.get("round1_first_ball", "preloaded"))[index-1][1]}')
+            if not execute_step(runner, cfg, round_number, task, index, release_kind,
+                                emit=emit, continuous=True):
+                state = load_session(round_number, task)
+                emit(f'整轮在第{index}阶段停止：{state["last_error"]}')
+                return False
+        return True
+    finally:
+        runner.stop()

@@ -291,7 +291,7 @@ class RoundRoute:
                 return status
         return 'empty' if self.unwind() else 'failed'
 
-    def action_point(self):
+    def action_point(self, aim=True):
         cfg = self.cfg
         # 投篮点在绿线右边，过半场仍走上侧通道；传球点位于左侧传球圆内。
         if self.task == 'shoot':
@@ -304,6 +304,9 @@ class RoundRoute:
         action = cfg['release'][self.task]
         if not self.move(action['point']):
             return False
+        if not aim:
+            self.r.stop()
+            return True
         if action['aim'] is not None:
             target = self.frame.point(action['aim'])
             heading = math.atan2(target[1]-self.r.pose[1], target[0]-self.r.pose[0])
@@ -354,6 +357,11 @@ class RoundRoute:
         return self.turn(0.)
 
     def execute(self):
+        if self.mode == 'cycle':
+            # 整轮和分阶段共用同一套动作；整轮自动衔接三个阶段。
+            from match_round_steps import execute_cycle
+            return execute_cycle(self.r, self.cfg, self.round, self.task,
+                                 self.release_kind, emit=self.emit)
         self.r.args.ball_label = TASK_LABELS[self.task]
         self.r.args.speed = self.cfg['speed_mps']
         self.say('假定车已放回 A 区、面向篮筐；当前位姿作为本轮起点')
@@ -364,19 +372,16 @@ class RoundRoute:
             return False
         preloaded = self.round == 1 and self.cfg.get('round1_first_ball', 'preloaded') == 'preloaded'
         if preloaded:
-            if not self.move(self.cfg['entry']) or not self.action_point():
+            if not self.move(self.cfg['entry']) or not self.action_point(aim=self.mode != 'collect'):
                 return False
             if self.mode == 'collect':
                 self.say('预装球已到动作点，停车；分步模式可继续放球、取第二颗和回位')
                 return True
-            if self.mode == 'cycle' and not self.release():
-                return False
             if self.task == 'shoot' and not self.move(self.cfg['corridor']):
                 return False
             if not self.move(self.cfg['entry']):
                 return False
-        count = 1 if preloaded else (2 if self.mode == 'cycle' else 1)
-        for cycle in range(count):
+        for cycle in range(1):
             found = False
             for area in search_order(self.round, self.task):
                 result = self.search_area(area, cycle)
@@ -391,20 +396,11 @@ class RoundRoute:
                 self.say('规划搜索区域未找到目标球，实验结束')
                 self.r.stop()
                 return False
-            if not self.action_point():
+            if not self.action_point(aim=self.mode != 'collect'):
                 return False
             if self.mode == 'collect':
                 self.say('到达动作点，停车等调试；本模式不传球/投篮、不继续拿第二颗')
                 return True
-            if self.mode == 'cycle':
-                if not self.release():
-                    return False
-                # 退回共同入场通道，下一次搜索仍是同一回合，不重设坐标。
-                if cycle+1 < count:
-                    if self.task == 'shoot' and not self.move(self.cfg['corridor']):
-                        return False
-                    if not self.move(self.cfg['entry']):
-                        return False
         if not self.home():
             return False
         self.say('已回本轮起点；承重轮是否全部在出发区需现场检查')

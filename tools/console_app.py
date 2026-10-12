@@ -1573,6 +1573,11 @@ def fixed_seek_tool_args(args):
 
 def match_round_tool_args(args, round_number=2):
     task, mode = args.get('task', 'pass'), args.get('mode', 'collect')
+    whole_round = args.get('whole_round', False)
+    if not isinstance(whole_round, bool):
+        raise ValueError('whole_round 须为布尔值')
+    if whole_round:
+        mode = 'cycle'
     cfg = load_round_config()
     first_ball = args.get('first_ball', 'search')
     if first_ball not in ('preloaded', 'search'):
@@ -1581,6 +1586,8 @@ def match_round_tool_args(args, round_number=2):
     release_kind = args.get('release_kind', 'drop')
     validate_round_mode(cfg, task, mode, release_kind)
     step = args.get('step')
+    if whole_round and step is not None:
+        raise ValueError('整轮测试不能指定单个阶段')
     if step is not None:
         validate_round_step(round_number, task, step, cfg, release_kind)
     # 复用吸球速度/开关校验，各区域接近距离独立配置。
