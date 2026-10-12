@@ -31,6 +31,13 @@ camera:
   distortion: [0.018392, -0.525673, 0.015934, 0.004543, 0.808854]
 
 perception:
+  # ⚠️ OpenCV 线程数。前摄有 5 个传统检测器（2×blob + 2×circle + 1×stripe）
+  #    + 1 个 ONNX，其中 circle/stripe 最吃线程。合并进来的 perception_node
+  #    会调用 cv2.setNumThreads(opencv_threads)。这里原来没有这个键，
+  #    默认值 2 会把它们限成 2 线程 → 每帧从 ~200ms 掉到 ~600ms ✗
+  #    （实测 1.5fps）。机器 16 核，给 6 足够，同时给 ONNX/FAST-LIO 留余量。
+  opencv_threads: 6
+
   detectors:
 
     # ---------- 目标球：篮球 ----------
@@ -144,7 +151,7 @@ perception:
       #   把 FAST-LIO 饿死 → load average 冲到 29（16 核机器）→
       #   /Odometry 时延从 300ms 恶化到 **2.2 秒** → 地图位置严重滞后 + 导航冲过目标点。
       #   640 输入用 2 核足够（单次 ~30ms），给 FAST-LIO / 定位 / 底盘留出 CPU。
-      intra_op_threads: 2
+      intra_op_threads: 6
       inter_op_threads: 1
       # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
       real_diameter_m: 0.24
