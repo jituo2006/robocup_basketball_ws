@@ -70,6 +70,8 @@ def test_route_ui_parameters_reach_script_without_requiring_unplugged_mechanism(
                   '--route-scoop-timeout','15.0','--no-route-intake']
     assert console().fixed_seek_tool_args({'start_intake':False})[-1]=='--no-route-intake'
     assert console().fixed_seek_tool_args({'start_intake':True})[-1]=='--route-intake'
+    defaults=console().fixed_seek_tool_args({})
+    assert defaults[defaults.index('--route-scoop-distance')+1]=='0.7'
 
 
 @pytest.mark.parametrize('args',[{'scoop_distance':float('nan')}, {'scoop_distance':-.4},

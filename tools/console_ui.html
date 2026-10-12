@@ -126,7 +126,7 @@
       <button class="danger" onclick="act('PANIC')">🛑 急停</button>
       <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
       <div class="row">
-        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.01" value="0.45"></label>
+        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.03" max="2" step="0.01" value="0.70"></label>
         <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
       </div>
       <label><input id="routeIntake" type="checkbox" style="width:auto"> 开启机构：对正后启动吸球再靠近（默认关闭）</label>
@@ -137,7 +137,7 @@
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
         <button onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
-      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 居中停车 → 转180° → 后摄横移对正 → 低速后退0.45米。<br>预移途中不触发取球；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
+      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 向规则图右端横移（途中识球） → 无球再向图左端找 → 识球即停 → 转180° → 后摄横移对正 → 低速后退0.70米。<br>中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
     </div>
     <div class="card" id="matchRoundCard">
       <h2>比赛回合全自动流程</h2>
@@ -156,10 +156,10 @@
         <option value="search">场上取首球（仅放球联调）</option>
       </select></label>
       <button id="wholeRound1" class="primary" onclick="wholeRoundRun(1)">▶ 第1轮全自动（比赛流程）</button>
-      <div class="hint">首球预装 → 传球区出球 → 中线图右端向左找第二球 → 转身对正、靠近取球 → 传球区再次出球 → 回出发区。机构关闭时跳过机构动作，路线继续。</div>
+      <div class="hint">首球预装 → 传球区出球 → 中线横移遇到第二球即停 → 转身对正、靠近取球 → 传球区再次出球 → 回出发区。机构关闭时跳过机构动作，路线继续。</div>
       <div class="hint" id="round1Progress"></div>
       <button id="wholeRound2" class="primary" onclick="wholeRoundRun(2)">▶ 第2轮完整测试</button>
-      <div class="hint" id="round2PathHint">中线右端向左找，没找到补扫三分弧；两次取球、放球后回位。</div>
+      <div class="hint" id="round2PathHint">中线向右端横移途中也识球，无球再向左找；没找到补扫三分弧；两次取球、放球后回位。</div>
       <div class="hint" id="round2Progress"></div>
       <button id="wholeRound3" class="orange" onclick="wholeRoundRun(3)">▶ 第3轮完整测试</button>
       <div class="hint">跳过中线，经上侧通道去三分区；传球先找弧线，投篮先找内侧线。两次取球、放球后回位。</div>
@@ -167,7 +167,7 @@
       <details id="roundStageDetails"><summary>分阶段排错 / 空场路线</summary>
         <div class="hint">每轮仍保留3个阶段用于排错，阶段结束停车。阶段2、3沿用本轮起点；整轮按钮始终从当前位置重新开本轮。</div>
         <h3>第1轮</h3><div class="step-buttons" id="round1Steps">阶段读取中</div>
-        <div class="hint" id="round1PathHint">中线搜索先到规则图右端，再向左寻找。</div>
+        <div class="hint" id="round1PathHint">中线先向图右端横移，遇球即停；无球再向左寻找。</div>
         <h3>第2轮</h3><div class="step-buttons" id="round2Steps">阶段读取中</div>
         <h3>第3轮</h3><div class="step-buttons" id="round3Steps">阶段读取中</div>
         <label>辅助实验范围<select id="roundMode">
@@ -180,7 +180,7 @@
       </details>
       <details><summary>靠近吸球参数</summary>
         <div class="row">
-          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.03" max="2" step="0.01" value="0.45"></label>
+          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.03" max="2" step="0.01" value="0.70"></label>
           <label>弧线后退（米）<input id="roundArcScoop" type="number" min="0.03" max="2" step="0.05" value="0.25"></label>
         </div>
         <div class="row">
@@ -367,11 +367,11 @@
   <div>
     <div class="card">
       <h2>📷 YOLO 识别：篮球 / 排球</h2>
-      <img id="cam" src="/api/camera.mjpg" alt="相机"><div class="hint">橙框：篮球 · 蓝框：排球 · 绿线：中心触发区（左右各4%）。篮球框中心进入绿线区域即停车转身。</div>
+      <img id="cam" src="/api/camera.mjpg" alt="相机"><div class="hint">橙框：篮球 · 蓝框：排球 · 绿线仅供居中参考。中线横移识别到有效篮球即停车转身，不等球框居中。</div>
     </div>
     <div class="card"><h2>后摄 YOLO：对准 / 铲球</h2>
       <img id="camRear" src="/api/camera.mjpg?slot=rear" alt="后摄像头">
-      <div class="hint">篮球在中心±2.5%内连续3个新帧后，低速向球靠近：固定路线默认0.45米，三回合使用各区域参数。靠近期间不再要求YOLO，按定位距离停车。</div>
+      <div class="hint">篮球在中心±2.5%内连续3个新帧后，低速向球靠近：固定路线默认0.70米，三回合使用各区域参数。靠近期间不再要求YOLO，按定位距离停车。</div>
     </div>
     <div class="card">
       <h2>📡 雷达俯视图（/cloud_registered）</h2>
@@ -706,10 +706,10 @@ async function loadRoundConfig(){
     $('roundSensorHint').textContent = `模型：${cfg.vision_classes.join('、')}。雷达控制行驶/回位，前摄找球和定位柱，后摄只横移对球。出球柱对准：${pillar.enabled ? '已启用' : '已关闭'}，容差${pillar.tolerance_deg}°，最多等待${pillar.timeout_s}秒。`;
     $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止${cfg.start_delay_s}秒。`;
     const m = cfg.middle_scan;
-    const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
-    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 居中停车 → 转180° → 后摄横移对正 → 按上方距离低速后退。预移途中不触发取球；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求YOLO。机构关闭时照常靠近。`;
+    const sweep = `预移${m.preposition_m.toFixed(2)}米到图右端X=${m.start_x}（车体左移），途中识球即停，无球再向图左端X=${m.end_x}找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
+    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 识球即停 → 转180° → 后摄横移对正 → 按上方距离低速后退。中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求YOLO。机构关闭时照常靠近。`;
     $('round1PathHint').textContent = `中线搜索：${sweep}；对正后靠近吸球，到动作点放球。`;
-    $('round2PathHint').textContent = `中线从图右端向左找球，没找到补扫三分弧；两次取球、放球后回位。`;
+    $('round2PathHint').textContent = `中线向右端横移途中也识球，无球再向左找；没找到补扫三分弧；两次取球、放球后回位。`;
     $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
     ['middle','arc','inner'].forEach(area => {
       $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
@@ -764,7 +764,7 @@ async function loadRoundSteps(){
 }
 function toolRun(key){
   const warn = {
-    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 先到规则图右端（车体左移） → 向图左端找篮球（车体右移） → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 向规则图右端横移并识球（车体左移） → 无球再向图左端找篮球（车体右移） → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
     TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 对准停车。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';

@@ -177,6 +177,8 @@ class RoundRoute:
         self.emit(f'第{self.round}回合/{self.task}/{self.mode}: {message}')
 
     def move_world(self, p, remember=False):
+        # 回合里的到点动作最终都调用 Runner.goto，仍经过同一定位/里程计检查。
+        # p 已在定位坐标系；remember 只保存返程点，不作为是否允许运动的条件。
         distance = math.hypot(p[0]-self.r.pose[0], p[1]-self.r.pose[1])
         ok = self.r.goto(*p, timeout=max(20., distance/self.r.args.speed+15.),
                          tolerance=self.r.args.step_tol)
@@ -185,54 +187,28 @@ class RoundRoute:
         return ok
 
     def move(self, p, remember=False):
+        # 配置中的场地坐标先按本轮起点映射到定位坐标，再发送运动指令。
         return self.move_world(self.frame.point(p), remember)
 
     def turn(self, heading):
         return self.r.rotate_to(self.frame.yaw(heading), timeout=45.)
 
-    def scan(self, target, heading, detect=True):
-        """沿一段搜索线保持朝向；中心框触发立即停；区分无球与动作失败。"""
+    def scan(self, target, heading, detect=True, centered=True):
+        """复用固定路线的横移控制；中线遇球即停，其余区域保留中心触发。"""
+        # found=目标触发停车，empty=到线端没找到，failed=运动异常/超时。
         target, heading = self.frame.point(target), self.frame.yaw(heading)
         distance = math.hypot(target[0]-self.r.pose[0], target[1]-self.r.pose[1])
-        deadline = time.monotonic()+max(15., distance/self.r.args.speed+10.)
-        while time.monotonic() < deadline:
-            self.r.spin(.03)
-            if detect and self.r.centered_target_candidates(self.r.dets) is not None:
-                self.r.stop()
-                self.r.spin(getattr(self.r.args, 'settle_seconds', .3))
-                self.search_origin = tuple(self.r.pose)
-                self.trail.append(self.search_origin[:2])
-                self.say('目标球到画面中心，停车 → 转180° → 后摄横移对正')
-                return 'found'
-            x, y, yaw = self.r.pose
-            dx, dy = target[0]-x, target[1]-y
-            remaining = math.hypot(dx, dy)
-            if remaining <= self.r.args.step_tol:
-                self.r.stop()
-                # 到线端后留一点观察时间，避免最后一帧还未到达。
-                self.r.spin(.3)
-                if detect and self.r.centered_target_candidates(self.r.dets) is not None:
-                    self.search_origin = tuple(self.r.pose)
-                    self.trail.append(self.search_origin[:2])
-                    return 'found'
-                self.trail.append(tuple(target))
-                return 'empty'
-            err = wrap(heading-yaw)
-            if abs(err) > self.r.args.route_heading_tol:
-                self.r.stop()
-                self.say('搜索朝向偏离，停止本次实验')
-                return 'failed'
-            speed = min(self.r.args.speed, self.r.args.kp*remaining)
-            vx, vy = speed*dx/remaining, speed*dy/remaining
-            tw = self.r._Twist()
-            tw.linear.x = math.cos(yaw)*vx+math.sin(yaw)*vy
-            tw.linear.y = -math.sin(yaw)*vx+math.cos(yaw)*vy
-            wz = self.r.args.kp_yaw*err-self.r.args.kd_yaw*self.r.yaw_rate
-            tw.angular.z = max(-self.r.args.max_ang, min(self.r.args.max_ang, wz))
-            self.r.publish_command(tw)
-        self.r.stop()
-        self.say('搜索运动超时，停止本次实验')
-        return 'failed'
+        status, _det = self.r.scan_to(*target, heading,
+                                     timeout=max(15., distance/self.r.args.speed+10.),
+                                     speed=self.r.args.speed, detect=detect, centered=centered)
+        if status == 'found':
+            # 记下实际停车点，不把尚未到达的右端点加入返程路线。
+            self.search_origin = tuple(self.r.pose)
+            self.trail.append(self.search_origin[:2])
+            self.say('识别到目标球，停车 → 转180° → 后摄横移对正')
+        elif status == 'empty':
+            self.trail.append(tuple(target))
+        return status
 
     def unwind(self):
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
@@ -245,6 +221,8 @@ class RoundRoute:
         return True
 
     def search_area(self, area, cycle, search_only=False):
+        # search_only=True：本函数找到球只停车返回，转身/对正/靠近由
+        # match_round_steps.execute_step 的后续动作负责；不是漏掉铲球。
         cfg = self.cfg
         self.say(f'搜索 {area}，目标类别 {TASK_LABELS[self.task]}')
         self.trail = []
@@ -259,28 +237,31 @@ class RoundRoute:
                 return 'failed'
         points = search_plan(cfg, area, cycle)
         if area == 'middle':
-            # 先朝黄线到 C，再平移到规则图右端；这两段不读取球框触发取球。
+            # 先朝黄线到 C，再向图右端横移；中线横移的第一遍就启用识球。
             if not self.turn(points[0][1]):
                 return 'failed'
             if not self.move([cfg['start'][0], cfg['middle']['y']], remember=True):
                 return 'failed'
-            self.say(f"中线预移至图右端 X={cfg['middle']['right_x']:.2f}，到位后向图左端搜索")
-        if not self.move(points[0][0], remember=True):
+            self.say(f"中线向图右端 X={cfg['middle']['right_x']:.2f} 横移，遇球即停；没球再向左搜索")
+        elif not self.move(points[0][0], remember=True):
             return 'failed'
         for p, yaw in points:
             if not self.turn(yaw):
                 return 'failed'
-            status = self.scan(p, yaw, detect=self.mode != 'drive')
+            status = self.scan(p, yaw, detect=self.mode != 'drive', centered=area != 'middle')
             if status != 'empty':
                 if status == 'found':
                     self.area = area
                     if search_only:
                         return status
+                    # 单次 collect 的入口则在这里继续转180°、后摄对正和后退。
                     before = self.r.pose[2]
                     if not self.r.rotate_to(wrap(before+math.pi), timeout=45.):
                         return 'failed'
                     saved_distance, saved_timeout = self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout
                     self.r.args.route_scoop_distance = cfg[area]['scoop_m']
+                    # 距离取本区域 scoop_m：中线默认0.70m，arc/inner另有配置；
+                    # 修改通用 route_scoop_distance 不会覆盖此处的区域配置。
                     self.r.args.route_scoop_timeout = max(15., cfg[area]['scoop_m']/self.r.args.route_scoop_speed+5.)
                     try:
                         if not self.r.rear_visual_scoop():

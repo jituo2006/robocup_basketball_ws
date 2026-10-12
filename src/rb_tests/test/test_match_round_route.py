@@ -4,12 +4,14 @@ import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
+from types import MethodType
 
 import pytest
 
 WS = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(WS/'tools'))
 from match_round_route import RoundRoute, StartFrame, load_config, search_order, search_plan, validate_mode
+from test_perimeter_ball import Runner
 
 
 def fake_runner():
@@ -55,7 +57,8 @@ def fake_runner():
                   y+.2*(math.sin(yaw)*tw.linear.x+math.cos(yaw)*tw.linear.y),
                   yaw+.2*tw.angular.z)
     r.publish_command = publish
-    r.centered_target_candidates = lambda dets: NS()
+    r.centered_target_candidates = lambda dets, **kwargs: NS()
+    r.scan_to = MethodType(Runner.scan_to, r)
     return r, events
 
 
@@ -80,46 +83,49 @@ def test_middle_always_starts_at_diagram_right_end_before_scanning_left(cycle):
     assert all(yaw == pytest.approx(-math.pi/2) for p, yaw in points)
 
 
-def test_middle_reaches_right_end_before_target_trigger_and_remembers_return_path():
+def test_middle_first_outward_sweep_stops_before_right_end_and_remembers_actual_pickup_point():
     cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
     plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
-    def detect(dets):
-        assert r.pose == pytest.approx((4.4, 4.8, -math.pi/2))
+    def detect(dets, centered=True):
+        assert not centered
+        assert r.pose == pytest.approx((1.5, 4.8, -math.pi/2))
         events.append(('detect',))
         return NS()
     r.centered_target_candidates = detect
     assert plan.search_area('middle', 0, search_only=True) == 'found'
-    assert [e[1:] for e in events if e[0] == 'move'] == [(1.5, 6.8), (1.5, 4.8), (4.4, 4.8)]
+    assert [e[1:] for e in events if e[0] == 'move'] == [(1.5, 6.8), (1.5, 4.8)]
     assert events.index(('turn', -math.pi/2)) < events.index(('move', 1.5, 4.8))
-    assert plan.trail[:3] == [(1.5, 6.8), (1.5, 4.8), (4.4, 4.8)]
+    assert plan.trail[:3] == [(1.5, 6.8), (1.5, 4.8), (1.5, 4.8)]
 
 
 def test_middle_scan_velocity_is_towards_diagram_left_after_preposition():
     cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
     plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
     commands = []; publish = r.publish_command
+    searching_left = [False]
     def command(tw):
         commands.append((tw.linear.x, tw.linear.y))
+        if tw.linear.y < 0:
+            searching_left[0] = True
         publish(tw)
     r.publish_command = command
-    r.centered_target_candidates = lambda dets: NS() if r.pose[0] < 4.39 else None
+    r.centered_target_candidates = lambda dets, **kwargs: NS() if searching_left[0] else None
     assert plan.search_area('middle', 1, search_only=True) == 'found'
-    assert commands[0] == pytest.approx((0., -.25))
+    assert commands[0] == pytest.approx((0., .25))
+    assert any(c == pytest.approx((0., -.25)) for c in commands)
     assert plan.search_origin[0] < 4.4
 
 
-def test_middle_preposition_failure_does_not_inspect_or_acquire_target():
+def test_middle_first_sweep_motion_failure_does_not_acquire_target():
     cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
     plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
-    goto = r.goto
-    r.goto = lambda x, y, **kw: False if x == pytest.approx(4.4) else goto(x, y, **kw)
-    r.centered_target_candidates = lambda dets: pytest.fail('must arrive at right end first')
+    r.scan_to = lambda *args, **kwargs: ('failed', None)
     assert plan.search_area('middle', 0) == 'failed'
     assert not any(e[0] == 'scoop' for e in events)
 
 
 @pytest.mark.parametrize('number,task,area,distance', [
-    (2, 'pass', 'middle', .45), (2, 'shoot', 'middle', .45),
+    (2, 'pass', 'middle', .70), (2, 'shoot', 'middle', .70),
     (3, 'pass', 'arc', .25), (3, 'shoot', 'inner', .15)])
 def test_collect_uses_correct_class_then_unwinds_to_entry_and_stops_at_action(number, task, area, distance):
     cfg = load_config(); r, events = fake_runner()
@@ -131,7 +137,8 @@ def test_collect_uses_correct_class_then_unwinds_to_entry_and_stops_at_action(nu
     # 吸球位移后第一个回撤点是原检测点，而非直接跨过置球线到动作点。
     pickup_index = events.index(scoop)
     next_move = next(e for e in events[pickup_index+1:] if e[0] == 'move')
-    expected = plan.frame.point(search_plan(cfg, area)[0][0])
+    # 中线允许在向右端第一遍横移中提前停车，返程必须回实际检测点。
+    expected = plan.search_origin[:2]
     assert next_move[1:] == pytest.approx(expected)
     assert r.pose[:2] == pytest.approx(plan.frame.point(cfg['release'][task]['point']))
     # 单次默认不会回起点或继续取第二颗。
@@ -141,7 +148,7 @@ def test_collect_uses_correct_class_then_unwinds_to_entry_and_stops_at_action(nu
 @pytest.mark.parametrize('number,task', [(2,'pass'), (3,'pass'), (3,'shoot')])
 def test_empty_field_drive_returns_to_start_without_any_actuator(number, task):
     r, events = fake_runner(); start = r.pose
-    r.centered_target_candidates = lambda dets: pytest.fail('drive must not inspect targets')
+    r.centered_target_candidates = lambda dets, **kwargs: pytest.fail('drive must not inspect targets')
     r.rear_visual_scoop = lambda: pytest.fail('drive must not collect')
     r.intake_text = lambda command: pytest.fail('drive must not actuate')
     assert RoundRoute(r, load_config(), number, task, 'drive', emit=lambda msg: None).execute()
@@ -171,7 +178,7 @@ def test_actual_search_center_detection_stops_before_next_velocity():
 
 def test_wrong_heading_does_not_move_or_fallback():
     r, events = fake_runner()
-    r.centered_target_candidates = lambda dets: None
+    r.centered_target_candidates = lambda dets, **kwargs: None
     plan = RoundRoute(r, load_config(), 3, 'shoot', 'collect', emit=lambda msg: None)
     r.publish_command = lambda tw: pytest.fail('wrong heading must not move')
     assert plan.scan((8.2, 1.3), 0.3) == 'failed'
@@ -210,7 +217,7 @@ def test_frontend_reads_current_config_defaults_without_actuating():
     mod=console(); unused=NS()
     client=mod.make_app(unused,unused,unused,unused,unused,unused,{}).test_client()
     cfg=client.get('/api/round-config').get_json()
-    assert cfg['ok'] and cfg['scoop_m']=={'middle':.45,'arc':.25,'inner':.15}
+    assert cfg['ok'] and cfg['scoop_m']=={'middle':.70,'arc':.25,'inner':.15}
     assert cfg['release_ready']=={'pass':False,'shoot':False}
     assert cfg['forward_m']==pytest.approx(3.2)
     assert cfg['middle_scan']==pytest.approx({'start_x':4.4, 'end_x':.6,
@@ -344,7 +351,7 @@ def test_approach_retry_only_completes_remaining_distance_and_never_reads_yolo(t
     distances=[]
     r.aligned_intake_approach=lambda:distances.append(r.args.route_scoop_distance) or True
     assert stages.execute_step(r,cfg,2,'pass',1,emit=lambda msg:None)
-    assert distances==pytest.approx([.33])
+    assert distances==pytest.approx([.58])  # 0.70m总行程减去已经后退的0.12m。
     assert stages.load_session(2,'pass')['start_pose']==original_start
 
 

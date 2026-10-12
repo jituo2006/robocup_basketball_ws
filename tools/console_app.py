@@ -1557,7 +1557,7 @@ DEBUG_TOOLS = {
 
 def fixed_seek_tool_args(args):
     """Front-end adjustments for the final approach only."""
-    distance = float(args.get('scoop_distance', .45))
+    distance = float(args.get('scoop_distance', .70))
     speed = float(args.get('scoop_speed', .08))
     if not math.isfinite(distance) or not .02 < distance <= 2:
         raise ValueError('靠近距离须大于0.02且不超过2米')

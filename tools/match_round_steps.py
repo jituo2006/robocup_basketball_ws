@@ -82,6 +82,10 @@ def workflow_state(round_number, task, first_ball='preloaded'):
 
 def execute_step(runner, cfg, round_number, task, index, release_kind='drop', emit=print,
                  continuous=False):
+    # 【整轮程序的实际动作衔接】阶段按钮和 execute_cycle 都用这里。
+    # 取球动作：search(中线第一次横移也识球即停) → align(转180°+后摄横移)
+    #          → approach(独立距离后退) → carry(走到动作点) → release(出球)。
+    # 任一动作失败就停止本阶段，后续动作不会继续；注释中的参数可由界面覆盖。
     validate_step(round_number, task, index, cfg, release_kind,
                   mechanism_enabled=getattr(runner.args, 'route_intake', True))
     previous = load_session(round_number, task)
@@ -107,15 +111,19 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     if index == 3:
         actions = ['home']
     elif index == 1 and round_number == 1 and state['first_ball'] == 'preloaded':
+        # 正式首球预装模式：第一阶段直接到动作点，不执行寻球/后退。
+        # 首球 search 联调模式才执行下面完整的 search→align→approach。
         actions = ['entry', 'action', 'release']
     else:
         actions = (['entry'] if index == 1 else []) + ['search', 'align', 'approach', 'carry', 'release']
     for kind in actions[state['substep']:]:
+        # 分阶段重试从已保存的 substep 续做；整轮入口会先清空会话，从头执行。
         state['active_action'], state['last_error'] = kind, ''
         save_session(state)
         ok = False
         try:
             if kind == 'entry':
+                # 起步默认先静止5秒，随后右转并进场；等待期间也会处理定位回调。
                 runner.spin(cfg['start_delay_s'])
                 ok = plan.turn(-math.pi/2) and plan.move(cfg['entry'])
             elif kind == 'action':
@@ -136,22 +144,33 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             elif kind == 'align':
                 if plan.search_origin is None:
                     raise ValueError('缺少前摄停车点，请重新开始本轮')
+                # 【两处关口】and 会短路：转向未成功就不调用后摄对正。
+                # approach=False 只做左右横移，成功后返回；本行不会前后移动。
+                # 后摄仍需默认3个新帧居中，受15秒/净位移40cm上限约束。
                 ok = runner.rotate_to(wrap(plan.search_origin[2]+math.pi), timeout=45.) and runner.rear_visual_scoop(approach=False)
                 if ok:
+                    # 保存对正完成的位置/朝向，下一动作从这里计算独立后退距离。
                     state['aligned_pose'] = list(runner.pose)
             elif kind == 'approach':
+                # 【对正后向球靠近的入口】这一动作不再读取YOLO，后摄漏检不影响它。
                 if state['area'] is None or 'aligned_pose' not in state:
                     raise ValueError('尚未完成后摄对正')
                 ax, ay, heading = state['aligned_pose']
                 if abs(wrap(runner.pose[2]-heading)) > runner.args.route_heading_tol:
+                    # 【还没发后退速度就终止】相对已保存朝向偏差>默认0.10rad。
                     raise ValueError('车头已偏离对正方向，请重新开始本轮')
                 travelled = -(runner.pose[0]-ax)*math.cos(heading)-(runner.pose[1]-ay)*math.sin(heading)
+                # 扣除已经后退的投影位移，避免分阶段重试又走完整一段。
+                # 总距离来自本区域 scoop_m，中线默认0.70m，容差默认2cm。
                 remaining = cfg[state['area']]['scoop_m']-travelled
                 if remaining <= runner.args.step_tol:
+                    # 如果定位计算的剩余距离<=2cm，会直接认为完成，不再发速度。
                     ok = True
                 else:
                     runner.args.route_scoop_distance = remaining
                     runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
+                    # 机构关闭：直接调用距离后退；机构开启：先发吸球序列，
+                    # 任何机构命令失败都会阻止后退。实际负vx见 rear_distance_scoop。
                     ok = runner.aligned_intake_approach()
             elif kind == 'carry':
                 ok = plan.unwind() and plan.action_point()
@@ -164,10 +183,13 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             elif kind == 'home':
                 ok = plan.home()
         except (RuntimeError, ValueError) as exc:
+            # 定位过期/跳变、朝向或前置状态异常都会到这里，转成动作失败。
             plan.last_error = str(exc)
             ok = False
         runner.stop()
         if not ok:
+            # 【失败不自动跨过去】保存重试位置后返回 False；因此 align 失败
+            # 会表现为“转身以后不靠近”，不能据此认定 approach 已执行。
             state['trail'] = [list(p) for p in plan.trail]
             state['last_error'] = plan.last_error or f'{kind} 未完成；请查看路线日志'
             save_session(state)
@@ -189,6 +211,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
 
 def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=print):
     """从本轮起点连续处理两颗球并回位，与三个阶段按钮共用动作实现。"""
+    # 整轮自动连续跑三阶段，不需要人工点“下一步”；启动时清掉旧续跑状态。
+    # 但 execute_step 返回 False 时仍立即退出，不会自动忽略失败进入下一阶段。
     validate_mode(cfg, task, 'cycle', release_kind,
                   mechanism_enabled=getattr(runner.args, 'route_intake', True))
     steps(round_number, cfg.get('round1_first_ball', 'preloaded'))

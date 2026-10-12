@@ -58,7 +58,7 @@ def camera_hazard(detections, now, vx, vy, cfg):
             continue
         # Large near-image ball overrides unreliable monocular depth. Apply
         # during forward motion only; camera cannot see the lateral blind area.
-        if vx > .001 and d.x_min <= .70 and d.x_max >= .30 and max(d.x_max-d.x_min,d.y_max-d.y_min) >= cfg.obstacle_box_size:
+        if vx > .001 and d.x_min <= .70 and d.x_max >= .30 and max(d.x_max-d.x_min,d.y_max-d.y_min) >= getattr(cfg, 'obstacle_box_size', .22):
             return 'camera:near_ball:'+d.label
         distance, bearing = float(d.distance_m),float(d.bearing_rad)
         if not math.isfinite(distance) or distance<=0 or not math.isfinite(bearing) or abs(bearing)>=math.pi/2:

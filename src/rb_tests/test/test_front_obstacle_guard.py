@@ -32,6 +32,10 @@ def cloud():
 
 
 class TestGuard(unittest.TestCase):
+    def test_removed_box_size_parameter_uses_compatible_default(self):
+        settings=cfg();del settings.obstacle_box_size
+        assert g.camera_hazard([det(size=.25)],10.,.25,0.,settings)=='camera:near_ball:ball_volleyball'
+
     def test_pointcloud_padding_and_endianness(self):
         for big in (False,True):
             data=bytearray(40)

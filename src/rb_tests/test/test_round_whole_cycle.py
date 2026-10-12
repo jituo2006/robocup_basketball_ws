@@ -16,15 +16,16 @@ WS = Path(__file__).resolve().parents[3]
 def test_round1_pickup_stops_in_passing_zone_with_intake_held_and_no_release(monkeypatch):
     cfg = load_config(); cfg['round1_first_ball'] = 'search'
     r, events = fake_runner(); r.pose = (1.5, 8., 0.)
-    def detect(dets):
-        assert r.pose == pytest.approx((4.4, 4.8, -math.pi/2))
+    def detect(dets, centered=True):
+        assert not centered
+        assert r.pose == pytest.approx((1.5, 4.8, -math.pi/2))
         return NS()
     r.centered_target_candidates = detect
     import match_round_route
     monkeypatch.setattr(match_round_route, 'align_pillar', lambda *a, **k: pytest.fail('先测取球到位，不等待柱对准'))
     assert RoundRoute(r, cfg, 1, 'pass', 'collect', release_kind='drop', emit=lambda m: None).execute()
     assert r.pose[:2] == pytest.approx((3.6, 4.5))
-    assert ('scoop', 'ball_basketball', .45) in events
+    assert ('scoop', 'ball_basketball', .70) in events
     assert r.keep_intake_after_scoop
     assert not any(e[0] == 'text' for e in events)
     assert events[-1] == ('stop',)

@@ -18,6 +18,7 @@ def load():
 def make_runner(mod):
     run = mod.Runner.__new__(mod.Runner)
     run.pose = (1.5, 8.0, 0.0)
+    run.dets = []
     run.args = NS(ball_label='ball_basketball', route_forward=3.55,
                   route_scan_start_offset=2.9, route_scan_distance=3.8,
                   route_forward_speed=.12, route_scan_speed=.08, route_scoop_speed=.08,
@@ -79,6 +80,9 @@ def mock_motion(run, fail=None):
         run.pose = (x, y, run.pose[2])
         return True
     run.rotate_to, run.goto = turn, goto
+    def preposition(tx, ty, heading, **kwargs):
+        return ('empty', None) if run.goto(tx, ty, tolerance=run.args.step_tol) else ('failed', None)
+    run.scan_to = preposition
     def rear():
         x,y,yaw=run.pose
         saved=run.args.speed;run.args.speed=run.args.route_scoop_speed
@@ -147,16 +151,19 @@ def test_unconfirmed_off_axis_or_out_of_range_ball_does_not_trigger_turn_or_scoo
     assert sum(a[0] == 'move' for a in actions) == 2
 
 
-def test_center_detection_stops_without_waiting_for_confirmation():
+def test_detection_stops_without_waiting_for_center_or_confirmation():
     mod = load()
     run = make_runner(mod)
     events = []
     run.spin = lambda sec: None
-    run.centered_basketball = lambda: NS(x_min=.45,x_max=.55,confidence=.9,
-        stamp=NS(sec=10,nanosec=0),bearing_rad=0.,distance_m=.7)
+    det = NS(x_min=.65,x_max=.75,confidence=.9, stamp=NS(sec=10,nanosec=0))
+    def detect(dets, centered=True):
+        assert not centered
+        return det
+    run.centered_target_candidates = detect
     run.stop = lambda: events.append('stop')
     run.measure_ball_stable = lambda **kw: events.append('confirm') or (0., .7, 3)
-    assert run.fixed_left_scan(-math.pi/2, (1, 0)) == (0., .7, 1)
+    assert run.fixed_left_scan(-math.pi/2, (1, 0)) is det
     assert events == ['stop']
 
 
@@ -167,7 +174,7 @@ def test_scan_command_is_body_left_with_zero_forward_speed():
     run.args.route_scan_distance = .1
     speeds, stops = [], []
     run.spin = lambda sec: None
-    run.centered_basketball = lambda: None
+    run.centered_target_candidates = lambda *a, **kw: None
     run.stop = lambda: stops.append(True)
     run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     def command(msg):
@@ -184,7 +191,7 @@ def test_rule_left_scan_commands_body_right_and_stops_at_end_tolerance():
     run.pose, run.yaw_rate = (4.4, 4.8, -math.pi/2), 0.
     run.args.route_scan_distance = .1
     run.spin = lambda sec: None
-    run.centered_basketball = lambda: None
+    run.centered_target_candidates = lambda *a, **kw: None
     run.stop = lambda: None
     run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     speeds = []
@@ -210,6 +217,65 @@ def test_center_trigger_requires_fresh_confident_camera_basketball(label,center,
         x_max=center+.05,y_min=.4,y_max=.6,stamp=NS(sec=10,nanosec=0))]
     run.detection_fresh=lambda stamp:fresh
     assert (run.centered_basketball() is not None)==expected
+
+
+@pytest.mark.parametrize('axis', [(1., 0.), (-1., 0.)])
+def test_off_center_ball_stops_both_middle_sweep_directions_before_any_more_motion(axis):
+    mod = load(); run = make_runner(mod)
+    run.pose = (2., 4.8, -math.pi/2)
+    run.dets = [NS(label='ball_basketball', source='camera', confidence=.9,
+                   x_min=.65, x_max=.75, y_min=.4, y_max=.6, stamp=NS(sec=10, nanosec=0))]
+    run.detection_fresh = lambda stamp: True
+    run.spin = lambda seconds: None
+    stops = []; run.stop = lambda: stops.append(True)
+    run.publish_command = lambda tw: pytest.fail('first eligible ball must stop before another velocity')
+    status, det = run.scan_to(run.pose[0]+axis[0], 4.8, -math.pi/2, timeout=1., speed=.25)
+    assert status == 'found' and det is run.dets[0] and stops == [True]
+
+
+@pytest.mark.parametrize('distance', [.45, .70])
+def test_fixed_first_sweep_interrupts_before_right_end_turns_and_completes_distance_approach(distance):
+    mod = load(); run = make_runner(mod)
+    run.args.route_forward=3.2;run.args.route_scoop_distance=distance;run.yaw_rate=0.;run.pose_stamp=10.
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.spin=lambda seconds:None;run.stop=lambda:None
+    turns, commands, aligned = [], [], []
+    def turn(yaw, **kwargs):
+        turns.append(yaw);run.pose=(*run.pose[:2],yaw);return True
+    def goto(x,y,**kwargs):
+        assert (x,y)==pytest.approx((1.5,4.8))
+        run.pose=(x,y,run.pose[2]);return True
+    def command(tw):
+        commands.append((tw.linear.x,tw.linear.y))
+        x,y,yaw=run.pose
+        run.pose=(x+.2*(math.cos(yaw)*tw.linear.x-math.sin(yaw)*tw.linear.y),
+                  y+.2*(math.sin(yaw)*tw.linear.x+math.cos(yaw)*tw.linear.y),yaw)
+    ball=NS(label='ball_basketball',source='camera',confidence=.9,
+            x_min=.65,x_max=.75,y_min=.4,y_max=.6,stamp=NS(sec=10,nanosec=0))
+    choose=run.centered_target_candidates
+    def target(dets, centered=True, **kwargs):
+        assert not aligned, 'distance approach must not read YOLO'
+        return choose([ball],centered=centered) if run.pose[0]>=2. else None
+    def scoop():
+        aligned.append(run.pose)
+        return run.rear_distance_scoop()
+    run.rotate_to=turn;run.goto=goto;run.publish_command=command
+    run.detection_fresh=lambda stamp:True;run.centered_target_candidates=target
+    run.rear_visual_scoop=scoop
+    run.fixed_left_scan=lambda *a:pytest.fail('first sweep found a ball; never continue to left sweep')
+    assert run.fixed_seek_and_scoop()
+    assert turns==pytest.approx([-math.pi/2,math.pi/2])
+    assert 2. <= aligned[0][0] < 4.4
+    assert any(vx<0 and vy==0 for vx,vy in commands)
+    assert aligned[0][1]-run.pose[1]>=distance-run.args.step_tol
+    assert run.args.speed==.25
+
+
+def test_cli_reaches_node_check_after_manual_obstacle_parameter_removal(monkeypatch):
+    mod=load()
+    monkeypatch.setattr(mod.subprocess,'run',lambda *a,**kw:NS(returncode=1))
+    # 所有节点被模拟为未启动：只能正常返回1，不能在参数校验阶段 AttributeError。
+    assert mod.main(['--dry','--yes','--no-mechanism'])==1
 
 
 def timed_rear_samples(mod, run, monkeypatch, samples):

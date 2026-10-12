@@ -13,19 +13,20 @@ import match_round_steps as stages
 from test_match_round_route import fake_runner, console
 
 
-def test_ground_first_ball_reaches_right_endpoint_then_turns_and_approaches(tmp_path, monkeypatch):
+def test_ground_first_ball_stops_on_first_sweep_then_turns_and_approaches(tmp_path, monkeypatch):
     monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
     cfg = load_config(); cfg['round1_first_ball'] = 'search'
     r, events = fake_runner(); r.pose = (1.5, 8., 0.)
-    def detect(dets):
-        assert r.pose == pytest.approx((4.4, 4.8, -math.pi/2))
+    def detect(dets, centered=True):
+        assert not centered
+        assert r.pose == pytest.approx((1.5, 4.8, -math.pi/2))
         events.append(('detect',)); return NS()
     r.centered_target_candidates = detect
     assert stages.execute_step(r, cfg, 1, 'pass', 1, emit=lambda msg: None)
-    assert events.index(('move', 4.4, 4.8)) < events.index(('detect',))
+    assert ('move', 4.4, 4.8) not in events
     assert events.index(('detect',)) < events.index(('turn', math.pi/2))
     assert ('align',) in events
-    assert ('scoop', 'ball_basketball', .45) in events
+    assert ('scoop', 'ball_basketball', .70) in events
     assert stages.workflow_state(1, 'pass')['next_step'] == 2
 
 
