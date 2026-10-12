@@ -11,7 +11,8 @@ import lidar_session
 
 
 @pytest.mark.parametrize('fault', ['link', 'imu_gap', 'odom_jump', 'mapping_exit',
-                                 'slow_lidar', 'slow_mapping', 'sync_skew', 'driver_silence'])
+                                 'slow_lidar', 'slow_mapping', 'sync_skew', 'batch_delay',
+                                 'driver_silence'])
 def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     runtime=NS(t=100.,tick=0,events=[],messages=[],processes=[],callbacks={})
     def bad():return 102 < runtime.t < (104.3 if fault=='driver_silence' else 102.7)
@@ -43,7 +44,8 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
         def destroy_node(self):pass
     n=Node()
     def message(position=False, lidar=False):
-        t=runtime.t-(.4 if lidar and fault=='sync_skew' and bad() else 0.)
+        delay = .6 if fault=='sync_skew' and bad() else (.3 if fault=='batch_delay' else 0.)
+        t=runtime.t-(delay if lidar else 0.)
         m=NS(header=NS(stamp=NS(sec=int(t),nanosec=int((t-int(t))*1e9))))
         if position:
             m.pose=NS(pose=NS(position=NS(x=500 if fault=='odom_jump' and bad() else 0,y=0,z=0)))
@@ -77,10 +79,12 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     lidar_session.main()
     starts=[t for action,kind,t in runtime.events if action=='start' and kind=='mapping']
     ready=[(t,s) for t,s in runtime.messages if s['ready']]
-    if fault.startswith('slow_'):
+    if fault.startswith('slow_') or fault=='batch_delay':
         assert len(starts)==1
         assert sum(action=='start' and kind=='driver' for action,kind,t in runtime.events)==1
-        assert ready and ready[0][0]>112
+        assert ready
+        if fault.startswith('slow_'):
+            assert ready[0][0]>112
         assert all(p.stopped for p in runtime.processes)
         return
     assert len(starts)>=2
