@@ -679,7 +679,11 @@ class CameraNode(Node):
         with self._lock:
             frame = None if self._latest is None else self._latest
             seq = self._seq
-            stamp = self._latest_stamp
+            # ⚠️ getattr 兜底：单元测试会直接构造一个不含 ROS 属性的假节点来调本函数
+            #    （见 rb_perception/test/test_precision_ball.py），它没跑过 __init__，
+            #    硬取 self._latest_stamp 会 AttributeError ✗
+            #    语义不变：没有时间戳就不发（宁可不发，也不发一张标错时间的图）✓
+            stamp = getattr(self, "_latest_stamp", None)
         if frame is None or stamp is None or seq == self._last_pub_seq:
             return
         if self.publish_raw:
