@@ -81,6 +81,33 @@ def test_second_release_failure_does_not_report_complete_or_run_home(tmp_path, m
     assert any('整轮在第2阶段停止' in message for message in messages)
 
 
+def test_first_competition_round_can_skip_all_mechanisms_but_complete_entire_route(tmp_path, monkeypatch):
+    monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
+    import match_round_route
+    monkeypatch.setattr(match_round_route, 'align_pillar', lambda *a, **k: pytest.fail('机构关闭，不等发射柱对准'))
+    cfg = load_config(); r, events = fake_runner(); origin = r.pose
+    r.args.route_intake = False
+    r.intake_text = lambda command: pytest.fail('机构开关关闭，不能下发任何机构指令')
+    assert RoundRoute(r, cfg, 1, 'pass', 'cycle', release_kind='match', emit=lambda m: None).execute()
+    assert len([e for e in events if e[0] == 'scoop']) == 1  # 首球预装，只找第二球。
+    assert len([e for e in events if e[0] == 'align']) == 1
+    assert r.pose == pytest.approx(origin)
+    assert stages.workflow_state(1, 'pass')['finished']
+    assert not [e for e in events if e[0] == 'text']
+
+
+def test_first_competition_button_with_mechanism_off_accepts_unconfigured_release():
+    mod = console(); calls = []; unused = NS()
+    tool = NS(start=lambda key, args: calls.append(args) or (True, 'started'))
+    client = mod.make_app(unused, unused, tool, unused, unused, unused, {}).test_client()
+    args = {'whole_round': True, 'first_ball': 'preloaded', 'release_kind': 'match', 'start_intake': False}
+    assert client.post('/api/action', json={'name': 'TEST_ROUND1', 'args': args}).get_json()['ok']
+    assert '--no-route-intake' in calls[0]
+    assert calls[0][calls[0].index('--round-first-ball')+1] == 'preloaded'
+    args['start_intake'] = True
+    assert not client.post('/api/action', json={'name': 'TEST_ROUND1', 'args': args}).get_json()['ok']
+
+
 @pytest.mark.parametrize('number', [1, 2, 3])
 def test_whole_button_forces_cycle_even_if_old_single_ball_mode_selected(number):
     mod = console(); calls = []; unused = NS()
@@ -125,3 +152,15 @@ def test_startup_shell_dispatches_selected_round_without_ros_or_hardware(tmp_pat
     assert '--pickup-only' not in pickup_args
     assert subprocess.run(['bash', str(root / 'tools/run_round_test.sh'), '2', '--round-step', '1'],
                           capture_output=True).returncode == 2
+    first_script = root / 'tools/run_first_round.sh'
+    first_script.write_text((WS / 'tools/run_first_round.sh').read_text())
+    first = subprocess.run(['bash', str(first_script)], text=True, capture_output=True, check=True)
+    first_args, domain = json.loads(first.stdout.splitlines()[-1])
+    def last_value(flag):
+        return first_args[len(first_args)-1-first_args[::-1].index(flag)+1]
+    assert last_value('--round-first-ball') == 'preloaded'
+    assert last_value('--round-release-kind') == 'match'
+    assert '--no-mechanism' in first_args
+    enabled = subprocess.run(['bash', str(first_script), '--mechanism'], text=True, capture_output=True, check=True)
+    enabled_args, _ = json.loads(enabled.stdout.splitlines()[-1])
+    assert '--mechanism' in enabled_args and '--no-mechanism' not in enabled_args

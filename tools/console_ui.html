@@ -140,24 +140,23 @@
       <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 预移到规则图右端 → 向图左端找球 → 转180° → 后摄横移对正 → 低速后退吸球。<br>预移途中不触发取球；靠近期间不要求识球。</div>
     </div>
     <div class="card" id="matchRoundCard">
-      <h2>按轮完整测试</h2>
+      <h2>比赛回合全自动流程</h2>
       <div class="hint" id="roundStartHint">每轮开始前把车放回 A 出发区，面向篮筐、平行中线。启动后静止5秒。</div>
         <label>比赛环节<select id="roundTask" onchange="roundReleaseState();loadRoundSteps()">
           <option value="pass">传球：找篮球</option><option value="shoot">投篮：找排球</option>
         </select></label>
       <label>出球模式<select id="roundReleaseKind" onchange="roundReleaseState()">
+        <option value="match">比赛出球（机构开启后需配置发射）</option>
         <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
-        <option value="match">正式传球/投篮（需配置发射）</option>
       </select></label>
+      <label><input id="roundIntake" type="checkbox" onchange="roundReleaseState()" style="width:auto"> 开启机构：吸球、传球/投篮、放球（当前关闭）</label>
       <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。取球后保持吸球，到动作点放球。</div>
       <label>第1回合首球方式<select id="roundFirstBall" onchange="loadRoundSteps()">
-        <option value="search">场上取首球（调试，复用固定路线）</option>
         <option value="preloaded">首球预装（赛事规则）</option>
+        <option value="search">场上取首球（仅放球联调）</option>
       </select></label>
-      <button id="round1Pickup" class="primary" onclick="round1PickupRun()">▶ 第1轮：找篮球 → 吸球 → 传球区停车</button>
-      <div class="hint">先测这一段：中线图右端向左找球 → 转180° → 后摄对正 → 后退45厘米吸球 → 保持吸球到传球区。到位停车，手动点“停止吸球”放球。</div>
-      <button id="wholeRound1" class="primary" onclick="wholeRoundRun(1)">▶ 第1轮完整测试</button>
-      <div class="hint">首球预装或中线取球 → 放球 → 中线再取一球 → 放球 → 回位。</div>
+      <button id="wholeRound1" class="primary" onclick="wholeRoundRun(1)">▶ 第1轮全自动（比赛流程）</button>
+      <div class="hint">首球预装 → 传球区出球 → 中线图右端向左找第二球 → 转身对正、靠近取球 → 传球区再次出球 → 回出发区。机构关闭时跳过机构动作，路线继续。</div>
       <div class="hint" id="round1Progress"></div>
       <button id="wholeRound2" class="primary" onclick="wholeRoundRun(2)">▶ 第2轮完整测试</button>
       <div class="hint" id="round2PathHint">中线右端向左找，没找到补扫三分弧；两次取球、放球后回位。</div>
@@ -188,7 +187,6 @@
           <label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.03" max="2" step="0.05" value="0.15"></label>
           <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
         </div>
-        <label><input id="roundIntake" type="checkbox" checked style="width:auto"> 启用机构（吸球、放球）；取消勾选只测运动</label>
         <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
       </details>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
@@ -679,7 +677,7 @@ function gpRun(dry){
   act('GRAB_PLACE', body);
 }
 const TOOL_LABEL = {
-  TEST_ROUND1:      '第1回合分阶段实验',
+  TEST_ROUND1:      '第1回合比赛流程',
   TEST_ROUND2:      '第2回合路线实验',
   TEST_ROUND3:      '第3回合路线实验',
   TEST_BALL:        '固定路线铲球测试',
@@ -688,10 +686,13 @@ const TOOL_LABEL = {
 };
 function roundReleaseState(){
   const drop = $('roundReleaseKind').value === 'drop';
-  const ready = drop || !!(window._roundConfig && window._roundConfig.release_ready[$('roundTask').value]);
+  const mechanism = $('roundIntake').checked;
+  const ready = !mechanism || drop || !!(window._roundConfig && window._roundConfig.release_ready[$('roundTask').value]);
   [1,2,3].forEach(n => $('wholeRound'+n).disabled = !ready || !!(window._st && window._st.tool_running));
-  $('round1Pickup').disabled = !!(window._st && window._st.tool_running);
-  $('roundReleaseState').textContent = drop
+  if(!drop && $('roundFirstBall').value !== 'preloaded') $('wholeRound1').disabled = true;
+  $('roundReleaseState').textContent = !mechanism
+    ? '机构关闭：跳过全部机构指令及发射瞄准，完整路线自动运行。真实吸球、出球尚不执行。'
+    : drop
     ? '当前整轮按放球联调运行：MOVE 1 0 5。正式传球/投篮发射指令仍待配置。'
     : ready ? '已配置正式出球指令；仍需实物确认入仓和出球。'
     : '出球指令未配置：可先测路线或取1球到动作点停车。';
@@ -730,7 +731,6 @@ function roundArgs(){
   };
 }
 function roundRun(round){ act('TEST_ROUND'+round, roundArgs()); }
-function round1PickupRun(){ act('TEST_ROUND1', {...roundArgs(), task:'pass', first_ball:'search', mode:'collect', release_kind:'drop'}); }
 function wholeRoundRun(round){ act('TEST_ROUND'+round, {...roundArgs(), mode:'cycle', whole_round:true}); }
 async function roundReset(round){
   const data = await (await fetch('/api/round-reset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({round, task:$('roundTask').value})})).json();

@@ -1240,8 +1240,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-scoop-distance", type=float, default=0.45, help="后摄居中后独立后退距离 m，不含横移纠偏")
     ap.add_argument("--route-scoop-speed", type=float, default=0.08)
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0)
-    ap.add_argument('--route-intake', action=argparse.BooleanOptionalAction, default=True,
-                    help='对正后启动文本吸球机构再靠近；--no-route-intake 仅测试靠近')
+    ap.add_argument('--route-intake', '--mechanism', action=argparse.BooleanOptionalAction, default=True,
+                    help='机构总开关：关闭跳过吸球、发射、放球，完整比赛路线继续执行')
     ap.add_argument("--route-center-tolerance", type=float, default=0.04,
                     help="篮球框中心距画面中心允许偏差（画面宽度比例）")
     ap.add_argument('--route-rear-timeout', type=float, default=15.0)
@@ -1296,11 +1296,12 @@ def main(argv: list[str] | None = None) -> int:
         try:
             round_cfg = load_config(args.round_config)
             round_cfg['round1_first_ball'] = args.round_first_ball
-            validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind)
+            validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind,
+                          mechanism_enabled=args.route_intake)
             if args.round_step is not None:
                 from match_round_steps import validate_step
                 validate_step(int(args.route[-1]), args.round_task, args.round_step, round_cfg,
-                              args.round_release_kind)
+                              args.round_release_kind, mechanism_enabled=args.route_intake)
             for area in ('middle', 'arc', 'inner'):
                 value = getattr(args, f'round_{area}_scoop')
                 if value is not None:

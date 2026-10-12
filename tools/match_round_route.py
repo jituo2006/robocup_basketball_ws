@@ -116,12 +116,14 @@ def load_config(path=CONFIG):
     return cfg
 
 
-def validate_mode(cfg, task, mode, release_kind='match'):
+def validate_mode(cfg, task, mode, release_kind='match', mechanism_enabled=True):
     if task not in TASK_LABELS or mode not in ('drive', 'collect', 'cycle'):
         raise ValueError('任务/实验模式无效')
     if release_kind not in ('drop', 'match'):
         raise ValueError('出球模式须为 drop/match')
-    if mode == 'cycle' and release_kind == 'match':
+    if not isinstance(mechanism_enabled, bool):
+        raise ValueError('机构开关须为布尔值')
+    if mode == 'cycle' and release_kind == 'match' and mechanism_enabled:
         action = cfg['release'][task]
         if not action['commands'] or action['aim'] is None:
             raise ValueError('双次流程须先在 tools/match_rounds.json 配置真实出球 commands 和 aim；可先用取球实验')
@@ -155,7 +157,8 @@ def search_plan(cfg, area, cycle=0):
 
 class RoundRoute:
     def __init__(self, runner, cfg, round_number, task, mode, emit=print, release_kind='match'):
-        validate_mode(cfg, task, mode, release_kind)
+        validate_mode(cfg, task, mode, release_kind,
+                      mechanism_enabled=getattr(runner.args, 'route_intake', True))
         self.r, self.cfg = runner, cfg
         self.round, self.task, self.mode = round_number, task, mode
         self.release_kind = release_kind
@@ -167,8 +170,6 @@ class RoundRoute:
         self.search_origin = None
         self.target_aligned = False
         self.last_error = ''
-        if release_kind == 'match' and not getattr(runner.args, 'route_intake', True):
-            raise ValueError('正式出球不能关闭机构')
         if round_number == 1 and release_kind == 'match' and cfg.get('round1_first_ball', 'preloaded') != 'preloaded':
             raise ValueError('规则第1轮首球须预装；场上取首球仅用于放球联调')
 
@@ -317,7 +318,8 @@ class RoundRoute:
         self.r.stop()
         self.target_aligned = False
         vision = cfg.get('pillar_alignment', {})
-        if self.mode != 'drive' and vision.get('enabled', False):
+        if (self.mode != 'drive' and getattr(self.r.args, 'route_intake', True)
+                and vision.get('enabled', False)):
             self.say('雷达到动作点，前摄用定位柱微调出球方向')
             self.target_aligned = align_pillar(self.r, vision, heading, emit=self.say)
             if not self.target_aligned and self.release_kind == 'match':
@@ -328,9 +330,7 @@ class RoundRoute:
     def release(self):
         action = self.cfg['release'][self.task]
         if not getattr(self.r.args, 'route_intake', True):
-            if self.release_kind == 'match':
-                raise ValueError('正式出球不能关闭机构')
-            self.say('机构已明确关闭：本次只测试运动，跳过放球指令')
+            self.say('机构开关关闭：跳过全部吸球/发射/放球指令，继续本轮后续路线')
             return True
         if (self.release_kind == 'match' and self.cfg.get('pillar_alignment', {}).get('enabled')
                 and not self.target_aligned):

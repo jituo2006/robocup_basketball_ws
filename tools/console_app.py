@@ -1584,12 +1584,14 @@ def match_round_tool_args(args, round_number=2):
         raise ValueError('首球方式须为 preloaded/search')
     cfg['round1_first_ball'] = first_ball
     release_kind = args.get('release_kind', 'drop')
-    validate_round_mode(cfg, task, mode, release_kind)
+    use_mechanism = args.get('start_intake', True)
+    validate_round_mode(cfg, task, mode, release_kind, mechanism_enabled=use_mechanism)
     step = args.get('step')
     if whole_round and step is not None:
         raise ValueError('整轮测试不能指定单个阶段')
     if step is not None:
-        validate_round_step(round_number, task, step, cfg, release_kind)
+        validate_round_step(round_number, task, step, cfg, release_kind,
+                            mechanism_enabled=use_mechanism)
     # 复用吸球速度/开关校验，各区域接近距离独立配置。
     base = fixed_seek_tool_args({'scoop_speed': args.get('scoop_speed', .08),
                                 'start_intake': args.get('start_intake', True)})

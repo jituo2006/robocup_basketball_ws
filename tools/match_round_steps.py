@@ -50,10 +50,10 @@ def clear_session(round_number, task):
     session_path(round_number, task).unlink(missing_ok=True)
 
 
-def validate_step(round_number, task, index, cfg, release_kind):
+def validate_step(round_number, task, index, cfg, release_kind, mechanism_enabled=True):
     if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= 3:
         raise ValueError('阶段编号须为1、2或3')
-    validate_mode(cfg, task, 'collect', release_kind)
+    validate_mode(cfg, task, 'collect', release_kind, mechanism_enabled=mechanism_enabled)
     state = load_session(round_number, task)
     first_ball = cfg.get('round1_first_ball', 'preloaded')
     if (state and state['next_step'] <= 3 and round_number == 1
@@ -66,7 +66,7 @@ def validate_step(round_number, task, index, cfg, release_kind):
         if index != state['next_step']:
             raise ValueError(f"请先运行第{state['next_step']}阶段；重新实验请摆回出发点运行第1阶段")
     if index in (1, 2):
-        validate_mode(cfg, task, 'cycle', release_kind)
+        validate_mode(cfg, task, 'cycle', release_kind, mechanism_enabled=mechanism_enabled)
 
 
 def workflow_state(round_number, task, first_ball='preloaded'):
@@ -82,7 +82,8 @@ def workflow_state(round_number, task, first_ball='preloaded'):
 
 def execute_step(runner, cfg, round_number, task, index, release_kind='drop', emit=print,
                  continuous=False):
-    validate_step(round_number, task, index, cfg, release_kind)
+    validate_step(round_number, task, index, cfg, release_kind,
+                  mechanism_enabled=getattr(runner.args, 'route_intake', True))
     previous = load_session(round_number, task)
     if index == 1 and (previous is None or previous['next_step'] != 1):
         state = {'version': 2, 'round': round_number, 'task': task,
@@ -156,7 +157,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 ok = plan.unwind() and plan.action_point()
             elif kind == 'release':
                 # 失败后重试 release 会新建 plan，补做对准；同次 carry 已完成则不重复走动作点。
-                if release_kind == 'match' and not plan.target_aligned and not plan.action_point():
+                if (release_kind == 'match' and getattr(runner.args, 'route_intake', True)
+                        and not plan.target_aligned and not plan.action_point()):
                     raise RuntimeError('动作点对准未完成')
                 ok = plan.release()
             elif kind == 'home':
@@ -187,7 +189,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
 
 def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=print):
     """从本轮起点连续处理两颗球并回位，与三个阶段按钮共用动作实现。"""
-    validate_mode(cfg, task, 'cycle', release_kind)
+    validate_mode(cfg, task, 'cycle', release_kind,
+                  mechanism_enabled=getattr(runner.args, 'route_intake', True))
     steps(round_number, cfg.get('round1_first_ball', 'preloaded'))
     clear_session(round_number, task)
     emit(f'第{round_number}回合整轮开始：以当前位姿建立起点；两次处理球后回位')
