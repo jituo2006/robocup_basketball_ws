@@ -19,9 +19,25 @@
 #   （只要雷达不是"上一个会话残留的流状态"）。
 set -o pipefail
 
-# Initialise Livox/FAST-LIO only after the boot-time wall-clock correction.
-# A later clock step can leave buffered LiDAR/IMU timestamps inconsistent.
-if command -v timedatectl >/dev/null 2>&1; then
+# PTP uses this host as master; it does not require Internet/NTP to align sensors.
+# The patched driver only admits device-PTP samples and converts TAI to ROS UTC.
+# Service active means installed/running; actual LiDAR lock is checked by data.
+if [ -f /etc/robocup/livox_ptp_utc_offset ]; then
+  _ptp_iface=$(cat /etc/robocup/ptp_interface 2>/dev/null || echo enp114s0)
+  for _service in "robocup-ptp4l@$_ptp_iface.service" "robocup-phc2sys@$_ptp_iface.service"; do
+    if ! systemctl is-active --quiet "$_service"; then
+      if ! sudo -n systemctl start "$_service"; then
+        echo "PTP 服务启动失败：${_service}；请检查 tools/install_ptp.sh 安装。" >&2
+        exit 1
+      fi
+    fi
+  done
+  echo "已启用硬件 PTP；等待雷达真实 PTP 数据后启动 FAST-LIO。"
+  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; then
+    echo "系统暂未连接 NTP，使用本机时钟进行雷达相对同步。"
+  fi
+elif command -v timedatectl >/dev/null 2>&1; then
+  # Legacy installation: retain the previous boot-time wall-clock check.
   for (( _sync_wait=0; _sync_wait<45; _sync_wait++ )); do
     [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ] && break
     sleep 1
