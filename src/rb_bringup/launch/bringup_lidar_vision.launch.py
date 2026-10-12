@@ -1,6 +1,6 @@
 """雷达 + 视觉定位的整车启动。
 
-启动顺序（有时间依赖，故用 TimerAction 串起来）：
+启动顺序（以真实数据就绪为依据）：
     ① Livox MID360 驱动        (ws_livox)
     ② FAST-LIO 建图/里程计      (fast_prop_ws)  → /Odometry
     ③ 视觉 / 底盘 / 机构 / 定位 / 任务
@@ -43,6 +43,8 @@ def generate_launch_description():
     camera_device = LaunchConfiguration("camera_device")
     rviz = LaunchConfiguration("rviz")
     domain = LaunchConfiguration("ros_domain_id")
+    session_executable = str(Path(_share('rb_bringup')).parents[1] /
+                             'lib/rb_bringup/lidar_session.py')
 
     # ⚠️ 不要用 f-string 把 LaunchConfiguration 拼进 bash 命令！
     #    f"{domain}" 调用的是它的 __repr__，会得到
@@ -51,29 +53,16 @@ def generate_launch_description():
     #    （实测踩过：雷达驱动与 FAST-LIO 都没起来，RViz 地图一片黑。）
     #    正确做法是交给 ExecuteProcess 的 additional_env 去替换。
 
-    # ① 雷达驱动
-    livox = ExecuteProcess(
-        cmd=_bash(
-            "source /opt/ros/humble/setup.bash && "
-            f"source {LIDAR_WS}/ws_livox/install/setup.bash && "
-            "exec ros2 launch livox_ros_driver2 msg_MID360_launch.py"
-        ),
-        additional_env={"ROS_DOMAIN_ID": domain},
-        output="screen", name="livox_driver",
-    )
-
-    # ② FAST-LIO（实车用的是带 IMU 递推的 fast_prop_ws）
-    fastlio = ExecuteProcess(
+    # 数据就绪替代固定等待；管理器负责断电后回收/重建整个雷达估计会话。
+    lidar_session = ExecuteProcess(
         cmd=_bash(
             "source /opt/ros/humble/setup.bash && "
             f"source {LIDAR_WS}/ws_livox/install/setup.bash && "
             f"source {LIDAR_WS}/fast_prop_ws/install/setup.bash && "
-            "exec ros2 launch fast_lio mapping.launch.py "
-            f"config_path:={LIDAR_WS}/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config "
-            "config_file:=mid360.yaml rviz:=false"
+            f"exec python3 {session_executable}"
         ),
         additional_env={"ROS_DOMAIN_ID": domain},
-        output="screen", name="fastlio",
+        output="screen", name="lidar_session",
     )
 
     # ④ 可选 RViz
@@ -112,7 +101,8 @@ def generate_launch_description():
                  'publish_debug_image': False}]),
         Node(package="rb_localization", executable="localization_node", name="rb_localization",
              output="screen",
-             parameters=[{"config_file": _share("rb_localization", "config", "localization.yaml")}]),
+             parameters=[{"config_file": _share("rb_localization", "config", "localization.yaml"),
+                          "require_lidar_session": True}]),
         Node(package="rb_chassis", executable="rb_chassis_node", name="rb_chassis",
              output="screen",
              parameters=[_share("rb_chassis", "config", "chassis.yaml"),
@@ -138,8 +128,7 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("ros_domain_id", default_value="2"),
 
-        livox,
-        TimerAction(period=4.0, actions=[fastlio]),
-        TimerAction(period=12.0, actions=rest),
+        lidar_session,
+        *rest,
         TimerAction(period=14.0, actions=[rviz_proc]),
     ])

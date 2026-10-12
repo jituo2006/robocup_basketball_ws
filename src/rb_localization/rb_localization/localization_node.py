@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from typing import Any
 
 import rclpy
@@ -34,7 +35,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.time import Time
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster
 
 from rb_msgs.msg import DetectionArray
@@ -87,6 +88,14 @@ class LocalizationNode(Node):
             raise ValueError("source_timeout_s 必须为有限正数")
         self.source_freshness = SourceFreshness()
         self.last_source_stamp = None
+        self.require_lidar_session = bool(self.declare_parameter('require_lidar_session', False).value)
+        self.lidar_session_ready = False
+        self.lidar_session_generation = None
+        self.lidar_session_blocked = None
+        self.lidar_session_received = 0.
+        self.lidar_session_cutoff = 0.
+        if self.require_lidar_session:
+            self.create_subscription(String, '/lidar/session', self.on_lidar_session, 10)
         self.add_on_set_parameters_callback(self.on_tuning_parameters)
         self.use_odom_pose_as_abs = bool(src.get("use_odom_pose_as_abs", True))
         self.camera_yaw_offset = float(src.get("camera_yaw_offset_rad", 0.0))
@@ -206,7 +215,55 @@ class LocalizationNode(Node):
     def _refresh_tuning(self):
         self.source_timeout_s = float(self.get_parameter("source_timeout_s").value)
 
+    def _reset_lidar_session(self):
+        # 保留最后接受的位置作为新会话锚点。断电期间人工搬车须重新摆到起点启动。
+        if self.odom_count and all(math.isfinite(v) for v in self.ekf.pose):
+            self.start_pose = tuple(self.ekf.pose)
+            sx, sy, syaw = self.ekf.std
+            self.ekf.set_pose(*self.start_pose, std_xy=max(sx, sy), std_yaw=syaw)
+        self.odom_origin = None
+        self.conv_ready = False
+        self.odom_zero_on_first = True
+        self.last_odom_time = None
+        self.last_odom_field_pose = None
+        self.last_source_stamp = None
+        self.source_freshness = SourceFreshness()
+        self.last_pillar_stamp = 0.
+
+    def on_lidar_session(self, msg):
+        import json
+        try:
+            state = json.loads(msg.data)
+            generation, ready, cutoff = state['generation'], state['ready'], float(state['cutoff'])
+            if (type(generation) is not int or type(ready) is not bool
+                    or not math.isfinite(cutoff) or ready and cutoff <= 0):
+                return
+        except (ValueError, TypeError, KeyError):
+            return
+        if generation != self.lidar_session_generation:
+            self._reset_lidar_session()
+            self.lidar_session_generation = generation
+            self.lidar_session_blocked = None
+            self.lidar_session_ready = False
+        if not ready and self.lidar_session_ready:
+            self._reset_lidar_session()
+        self.lidar_session_ready = ready and generation != self.lidar_session_blocked
+        self.lidar_session_cutoff = cutoff
+        self.lidar_session_received = time.monotonic()
+
+    def _lidar_session_live(self):
+        if not getattr(self, 'require_lidar_session', False):
+            return True
+        live = self.lidar_session_ready and time.monotonic()-self.lidar_session_received <= .5
+        if not live and self.lidar_session_ready:
+            self._reset_lidar_session()
+            self.lidar_session_ready = False
+            self.lidar_session_blocked = self.lidar_session_generation
+        return live
+
     def _accept_source(self, msg, source):
+        if not self._lidar_session_live():
+            return False
         self._refresh_tuning()
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         tw = msg.twist.twist
@@ -215,6 +272,8 @@ class LocalizationNode(Node):
         if not all(math.isfinite(v) for v in values):
             return False
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if getattr(self, 'require_lidar_session', False) and stamp < self.lidar_session_cutoff:
+            return False  # 重启前的排队消息不能进入新会话。
         now = self.get_clock().now().nanoseconds * 1e-9
         if not self.source_freshness.accept(source, stamp, now, self.source_timeout_s):
             return False
@@ -296,6 +355,14 @@ class LocalizationNode(Node):
 
         if self.use_odom_pose_as_abs:
             current = self.odom_to_field(pos.x, pos.y, yaw)
+            if (getattr(self, 'require_lidar_session', False) and self.last_odom_field_pose is not None
+                    and (dt > self.source_timeout_s
+                         or math.dist(current[:2], self.last_odom_field_pose[:2]) > .25+dt)):
+                # 本节点也检查跳变，避免管理器与定位订阅回调的先后顺序影响结果。
+                self._reset_lidar_session()
+                self.lidar_session_ready = False
+                self.lidar_session_blocked = self.lidar_session_generation
+                return
             # FAST-LIO /Odometry only fills pose; twist stays zero. Transform
             # to base-centre poses first so sensor rotation adds no false motion.
             if self.last_odom_field_pose is not None and dt > 0.0:
@@ -384,6 +451,7 @@ class LocalizationNode(Node):
 
     # -- 输出 --------------------------------------------------------------
     def publish_state(self, stamp) -> None:
+        self._lidar_session_live()
         self._refresh_tuning()
         x, y, yaw = self.ekf.pose
         sx, sy, syaw = self.ekf.std

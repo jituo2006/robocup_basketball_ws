@@ -78,6 +78,7 @@ safe_kill() {
 echo "[1/3] 清理残留进程（防止重复驱动抢端口）…"
 killed=0
 for pat in \
+    lidar_session.py \
     livox_ros_driver2_node \
     fastlio_mapping \
     mapping.launch.py \
