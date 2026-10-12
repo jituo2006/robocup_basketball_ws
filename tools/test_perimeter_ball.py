@@ -231,6 +231,8 @@ class Runner:
         self.last_det_time = 0.0
         self.pose_stamp = self.odom_stamp = 0.0
         self.det_stamp = self.rear_det_stamp = 0.0
+        self.motion_fault = None
+        self.last_obstacle_tf_error = ""
         self.motion_guard = False
         self.visual_guard = False
         self.obstacle_body_cloud = None
@@ -280,7 +282,13 @@ class Runner:
         if not all(math.isfinite(v) for v in (*pose, stamp)) or stamp <= self.pose_stamp:
             return
         if self.pose is not None and self.pose_stamp > 0:
-            self.yaw_rate = wrap_pi(yaw - self.pose[2]) / (stamp - self.pose_stamp)
+            dt = stamp-self.pose_stamp
+            jump = math.hypot(pose[0]-self.pose[0],pose[1]-self.pose[1])
+            if jump > getattr(self.args,"pose_jump_margin",.25) + getattr(self.args,"pose_max_speed",1.0)*dt:
+                self.motion_fault = f"定位跳变 {jump:.2f}m/{dt:.3f}s，需重新初始化定位"
+                trace("pose_fault", reason=self.motion_fault, previous=list(self.pose), received=list(pose))
+                return
+            self.yaw_rate = wrap_pi(yaw - self.pose[2]) / dt
         self.pose, self.pose_stamp = pose, stamp
         self.pose_history.append((stamp, pose))
 
@@ -303,14 +311,13 @@ class Runner:
 
     def _on_cloud(self, m) -> None:
         try:
-            from rb_perception.lidar_ball import pointcloud2_to_xyz
-            pts = pointcloud2_to_xyz(m)
+            pts = obstacle_guard.pointcloud_xyz(m)
             self.cloud = pts
             if pts is not None:
                 self.obstacle_cloud_history.append((
                     pts, m.header.stamp, m.header.frame_id))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            self.obstacle_cloud_status = "parse_error: " + str(exc)
 
     def _on_odom_cam(self, m) -> None:
         p = m.pose.pose
@@ -425,6 +432,13 @@ class Runner:
 
     def require_fresh_pose(self) -> None:
         now = self.node.get_clock().now().nanoseconds * 1e-9
+        if getattr(self,"motion_fault",None):
+            self.stop()
+            raise RuntimeError(self.motion_fault)
+        if self.pose is not None and hasattr(self,"field_l") and not (
+                -2 <= self.pose[0] <= self.field_l+2 and -2 <= self.pose[1] <= self.field_w+2):
+            self.stop()
+            raise RuntimeError("定位已超出场地及出发区范围，需重新初始化定位")
         if self.pose is None or not all(math.isfinite(v) for v in self.pose):
             self.stop()
             raise RuntimeError("位姿缺失或非有限数，已请求停车")
@@ -451,6 +465,10 @@ class Runner:
             self.spin(0.05)
             try:
                 self.require_fresh_pose()
+                if getattr(self.args,"obstacle_guard",False):
+                    now=self.node.get_clock().now().nanoseconds*1e-9
+                    if not obstacle_guard.fresh(self.det_stamp,now,self.args.obstacle_timeout):
+                        raise RuntimeError("前摄新数据尚未就绪，保持停车")
                 return
             except RuntimeError:
                 if time.monotonic() >= deadline:
@@ -490,7 +508,8 @@ class Runner:
                 self.obstacle_cloud_stamp = stamp
                 self.obstacle_cloud_status = "transformed"
                 return
-            except Exception:
+            except Exception as exc:
+                self.last_obstacle_tf_error = str(exc)
                 continue
 
     def check_obstacle(self, msg):
@@ -520,7 +539,8 @@ class Runner:
         if abs(vy) > .001 and abs(vy)>abs(vx) and lidar_status != "usable":
             reason = reason or "lidar:lateral_coverage_unavailable"
         trace("obstacle_guard", reason=reason, lidar_status=lidar_status,
-              cloud_stamp=self.obstacle_cloud_stamp, vx=vx, vy=vy)
+              cloud_stamp=self.obstacle_cloud_stamp, tf_error=getattr(self,"last_obstacle_tf_error",""),
+              camera_age=now-self.det_stamp, vx=vx, vy=vy)
         if reason:
             self.stop()
             log("避障停车", reason+"；本次运动中止，清障后重新启动", C_WARN)
@@ -1040,6 +1060,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
     ap.add_argument("--pose-timeout", type=float, default=0.5,
                     help="定位及雷达源时间戳最大年龄 s，过期即停车")
+    ap.add_argument('--pose-jump-margin',type=float,default=.25,help='定位跳变基础容差 m')
+    ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
     ap.add_argument("--kp", type=float, default=1.5)
     ap.add_argument("--kp-yaw", type=float, default=2.0)
     ap.add_argument("--kd-yaw", type=float, default=0.25, help="实测角速度阻尼系数")
@@ -1130,8 +1152,8 @@ def main(argv: list[str] | None = None) -> int:
                     help='后摄篮球中心容差，画面宽度比例')
     ap.add_argument('--route-rear-center-frames', type=int, default=3,
                     help='停车居中确认需要的连续新检测帧数')
-    ap.add_argument('--obstacle-guard', action=argparse.BooleanOptionalAction, default=True,
-                    help='前摄/雷达任一发现路径近障碍即停车，默认开启')
+    ap.add_argument('--obstacle-guard', action=argparse.BooleanOptionalAction, default=False,
+                    help='前摄/雷达近障碍停车，默认关闭；--obstacle-guard开启')
     ap.add_argument('--obstacle-stop-gap', type=float, default=.25,
                     help='车体包络外停车余量 m')
     ap.add_argument('--obstacle-half-length', type=float, default=.50)
@@ -1167,7 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error('后摄超时和对准速度须为正且有限')
     if not math.isfinite(args.route_center_tolerance) or not 0 < args.route_center_tolerance < .5:
         ap.error("中心容差必须在0和0.5之间")
-    positive = ("speed", "pose_timeout", "max_ang", "yaw_tol", "detection_timeout",
+    positive = ("pose_jump_margin", "pose_max_speed", "speed", "pose_timeout", "max_ang", "yaw_tol", "detection_timeout",
                 "pose_match_gap", "track_bearing_deg", "track_distance", "scan_step_seconds",
                 "scan_pause_seconds", "settle_seconds", "settle_yaw_rate", "step_tol",
                 "servo_move", "servo_turn_deg", "align_dist", "align_dist_tol", "align_tol_deg",
@@ -1253,11 +1275,12 @@ def main(argv: list[str] | None = None) -> int:
         log("位姿", f"出发点 ({sx:+.2f}, {sy:+.2f}, {math.degrees(syaw):+.1f}°)")
         log("场地", f"{L:.1f} × {W:.1f} m，绕场 inset={args.inset:.2f}m")
 
+        run.wait_motion_ready()
+
         if args.dry:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
             return 0
 
-        run.wait_motion_ready()
         run.motion_guard = True
 
         if not args.yes:

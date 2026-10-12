@@ -100,3 +100,25 @@ def lidar_hazard(points, vx, vy, cfg):
     # Distinct voxels reject single-point/single-cell noise, no sphere fit needed.
     cells=np.unique(np.floor(hits/.06).astype(np.int64),axis=0)
     return ('lidar:path_obstacle' if len(cells)>=cfg.obstacle_lidar_cells else None),'usable'
+
+
+def pointcloud_xyz(msg):
+    """Decode organised PointCloud2 respecting row padding and endianness."""
+    fields={f.name:f for f in msg.fields}
+    if not all(k in fields for k in ('x','y','z')):
+        raise ValueError('missing xyz fields')
+    if msg.width*msg.height == 0:
+        return np.empty((0,3))
+    if msg.point_step<=0 or msg.row_step<msg.width*msg.point_step or len(msg.data)<msg.row_step*msg.height:
+        raise ValueError('invalid cloud buffer layout')
+    out=[]
+    for key in ('x','y','z'):
+        field=fields[key]
+        size={7:4,8:8}.get(field.datatype)
+        if size is None or field.offset<0 or field.offset+size>msg.point_step:
+            raise ValueError('unsupported xyz field')
+        dtype=('>' if msg.is_bigendian else '<')+('f4' if size==4 else 'f8')
+        out.append(np.ndarray((msg.height,msg.width),dtype=dtype,buffer=msg.data,
+                    offset=field.offset,strides=(msg.row_step,msg.point_step)).ravel())
+    p=np.stack(out,axis=1)
+    return p[np.isfinite(p).all(axis=1)]

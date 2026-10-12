@@ -32,6 +32,35 @@ def cloud():
 
 
 class TestGuard(unittest.TestCase):
+    def test_pointcloud_padding_and_endianness(self):
+        for big in (False,True):
+            data=bytearray(40)
+            for row in range(2):
+                a=np.ndarray((1,3),dtype=('>' if big else '<')+'f4',buffer=data,offset=row*20)
+                a[:]=[[row+1,2,3]]
+            msg=NS(fields=[NS(name=n,offset=i*4,datatype=7) for i,n in enumerate(('x','y','z'))],
+                   width=1,height=2,point_step=12,row_step=20,data=data,is_bigendian=big)
+            np.testing.assert_allclose(g.pointcloud_xyz(msg),[[1,2,3],[2,2,3]])
+
+    def test_pose_jump_latches_fault_and_does_not_replace_good_pose(self):
+        from collections import deque
+        r=self.runner();r.pose=(1.5,8.,0);r.pose_stamp=10.;r.pose_history=deque();r.yaw_rate=0
+        q=NS(x=0,y=0,z=0,w=1)
+        m=NS(pose=NS(pose=NS(position=NS(x=20.,y=8.,z=0),orientation=q)),
+             header=NS(stamp=NS(sec=10,nanosec=100000000)))
+        r._on_pose(m)
+        self.assertIsNotNone(r.motion_fault)
+        self.assertEqual(r.pose,(1.5,8.,0))
+        with self.assertRaises(RuntimeError):r.require_fresh_pose()
+
+    def test_continuous_pose_is_accepted(self):
+        from collections import deque
+        r=self.runner();r.pose=(1.5,8.,0);r.pose_stamp=10.;r.pose_history=deque();r.yaw_rate=0
+        m=NS(pose=NS(pose=NS(position=NS(x=1.52,y=8.,z=0),orientation=NS(x=0,y=0,z=0,w=1))),
+             header=NS(stamp=NS(sec=10,nanosec=100000000)))
+        r._on_pose(m)
+        self.assertEqual(r.pose,(1.52,8.,0))
+
     def test_both_ball_classes_veto_forward(self):
         for label in ['ball_basketball','ball_volleyball']:
             self.assertIsNotNone(g.camera_hazard([det(label)],10.1,.15,0,cfg()))
