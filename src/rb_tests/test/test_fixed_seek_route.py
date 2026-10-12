@@ -189,17 +189,45 @@ def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,
     assert not run.rear_visual_scoop()
     assert commands==([] if cx==.5 else [expected])
 
-def test_rear_requires_unique_center_frames_and_stops_before_realigning():
+@pytest.mark.parametrize('height',[.2,.6])
+def test_rear_requires_unique_center_frames_then_approaches_without_more_yolo(height):
     mod=load();run=make_runner(mod)
-    run.args.route_rear_timeout=.2;run.args.route_rear_stop_height=.45
-    run.args.route_rear_align_speed=.04
-    def det(cx,stamp):
-        return NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=stamp,nanosec=0))
-    samples=iter([det(.5,10),det(.5,10),det(.5,11),det(.5,12),det(.7,13),None])
+    run.args.route_rear_timeout=.2;run.args.route_rear_align_speed=.04
+    def det(stamp):
+        return NS(x_min=.45,x_max=.55,y_min=.2,y_max=.2+height,
+                  confidence=.9,stamp=NS(sec=stamp,nanosec=0))
+    samples=iter([det(10),det(10),det(11),det(12)])
     events=[];run.spin=lambda sec:None
     run.centered_basketball_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:events.append('stop')
+    run.rear_distance_scoop=lambda:events.append('distance') or True
+    assert run.rear_visual_scoop()
+    assert events==['stop','stop','stop','stop','stop','distance']
+    assert not run.obstacle_scoop
+
+
+def test_distance_scoop_moves_when_yolo_is_missing_and_stops_at_distance():
+    mod=load();run=make_runner(mod)
+    run.pose=(0.,0.,0.);run.pose_stamp=10.;run.yaw_rate=0.
+    run.spin=lambda sec:None
+    run.centered_basketball_candidates=lambda *a,**kw:pytest.fail('approach must not read YOLO')
+    run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
-    run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
-    assert not run.rear_visual_scoop()
-    assert events==['stop','stop',(-.08,0.),'stop',(0.,.04),'stop']
+    commands=[]
+    def publish(t):
+        commands.append(t.linear.x)
+        run.pose=(run.pose[0]+t.linear.x,0.,0.)
+    run.publish_command=publish
+    assert run.rear_distance_scoop()
+    assert commands and all(-.08 <= v < 0 for v in commands)
+    assert -run.pose[0] >= run.args.route_scoop_distance-run.args.step_tol
+
+
+def test_distance_scoop_aborts_if_heading_changes():
+    mod=load();run=make_runner(mod)
+    run.pose=(0.,0.,0.);run.pose_stamp=10.;run.yaw_rate=0.
+    run.spin=lambda sec:setattr(run,'pose',(0.,0.,.3))
+    stops=[];run.stop=lambda:stops.append(True)
+    run.publish_command=lambda tw:pytest.fail('wrong heading must stop before command')
+    assert not run.rear_distance_scoop()
+    assert stops
