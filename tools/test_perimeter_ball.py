@@ -904,7 +904,7 @@ class Runner:
             return True
         raised = False
         try:
-            # 靠近到位后：STOP → 等0.3s → ZERO → 等0.8s → MOVE 1 90 5。
+            # 靠近到位后：dji_stop → 等0.3s → dji_zero → 等0.8s → dji_move 1 90 5。
             raised, message = start_intake(self.intake_text,
                                           wait=lambda delay: self.spin(delay))
             log('自动铲球', message, C_OK if raised else C_BAD)
@@ -912,7 +912,7 @@ class Runner:
                 # 从抬起指令成功发送后等待1秒；此时底盘保持停止。
                 self.spin(1.)
         finally:
-            # 放下只发 MOVE 1 0 5，不再追加 STOP / ZERO。
+            # 放下只发 dji_move 1 0 5，不再追加 dji_stop / dji_zero。
             # 抬起失败或等待被中断时，也尝试放下，异常仍由外层处理。
             lowered, message = stop_intake(self.intake_text)
             log('铲球后放下', message, C_OK if lowered else C_BAD)

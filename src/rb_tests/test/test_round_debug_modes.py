@@ -115,6 +115,6 @@ def test_resume_after_serial_failure_completes_scoop_without_repeating_approach(
     r.spin = record_wait
     assert stages.execute_step(r, cfg, 1, 'pass', 1, emit=lambda msg: None)
     commands = [e[1] for e in events if e[0] == 'text']
-    assert commands == ['STOP', 'ZERO', 'MOVE 1 90 5', 'MOVE 1 0 5', 'MOVE 1 0 5']
-    lift = events.index(('text', 'MOVE 1 90 5'))
-    assert events[lift+1:lift+3] == [('wait', 1.), ('text', 'MOVE 1 0 5')]
+    assert commands == ['dji_stop', 'dji_zero', 'dji_move 1 90 5', 'dji_move 1 0 5', 'dji_move 1 0 5']
+    lift = events.index(('text', 'dji_move 1 90 5'))
+    assert events[lift+1:lift+3] == [('wait', 1.), ('text', 'dji_move 1 0 5')]

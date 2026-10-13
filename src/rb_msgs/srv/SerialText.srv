@@ -1,11 +1,12 @@
 # 往机构串口发【一行文本】指令。
 #
 # 现场协议（这台机构的固件）：
-#   STOP           停
-#   ZERO           初始化（回零）
-#   MOVE 1 90 5    抓取
-#   MOVE 1 0 5     放下
-# 开机顺序：先 STOP，再 ZERO，然后 MOVE。
+#   dji_stop           停
+#   dji_zero           初始化（回零）
+#   dji_move 1 90 5    抓取
+#   dji_move 1 0 5     放下
+#   vesc_status / vesc_home / vesc_shoot 3  传球序列
+# 开机顺序：先 dji_stop，再 dji_zero，然后 dji_move。
 #
 # ⚠️ 与 Launch.srv 的二进制帧协议是两套东西，别混用。
 string command      # 不含换行；节点会按 line_ending 参数自动补

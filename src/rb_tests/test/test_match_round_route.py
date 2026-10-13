@@ -283,7 +283,7 @@ def test_round1_preloaded_release_then_only_one_middle_pickup_and_return():
     cfg=load_config();r,events=fake_runner();start=r.pose
     plan=RoundRoute(r,cfg,1,'pass','cycle',release_kind='drop',emit=lambda msg:None)
     assert plan.execute()
-    release_indices=[i for i,e in enumerate(events) if e==('text','MOVE 1 0 5')]
+    release_indices=[i for i,e in enumerate(events) if e==('text','dji_move 1 0 5')]
     scoop_indices=[i for i,e in enumerate(events) if e[0]=='scoop']
     assert len(release_indices)==2 and len(scoop_indices)==1
     assert release_indices[0] < scoop_indices[0] < release_indices[1]
@@ -305,7 +305,7 @@ def test_every_stage_returns_stopped_and_preserves_initial_frame_across_new_runn
         assert state['start_pose']==list(start) and state['next_step']==index+1
         assert r.round_start_frame.pose==start
         if kind in ('first','second'):
-            assert [e for e in events if e[0]=='text']==[('text','MOVE 1 0 5')]
+            assert [e for e in events if e[0]=='text']==[('text','dji_move 1 0 5')]
             if kind=='second' or round_number!=1:
                 assert ('align',) in events and any(e[0]=='scoop' for e in events)
     assert r.pose==pytest.approx(start)

@@ -28,13 +28,13 @@ def test_script_exists_and_help_works_without_ros():
 def test_dry_run_needs_no_ros_and_prints_steps():
     """干跑不碰 ROS、不发指令，只打印步骤表 —— 现场先看再决定要不要真跑。
 
-    ⚠️ 预设已改成【文本协议】（这台机构真实的协议是 STOP/ZERO/MOVE），
+    ⚠️ 预设已改成【文本协议】（这台机构真实的协议是 dji_stop/dji_zero/dji_move），
     不再用二进制动作码。
     """
     r = _run("--preset", "grab_place", "--dry-run")
     assert r.returncode == 0, r.stderr
     assert "dry-run" in r.stdout
-    assert "STOP" in r.stdout and "ZERO" in r.stdout and "MOVE 1 90 5" in r.stdout
+    assert "dji_stop" in r.stdout and "dji_zero" in r.stdout and "dji_move 1 90 5" in r.stdout
 
 
 def test_all_presets_are_well_formed():
@@ -52,7 +52,7 @@ def test_all_presets_are_well_formed():
             txt = str(s.get("text", "")).strip()
             if txt:                       # 文本指令（现在的默认）
                 head = txt.split()[0]
-                assert head in ("STOP", "ZERO", "MOVE"), f"{name} 里未知文本指令 {txt}"
+                assert head in ("dji_stop", "dji_zero", "dji_move"), f"{name} 里未知文本指令 {txt}"
             else:                         # 仍支持用二进制动作码（--steps）
                 assert int(s["action"]) in m.ACTION_NAMES, f"{name} 里非法动作码 {s}"
             assert float(s.get("hold_s", 0)) >= 0, f"{name} 里有负的保持时间"
@@ -87,7 +87,7 @@ def test_unknown_text_command_is_rejected():
 
 
 def test_move_needs_three_args():
-    r = _run("--steps", '[{"text": "MOVE 1 90", "hold_s": 1}]', "--dry-run")
+    r = _run("--steps", '[{"text": "dji_move 1 90", "hold_s": 1}]', "--dry-run")
     assert r.returncode != 0
     assert "MOVE" in (r.stdout + r.stderr)
 

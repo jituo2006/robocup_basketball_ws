@@ -147,7 +147,7 @@
         </select></label>
       <label>出球模式<select id="roundReleaseKind" onchange="roundReleaseState()">
         <option value="match">比赛出球（机构开启后需配置发射）</option>
-        <option value="drop">放球联调：MOVE 1 0 5（已验证）</option>
+        <option value="drop">放球联调：dji_move 1 0 5</option>
       </select></label>
       <label><input id="roundIntake" type="checkbox" onchange="roundReleaseState()" style="width:auto"> 开启机构：吸球、传球/投篮、放球（当前关闭）</label>
       <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。开启机构时，靠近完成后自动铲球，等1秒放下，再去动作点。</div>
@@ -199,7 +199,7 @@
       <button class="primary" onclick="act('INTAKE_START')">▶ 单独测试吸球</button>
       <button class="danger" onclick="act('INTAKE_STOP')">■ 停止吸球</button>
       <div class="hint" id="intakeStatus">机构连接状态读取中</div>
-      <div class="hint">仅控制机构，车不移动。<br>吸球：STOP → ZERO → MOVE 1 90 5。<br>停止吸球：MOVE 1 0 5。</div>
+      <div class="hint">仅控制机构，车不移动。<br>吸球：dji_stop → dji_zero → dji_move 1 90 5。<br>停止吸球：dji_move 1 0 5。</div>
     </div>
     <div class="card">
       <h2>系统控制</h2>
@@ -224,23 +224,25 @@
     <div class="card" id="cardSerialText"><details>
       <summary>机构文本控制</summary>
       <div class="row">
-        <button class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
-        <button class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
+        <button class="danger" onclick="act('LAUNCH_TEXT',{command:'dji_stop'})">■ dji_stop</button>
+        <button class="orange" onclick="act('LAUNCH_INIT')">⟲ dji_stop + dji_zero 初始化</button>
       </div>
       <div class="row">
-        <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 抓取 MOVE 1 90 5</button>
-        <button onclick="act('LAUNCH_PLACE')">👐 放下 MOVE 1 0 5</button>
+        <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 铲起（完整序列）</button>
+        <button onclick="act('LAUNCH_PLACE')">👐 放下 dji_move 1 0 5</button>
       </div>
+      <button class="primary" onclick="act('LAUNCH_PASS')">🏀 传球 vesc_shoot 3</button>
+      <div class="hint">传球：vesc_status → vesc_home → vesc_shoot 3。</div>
       <label style="margin-top:6px">自由输入（不含换行，节点会补）
-        <input type="text" id="stCmd" placeholder="例如 MOVE 1 90 5">
+        <input type="text" id="stCmd" placeholder="例如 dji_move 1 90 5">
       </label>
       <div class="row">
         <button onclick="act('LAUNCH_TEXT',{command:($('stCmd')||{}).value})">▶ 发送</button>
       </div>
       <div class="hint">
-        <b>协议</b>：<code>STOP</code> 停 · <code>ZERO</code> 初始化 ·
-        <code>MOVE 1 90 5</code> 抓取 · <code>MOVE 1 0 5</code> 放下。<br>
-        <b>开机顺序</b>：先 STOP，再 ZERO 初始化，然后 MOVE（点上面那个「STOP + ZERO 初始化」）。<br>
+        <b>协议</b>：<code>dji_stop</code> 停 · <code>dji_zero</code> 初始化 ·
+        <code>dji_move 1 90 5</code> 抓取 · <code>dji_move 1 0 5</code> 放下。<br>
+        <b>开机顺序</b>：先 dji_stop，再 dji_zero 初始化，然后 MOVE（点上面那个「dji_stop + dji_zero 初始化」）。<br>
         ⚠️ 走的是服务 <code>/rb_launcher/text</code>，和上面那排二进制帧按钮
         （Launch.srv）是<b>两套协议</b> —— 这台机构只认文本。<br>
         行尾默认 <code>\n</code>；固件若要 <code>\r\n</code>，
@@ -643,13 +645,13 @@ function renderLidarBall(s){
   }
 }
 const GP_PRESETS = {
-  grab_place: [['DRIBBLE 运球', 1.5, '抓球'], ['STOP 停', 0.5, ''],
-               ['PAWL 夹爪翻转', 0.8, '抓/放取决于固件当前态'], ['STOP 停', 0.5, '']],
-  grab_hold:  [['DRIBBLE 运球', 2.0, '抓球'], ['PAWL 夹爪翻转', 3.0, '保持 3s，看夹住没']],
-  place_only: [['PAWL 夹爪翻转', 0.8, '释放'], ['STOP 停', 0.5, '']],
-  slow_walk:  [['DRIBBLE 运球', 2.0, ''], ['STOP 停', 1.5, ''],
-               ['PAWL 夹爪翻转', 2.0, ''], ['STOP 停', 1.5, ''],
-               ['SLIDEWAY 滑轨翻转', 2.0, ''], ['STOP 停', 1.5, '']]
+  grab_place: [['dji_stop', .3, '先停'], ['dji_zero', .8, '回零'],
+               ['dji_move 1 90 5', 1.2, '铲起']],
+  grab_hold: [['dji_stop', .3, '先停'], ['dji_zero', .8, '回零'],
+              ['dji_move 1 90 5', 3., '铲起并保持']],
+  place_only: [['dji_move 1 0 5', 1., '放下']],
+  slow_walk: [['dji_stop', 1., '先停'], ['dji_zero', 1.5, '回零'],
+              ['dji_move 1 90 5', 2., '铲起'], ['dji_move 1 0 5', 2., '放下']]
 };
 function gpPreview(){
   const box = $('gpPreview');
@@ -693,9 +695,9 @@ function roundReleaseState(){
   $('roundReleaseState').textContent = !mechanism
     ? '机构关闭：跳过全部机构指令及发射瞄准，完整路线自动运行。真实吸球、出球尚不执行。'
     : drop
-    ? '当前整轮按放球联调运行：MOVE 1 0 5。正式传球/投篮发射指令仍待配置。'
+    ? '当前整轮按放球联调运行：dji_move 1 0 5。传球指令已配置；投篮指令仍待配置。'
     : ready ? '已配置正式出球指令；仍需实物确认入仓和出球。'
-    : '出球指令未配置：可先测路线或取1球到动作点停车。';
+    : '出球指令或瞄准点未配置：可先测路线或取1球到动作点停车。';
 }
 async function loadRoundConfig(){
   try{

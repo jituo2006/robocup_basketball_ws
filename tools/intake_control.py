@@ -17,8 +17,8 @@ def _sequence(send, steps, wait, finish_on_error=False):
 
 
 def start_intake(send, wait=time.sleep):
-    return _sequence(send, [('STOP', .3), ('ZERO', .8), ('MOVE 1 90 5', 0.)], wait)
+    return _sequence(send, [('dji_stop', .3), ('dji_zero', .8), ('dji_move 1 90 5', 0.)], wait)
 
 
 def stop_intake(send, wait=time.sleep):
-    return _sequence(send, [('MOVE 1 0 5', 0.)], wait)
+    return _sequence(send, [('dji_move 1 0 5', 0.)], wait)

@@ -432,8 +432,8 @@ def intake_runner():
 def test_automatic_scoop_runs_after_approach_then_lowers_after_exactly_one_second():
     run, events = intake_runner()
     assert run.aligned_intake_approach()
-    assert events == ['approach', 'chassis_stop', 'STOP', ('wait', .3),
-                      'ZERO', ('wait', .8), 'MOVE 1 90 5', ('wait', 1.), 'MOVE 1 0 5']
+    assert events == ['approach', 'chassis_stop', 'dji_stop', ('wait', .3),
+                      'dji_zero', ('wait', .8), 'dji_move 1 90 5', ('wait', 1.), 'dji_move 1 0 5']
 
 
 def test_approach_failure_never_sends_shovel_commands():
@@ -454,22 +454,22 @@ def test_unplugged_intake_is_reported_after_approach_without_claiming_scoop_succ
     run, events = intake_runner()
     run.intake_text = lambda cmd: events.append(cmd) or (False, '串口未打开')
     assert not run.aligned_intake_approach()
-    assert events == ['approach', 'chassis_stop', 'STOP', 'MOVE 1 0 5']
+    assert events == ['approach', 'chassis_stop', 'dji_stop', 'dji_move 1 0 5']
 
 
 def test_failed_lift_skips_one_second_hold_and_attempts_lowering():
     run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'MOVE 1 90 5', 'result')
+    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'dji_move 1 90 5', 'result')
     assert not run.aligned_intake_approach()
     assert ('wait', 1.) not in events
-    assert events[-2:] == ['MOVE 1 90 5', 'MOVE 1 0 5']
+    assert events[-2:] == ['dji_move 1 90 5', 'dji_move 1 0 5']
 
 
 def test_failed_lowering_does_not_complete_the_pickup_action():
     run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'MOVE 1 0 5', 'result')
+    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'dji_move 1 0 5', 'result')
     assert not run.aligned_intake_approach()
-    assert events[-2:] == [('wait', 1.), 'MOVE 1 0 5']
+    assert events[-2:] == [('wait', 1.), 'dji_move 1 0 5']
 
 
 def test_interrupted_hold_still_lowers_without_suppressing_cancellation():
@@ -481,12 +481,12 @@ def test_interrupted_hold_still_lowers_without_suppressing_cancellation():
     run.spin = wait
     with pytest.raises(KeyboardInterrupt):
         run.aligned_intake_approach()
-    assert events[-1] == 'MOVE 1 0 5'
+    assert events[-1] == 'dji_move 1 0 5'
 
 
 def test_resumed_pickup_already_at_distance_still_scoops_without_driving_again():
     run, events = intake_runner()
     run.rear_distance_scoop = lambda: pytest.fail('already approached: no repeat movement')
     assert run.aligned_intake_approach(approach=False)
-    assert events == ['chassis_stop', 'STOP', ('wait', .3), 'ZERO', ('wait', .8),
-                      'MOVE 1 90 5', ('wait', 1.), 'MOVE 1 0 5']
+    assert events == ['chassis_stop', 'dji_stop', ('wait', .3), 'dji_zero', ('wait', .8),
+                      'dji_move 1 90 5', ('wait', 1.), 'dji_move 1 0 5']

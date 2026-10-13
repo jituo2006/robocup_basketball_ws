@@ -895,7 +895,7 @@ class Bridge:
         return self._call(self.cli_goto, req)
 
     def launcher_text(self, command: str):
-        """发一行文本指令（STOP / ZERO / MOVE 1 90 5）。这台机构的真实协议。"""
+        """发一行文本指令（dji_stop / dji_zero / dji_move 1 90 5）。这台机构的真实协议。"""
         from rb_msgs.srv import SerialText
         req = SerialText.Request()
         req.command = str(command)
@@ -1927,8 +1927,8 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 ok, msg = stop_intake(bridge.launcher_text)
                 return jsonify({'ok': ok, 'msg': f'停止吸球：{msg}'})
             if name == "LAUNCH_INIT":
-                # 现场要的开机顺序：先 STOP，再 ZERO 初始化
-                seq = [("STOP", 0.25), ("ZERO", 0.6)]
+                # 现场要的开机顺序：先 dji_stop，再 dji_zero 初始化
+                seq = [("dji_stop", 0.25), ("dji_zero", 0.6)]
                 out = []
                 allok = True
                 for cmd, wait in seq:
@@ -1940,11 +1940,21 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     time.sleep(wait)
                 return jsonify({"ok": allok, "msg": " / ".join(out)})
             if name == "LAUNCH_GRAB":
-                ok, msg = bridge.launcher_text("MOVE 1 90 5")
-                return jsonify({"ok": ok, "msg": f"抓取 MOVE 1 90 5 → {msg}"})
+                ok, msg = start_intake(bridge.launcher_text)
+                return jsonify({"ok": ok, "msg": f"抓取 dji_move 1 90 5 → {msg}"})
+            if name == "LAUNCH_PASS":
+                action = load_round_config()['release']['pass']
+                replies = []
+                for command in action['commands']:
+                    ok, msg = bridge.launcher_text(command)
+                    replies.append(f'{command}: {msg}')
+                    if not ok:
+                        return jsonify({'ok': False, 'msg': ' / '.join(replies)})
+                    time.sleep(action['wait_s'])
+                return jsonify({'ok': bool(replies), 'msg': ' / '.join(replies)})
             if name == "LAUNCH_PLACE":
-                ok, msg = bridge.launcher_text("MOVE 1 0 5")
-                return jsonify({"ok": ok, "msg": f"放下 MOVE 1 0 5 → {msg}"})
+                ok, msg = bridge.launcher_text("dji_move 1 0 5")
+                return jsonify({"ok": ok, "msg": f"放下 dji_move 1 0 5 → {msg}"})
             if name == "LAUNCH":
                 # ⚠️ 兼容两种请求体：前端发 {"name":..., "args":{...}}，
                 #    手工 curl 常直接发 {"name":..., "action":7}。

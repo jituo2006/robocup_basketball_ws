@@ -23,16 +23,16 @@ def test_intake_sequence_waits_for_initialization_and_never_uses_binary_commands
     ok,_=start_intake(lambda cmd:events.append(cmd) or (True,'sent'),
                       wait=lambda sec:events.append(sec))
     assert ok
-    assert events==['STOP',.3,'ZERO',.8,'MOVE 1 90 5']
+    assert events==['dji_stop',.3,'dji_zero',.8,'dji_move 1 90 5']
 
 
 def test_intake_sequence_stops_on_failed_initialization():
     events=[]
     def send(cmd):
         events.append(cmd)
-        return cmd!='ZERO','result'
+        return cmd!='dji_zero','result'
     assert not start_intake(send,wait=lambda sec:None)[0]
-    assert events==['STOP','ZERO']
+    assert events==['dji_stop','dji_zero']
 
 
 def test_intake_buttons_only_call_text_service_and_do_not_start_route():
@@ -45,23 +45,23 @@ def test_intake_buttons_only_call_text_service_and_do_not_start_route():
     client=app.test_client()
     assert client.post('/api/action',json={'name':'INTAKE_START'}).get_json()['ok']
     assert client.post('/api/action',json={'name':'INTAKE_STOP'}).get_json()['ok']
-    assert events==['STOP','ZERO','MOVE 1 90 5','MOVE 1 0 5']
+    assert events==['dji_stop','dji_zero','dji_move 1 90 5','dji_move 1 0 5']
 
 
 def test_stop_intake_only_sends_move_zero_without_waiting():
     events=[]
     assert stop_intake(lambda cmd:events.append(cmd) or (True,'sent'),
                        wait=lambda sec:events.append(sec))[0]
-    assert events==['MOVE 1 0 5']
+    assert events==['dji_move 1 0 5']
 
 
 def test_failed_stop_has_no_additional_commands():
     events=[]
     def send(cmd):
         events.append(cmd)
-        return cmd!='MOVE 1 0 5','result'
+        return cmd!='dji_move 1 0 5','result'
     assert not stop_intake(send,wait=lambda sec:None)[0]
-    assert events==['MOVE 1 0 5']
+    assert events==['dji_move 1 0 5']
 
 
 def test_route_ui_parameters_reach_script_without_requiring_unplugged_mechanism():
@@ -87,3 +87,30 @@ def test_fixed_route_ui_enables_automatic_scoop_by_default_but_retains_skip_swit
     assert 'id="routeIntake" type="checkbox" checked' in ui
     assert '等1秒放下' in ui
     assert "start_intake: $('routeIntake').checked" in ui
+
+
+@pytest.mark.parametrize('failed_command', [None, 'vesc_status', 'vesc_home'])
+def test_manual_pass_sends_configured_sequence_and_aborts_on_failure(failed_command, monkeypatch):
+    mod = console(); events = []
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    def send(command):
+        events.append(command)
+        return command != failed_command, 'result'
+    bridge = NS(launcher_text=send)
+    unused = NS()
+    client = mod.make_app(bridge, unused, unused, unused, unused, unused, {}).test_client()
+    response = client.post('/api/action', json={'name': 'LAUNCH_PASS'}).get_json()
+    expected = ['vesc_status', 'vesc_home', 'vesc_shoot 3']
+    assert mod.load_round_config()['release']['pass']['commands'] == expected
+    assert response['ok'] == (failed_command is None)
+    assert events == (expected if failed_command is None else expected[:expected.index(failed_command)+1])
+
+
+def test_manual_lift_sends_full_initialization_before_move():
+    mod = console(); events = []
+    mod.start_intake = lambda send: start_intake(send, wait=lambda seconds: None)
+    unused = NS()
+    bridge = NS(launcher_text=lambda command: events.append(command) or (True, 'sent'))
+    client = mod.make_app(bridge, unused, unused, unused, unused, unused, {}).test_client()
+    assert client.post('/api/action', json={'name': 'LAUNCH_GRAB'}).get_json()['ok']
+    assert events == ['dji_stop', 'dji_zero', 'dji_move 1 90 5']

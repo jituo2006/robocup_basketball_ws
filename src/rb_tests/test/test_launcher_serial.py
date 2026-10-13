@@ -238,9 +238,9 @@ def test_text_failure_reports_disconnected_and_replug_never_replays_commands(tmp
     try:
         assert client.wait_for_service(timeout_sec=8)
         wait_status(True)
-        for command in ['STOP','ZERO','MOVE 1 90 5']:
+        for command in ['dji_stop','dji_zero','dji_move 1 90 5','dji_move 1 0 5','vesc_status','vesc_home','vesc_shoot 3']:
             assert call(command).success
-        receive(master,b'STOP\nZERO\nMOVE 1 90 5\n')
+        receive(master,b'dji_stop\ndji_zero\ndji_move 1 90 5\ndji_move 1 0 5\nvesc_status\nvesc_home\nvesc_shoot 3\n')
         before_disconnect=len(statuses)
         os.close(master); descriptors.remove(master)
         os.close(slave); descriptors.remove(slave)

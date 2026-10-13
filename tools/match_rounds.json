@@ -14,13 +14,13 @@
   "speed_mps": 0.25,
   "start_delay_s": 5.0,
   "drop_commands": [
-    "MOVE 1 0 5"
+    "dji_move 1 0 5"
   ],
   "middle": {
     "y": 4.8,
     "left_x": 0.6,
     "right_x": 4.4,
-    "scoop_m": 0.70
+    "scoop_m": 0.7
   },
   "arc": {
     "center": [
@@ -50,7 +50,11 @@
         4.5
       ],
       "aim": null,
-      "commands": [],
+      "commands": [
+        "vesc_status",
+        "vesc_home",
+        "vesc_shoot 3"
+      ],
       "wait_s": 2.0,
       "search_heading_deg": 45.0
     },
