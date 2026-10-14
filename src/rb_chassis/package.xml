@@ -12,6 +12,8 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
+  <!-- 系统级依赖：MotorLib-For-Linux（bupt_can 已自带补丁版，见 third_party/） -->
+  <depend>motor_lib</depend>
 
   <export><build_type>ament_cmake</build_type></export>
 </package>

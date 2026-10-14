@@ -135,16 +135,14 @@ class Ekf2D:
         self.P = F @ self.P @ F.T + Q
 
     def predict_pose_delta(self, previous, current, dt: float) -> None:
-        """Propagate a pose-only odometer through the previous measured body frame.
+        """Predict from base poses without also integrating odometry twist.
 
-        Use transformed base poses, so turning with an offset sensor does not
-        invent translation. Keep independent filter corrections instead of
-        replacing the filter pose with each odometer observation.
+        Independent filter corrections remain in the predicted state.
         """
         if dt <= 0.0:
             return
-        dx, dy = current[0] - previous[0], current[1] - previous[1]
-        vx, vy = world_vel_to_body(dx / dt, dy / dt, previous[2])
+        vx, vy = world_vel_to_body((current[0] - previous[0]) / dt,
+                                  (current[1] - previous[1]) / dt, previous[2])
         self.predict(vx, vy, wrap_pi(current[2] - previous[2]) / dt, dt)
 
     # -- 更新：绝对位姿 ----------------------------------------------------

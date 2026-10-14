@@ -1,5 +1,4 @@
-# 寻球专用；相机内参、模型和球径沿用 perception.yaml。
-# 只运行球 YOLO；完整比赛使用 perception.yaml。
+# 基于Linux回退版的标定和模型，启用球和定位柱YOLO。
 camera:
   fx: 794.16
   fy: 793.9
@@ -117,7 +116,7 @@ perception:
   - label: yolo
     type: onnx
     enabled: true
-    model_path: ../models/ball_pillar_20261012.onnx
+    model_path: ../models/ball_pillar_20261013.onnx
     conf_threshold: 0.25
     cross_class_overlap: 0.55
     cross_class_labels:

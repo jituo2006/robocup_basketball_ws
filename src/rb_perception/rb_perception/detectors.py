@@ -763,6 +763,7 @@ class OnnxDetector(BaseDetector):
         tensor, s, pad_x, pad_y = self._letterbox(frame_bgr)
         try:
             out = self.session.run(None, {self.input_name: tensor})[0]
+            self.inferred_this_frame = True
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"ONNX 推理失败: {exc}") from exc
 

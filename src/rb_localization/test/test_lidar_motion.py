@@ -26,7 +26,7 @@ def motion_node():
     return n
 
 
-def feed_field(n, pose, stamp):
+def feed_field(n, pose, stamp, twist=None):
     # Independent inverse geometry: first LiDAR pose is (0,0,0), base offset -0.3m.
     theta = n.start_pose[2] - n.s2b_yaw
     c, s = math.cos(theta), math.sin(theta)
@@ -42,6 +42,8 @@ def feed_field(n, pose, stamp):
     m.pose.pose.orientation.z = math.sin(syaw/2)
     m.pose.pose.orientation.w = math.cos(syaw/2)
     n.now = stamp + .01
+    if twist is not None:
+        m.twist.twist.linear.x, m.twist.twist.linear.y, m.twist.twist.angular.z = twist
     n.on_odom(m)
     return m
 
@@ -70,3 +72,24 @@ def test_pose_delta_not_twist_drives_absolute_odometry():
     feed_field(n,(1.5,8.,.4),100)
     feed_field(n,(2.5,8.,.4),102)  # a source gap must not lose accumulated displacement
     assert n.ekf.pose == pytest.approx((2.5,8.,.4),abs=1e-6)
+
+
+def test_absolute_mode_never_integrates_twist_a_second_time():
+    n=motion_node()
+    feed_field(n,(1.5,8.,.4),100)
+    feed_field(n,(1.6,8.,.4),100.1,twist=(100.,100.,10.))
+    assert n.ekf.pose == pytest.approx((1.6,8.,.4),abs=1e-6)
+
+
+def test_rejected_source_cannot_replace_the_delta_baseline():
+    n=motion_node()
+    feed_field(n,(1.5,8.,.4),100)
+    feed_field(n,(20.,20.,2.),100)  # repeated source timestamp is rejected
+    feed_field(n,(1.6,8.,.4),100.1)
+    assert n.ekf.pose == pytest.approx((1.6,8.,.4),abs=1e-6)
+
+
+def test_delta_prediction_preserves_independent_pose_correction():
+    e=Ekf2D();e.set_pose(.2, -.1, 0.)
+    e.predict_pose_delta((0.,0.,0.),(1.,0.,0.),.1)
+    assert e.pose == pytest.approx((1.2,-.1,0.),abs=1e-6)

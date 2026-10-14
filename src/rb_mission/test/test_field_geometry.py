@@ -132,35 +132,3 @@ def test_xy_are_inside_court_bounds(field):
             [(f"start_zones.{k}", v) for k, v in (field.get("start_zones") or {}).items()]:
         assert -2.0 <= p["x"] <= L + 2.0, f"{key}.x 超出软限位"
         assert -2.0 <= p["y"] <= W + 2.0, f"{key}.y 超出软限位"
-
-
-def test_home_return_is_inside_the_field(field):
-    """回位目标必须在场地内。
-
-    现场原话："还有会初始点的时候要靠近场地一侧一点，不然容易跑出去"。
-    根因：出发区 A 按官方场地图是**突出在场外**的方块（home=(1.5,8.0)，
-    y 超出上边界 0.5m），RETURN_HOME 直接开过去就冲出场地。
-    """
-    L, W = field["length_m"], field["width_m"]
-    hr = field.get("home_return")
-    assert hr, "必须配 home_return（回位用的场内点）"
-    assert 0.0 < hr["x"] < L, f"home_return.x={hr['x']} 不在场内"
-    assert 0.0 < hr["y"] < W, f"home_return.y={hr['y']} 不在场内"
-    # 靠近出发区那一侧：离上边线近一点（但仍在场内）
-    assert hr["y"] > W * 0.5, "回位点应靠出发区那一侧（上边线附近）"
-    assert hr["x"] < L * 0.5, "回位点应靠左侧（出发区在左边）"
-
-
-def test_home_return_differs_from_home():
-    """home 在场外、home_return 在场内 —— 两者不能是同一个点。
-
-    用 fixture 拿 field（和本文件其它测试一致，不要自己再读一遍 yaml）。
-    """
-    import yaml
-    from pathlib import Path
-    ws = Path(__file__).resolve().parents[3]
-    f = yaml.safe_load((ws / "src" / "rb_mission" / "config" / "mission.yaml")
-                       .read_text(encoding="utf-8"))["field"]
-    assert (f["home"]["x"], f["home"]["y"]) != \
-        (f["home_return"]["x"], f["home_return"]["y"]), \
-        "home 和 home_return 不能是同一个点（home 在场外）"

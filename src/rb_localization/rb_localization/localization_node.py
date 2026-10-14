@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """FAST-LIO 位姿增量预测与 2D EKF 位姿更新；输出场地位姿和可信状态。"""
 
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import math

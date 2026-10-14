@@ -45,16 +45,8 @@ import numpy as np
 import yaml
 
 WS = Path(__file__).resolve().parent.parent
-# ⚠️ 前后摄是两套配置，内参完全不同，绝对不能互相覆盖。
-#    没加这个开关时，工具写死只写 camera.yaml / perception.yaml ——
-#    拿它标后摄会把后摄的内参写进【前摄】配置里，前摄定位就废了。
-SLOTS = {
-    "front": (WS / "src" / "rb_camera" / "config" / "camera.yaml",
-              WS / "src" / "rb_perception" / "config" / "perception.yaml"),
-    "rear":  (WS / "src" / "rb_camera" / "config" / "camera_rear.yaml",
-              WS / "src" / "rb_perception" / "config" / "perception_rear.yaml"),
-}
-CAMERA_YAML, PERCEPTION_YAML = SLOTS["front"]
+CAMERA_YAML = WS / "src" / "rb_camera" / "config" / "camera.yaml"
+PERCEPTION_YAML = WS / "src" / "rb_perception" / "config" / "perception.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -568,11 +560,7 @@ def write_intrinsics(fx: float, fy: float, cx: float, cy: float, dist: list[floa
 
 # ---------------------------------------------------------------------------
 def read_production_resolution() -> tuple[str, int, int]:
-    """从对应配置读生产用的设备与分辨率——标定必须在同一分辨率下做。
-
-    ⚠️ 优先用 device_name 按【名字】认设备：/dev/videoN 的编号随插拔顺序变，
-    写死会标错摄像头（前摄后摄内参完全不同）。
-    """
+    """从 camera.yaml 读生产用的设备与分辨率——标定必须在同一分辨率下做。"""
     dev, w, h = "/dev/video0", 1280, 720
     try:
         d = yaml.safe_load(CAMERA_YAML.read_text(encoding="utf-8")) or {}
@@ -580,77 +568,12 @@ def read_production_resolution() -> tuple[str, int, int]:
         dev = str(c.get("device", dev))
         w = int(c.get("width", w))
         h = int(c.get("height", h))
-        name = str(c.get("device_name", "") or "")
-        if name:
-            try:
-                import sys as _sys
-                _sys.path.insert(0, str(WS / "src" / "rb_camera"))
-                from rb_camera.camera_node import resolve_device_by_name
-                found = resolve_device_by_name(name)
-                if found:
-                    dev = found
-            except Exception:  # noqa: BLE001
-                pass
     except Exception:  # noqa: BLE001
         pass
     return dev, w, h
 
 
-def getattr_args_copy_from() -> str:
-    """从 argv 里取 --copy-from（在 argparse 之前就要判断，所以要手解析）。"""
-    import sys as _s
-    for i, a in enumerate(_s.argv):
-        if a == "--copy-from" and i + 1 < len(_s.argv):
-            return _s.argv[i + 1]
-        if a.startswith("--copy-from="):
-            return a.split("=", 1)[1]
-    return ""
-
-
-def do_copy_intrinsics(cam_yaml, per_yaml) -> int:
-    """把【另一个 slot】的内参抄到当前 slot 的两个配置里。
-
-    ⚠️ 只在两个摄像头确实是同一批同型号时可用。主点 cx/cy 是单台属性，
-    抄错会让方位角系统偏几度 —— 抄完务必用"已知距离放球"自检一次。
-    """
-    src = getattr_args_copy_from()
-    src_cam, src_per = SLOTS[src]
-    if src == "front" and (cam_yaml, per_yaml) == SLOTS["front"]:
-        print("  --copy-from front 但 --slot 也是 front，没有意义")
-        return 2
-    try:
-        d = yaml.safe_load(src_cam.read_text(encoding="utf-8")) or {}
-        si = d.get("intrinsics", {}) or {}
-    except Exception as e:  # noqa: BLE001
-        print(f"  读不到源配置: {e}")
-        return 2
-    if not si.get("fx"):
-        print(f"  源 slot '{src}' 的 fx 是 0（没标过），没法抄")
-        return 2
-    print(f"  从 {src} 抄内参到当前 slot：")
-    for k in ("fx", "fy", "cx", "cy", "distortion"):
-        print(f"    {k} = {si.get(k)}")
-    # 复用现成的写回函数（它已经知道该写哪两个文件、哪个块）
-    write_intrinsics(float(si["fx"]), float(si["fy"]),
-                     float(si["cx"]), float(si["cy"]),
-                     [float(v) for v in (si.get("distortion") or [0, 0, 0, 0, 0])])
-    print("\n  ⚠️ 必须做一次自检：把球放在相机正前方 1.00m（卷尺量），")
-    print("     看检测的 distance_m 偏差 <5%、球在画面正中时 bearing≈0°。")
-    print("     不满足就老老实实标定（主点 cx/cy 是单台属性，抄不准）。")
-    return 0
-
-
 def main() -> int:
-    global CAMERA_YAML, PERCEPTION_YAML
-    # ⚠️ 必须先解析 --slot 再读分辨率/写回，否则会拿前摄的配置去标后摄
-    import sys as _sys
-    for _i, _a in enumerate(_sys.argv):
-        if _a == "--slot" and _i + 1 < len(_sys.argv) and _sys.argv[_i + 1] in SLOTS:
-            CAMERA_YAML, PERCEPTION_YAML = SLOTS[_sys.argv[_i + 1]]
-    # --copy-from：直接抄内参，不标定（两摄同批同型号时救急用）
-    if getattr_args_copy_from():
-        return do_copy_intrinsics(CAMERA_YAML, PERCEPTION_YAML)
-
     dev0, w0, h0 = read_production_resolution()
     ap = argparse.ArgumentParser(description="相机内参标定")
     ap.add_argument("--print-board", action="store_true", help="生成可 1:1 打印的棋盘格后退出")
@@ -674,13 +597,6 @@ def main() -> int:
     ap.add_argument("--probe", action="store_true",
                     help="自动探测棋盘格实际有多少内角点（不知道板子规格时用）")
     ap.add_argument("--no-write", action="store_true", help="只标定不写回配置")
-    ap.add_argument("--copy-from", choices=["front", "rear"], default="",
-                    help="把另一个 slot 的内参抄过来（不标定）。"
-                         "⚠️ 只适合两个摄像头【确实是同一批同型号】时救急 —— "
-                         "主点 cx/cy 是单台属性，抄错会让方位角偏几度")
-    ap.add_argument("--slot", choices=["front", "rear"], default="front",
-                    help="标哪个摄像头（默认 front）。"
-                         "rear = 写 camera_rear.yaml + perception_rear.yaml")
     args = ap.parse_args()
 
     pattern = (args.cols, args.rows)

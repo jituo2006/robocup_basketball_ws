@@ -1,3 +1,0 @@
-# Bound the can0 queue to avoid replaying old wheel commands after a stall.
-# A larger queue hides ENOBUFS but does not increase USB/CAN service rate.
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="can0", RUN+="/sbin/ip link set %k txqueuelen 20"

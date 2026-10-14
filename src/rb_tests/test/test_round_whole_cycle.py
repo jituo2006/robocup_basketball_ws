@@ -39,7 +39,7 @@ def test_whole_round_handles_two_targets_then_returns_to_original_pose(tmp_path,
     assert RoundRoute(r, cfg, number, task, 'cycle', release_kind='drop', emit=messages.append).execute()
     scoops = [e for e in events if e[0] == 'scoop']
     assert len(scoops) == 2 and all(e[1] == label for e in scoops)
-    assert events.count(('text', 'MOVE 1 0 5')) == 2
+    assert events.count(('text', 'dji_move 1 0 5')) == 2
     assert r.pose == pytest.approx(origin)
     state = stages.load_session(number, task)
     assert state['start_pose'] == list(origin) and state['next_step'] == 4
@@ -185,5 +185,5 @@ def test_whole_round_uses_post_approach_lift_hold_and_lower_for_each_collected_b
     assert len(scoop_indices) == 2
     for i in scoop_indices:
         assert events[i+1:i+9] == [
-            ('stop',), ('text', 'STOP'), ('wait', .3), ('text', 'ZERO'),
-            ('wait', .8), ('text', 'MOVE 1 90 5'), ('wait', 1.), ('text', 'MOVE 1 0 5')]
+            ('stop',), ('text', 'dji_stop'), ('wait', .3), ('text', 'dji_zero'),
+            ('wait', .8), ('text', 'dji_move 1 90 5'), ('wait', 1.), ('text', 'dji_move 1 0 5')]

@@ -21,3 +21,6 @@ __pycache__/
 # ── 标定工具的自动备份（calibrate_color.py 写配置前会留一份）──
 *.yaml.bak
 *.bak
+
+# macOS Finder metadata
+.DS_Store

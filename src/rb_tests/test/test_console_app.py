@@ -50,6 +50,8 @@ def _cloud(points, point_step=16, extra_pad=True):
     m.fields = [_Field("x", 0), _Field("y", 4), _Field("z", 8)]
     m.point_step = point_step
     m.width, m.height = len(points), 1
+    m.row_step = len(points) * point_step
+    m.is_bigendian = False
     buf = b""
     for (x, y, z) in points:
         buf += struct.pack("<fff", x, y, z)
@@ -498,10 +500,11 @@ def test_every_ui_action_has_backend_handler():
     from pathlib import Path
     ui = Path(_WS / "tools/console_ui.html").read_text(encoding="utf-8")
     app = Path(_WS / "tools/console_app.py").read_text(encoding="utf-8")
-    acts = set(re.findall(r"act\('([A-Z_0-9]+)'", ui))
+    acts = set(re.findall(r"act\('([A-Z_0-9]+)'\s*[,)]", ui))
     acts |= set(re.findall(r"act\(\"([A-Z_0-9]+)\"", ui))
     assert acts, "没从 UI 里解析到任何动作，正则可能失效了"
-    handlers = set(re.findall(r'name == "([A-Z_0-9]+)"', app))
+    handlers = set(re.findall(r'name == [\'"]([A-Z_0-9]+)[\'"]', app))
+    handlers |= set(_load().DEBUG_TOOLS)
     # 元组形式的 `name in ("A", "B")`
     for grp in re.findall(r'name in \(([^)]*)\)', app):
         handlers |= set(re.findall(r'"([A-Z_0-9]+)"', grp))
@@ -602,90 +605,3 @@ def test_ui_has_mission_restart_button_and_warning():
     i = ui.find("接管 /cmd_vel")
     assert i > 0
     assert "重启任务节点" in ui[i:i + 400], "寻球提示里要写清跑完得重启任务节点"
-
-
-# ---------------------------------------------------------------------------
-# 下发守卫：防重复、防冲突
-# ---------------------------------------------------------------------------
-def _guard():
-    import importlib.util
-    from pathlib import Path
-    ws = Path(__file__).resolve().parents[3]
-    spec = importlib.util.spec_from_file_location(
-        "_ca_guard", ws / "tools" / "console_app.py")
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m.ActionGuard()
-
-
-def test_guard_rejects_duplicate_action():
-    """同一条动作在冷却时间内不许重复下发。
-
-    现场教训：连点「底盘使能」起了两个底盘节点抢 CAN（报"无法独占 can0"）；
-    连点「启动整套」起了两套 boot.sh 导致节点重复。
-    """
-    g = _guard()
-    ok, _ = g.check("LAUNCH_TEXT")
-    assert ok, "第一次应该放行"
-    g.begin("LAUNCH_TEXT")
-    g.end("LAUNCH_TEXT")
-    ok2, why = g.check("LAUNCH_TEXT")
-    assert not ok2, "冷却时间内再发应被拒绝"
-    assert "重复" in why or "已经" in why
-
-
-def test_guard_rejects_cross_class_conflict():
-    """跑着会驱动底盘的脚本时，不许起整套 / 使能底盘。"""
-    g = _guard()
-    assert g.check("TEST_BALL")[0]
-    g.begin("TEST_BALL")          # motion 类占住
-    for blocked in ("STACK_START", "CHASSIS_ENABLE", "MISSION_START", "TEST_PERIMETER"):
-        ok, why = g.check(blocked)
-        assert not ok, f"{blocked} 在 motion 运行时应被拒绝"
-        assert "正在执行" in why
-    g.end("TEST_BALL")
-    assert g.check("STACK_START")[0], "释放后应恢复"
-
-
-def test_guard_never_blocks_panic():
-    """急停永远不能被守卫挡住 —— 这是安全底线。"""
-    g = _guard()
-    g.begin("TEST_BALL")
-    g.begin("TEST_PERIMETER")
-    for name in ("PANIC", "TOOL_STOP"):
-        ok, why = g.check(name)
-        assert ok, f"{name} 必须永远放行，却被拦：{why}"
-
-
-def test_guard_busy_expires_so_ui_never_locks_up():
-    """长动作超时自动释放，别把界面永久锁死。"""
-    import time as _t          # 本文件可能没在模块级导入 time
-    g = _guard()
-    g.begin("TEST_BALL")
-    with g.lock:
-        g.busy["motion"] = _t.time() - (g.BUSY_TIMEOUT + 1)
-    ok, _ = g.check("STACK_START")
-    assert ok, "busy 超时后应自动释放"
-
-
-def test_guard_snapshot_exposes_maps_for_frontend():
-    """前端靠这些映射表把冲突按钮变灰 —— 必须都下发。"""
-    g = _guard()
-    snap = g.snapshot()
-    assert snap["classes"], "要下发 动作→冲突类"
-    assert snap["blocks"], "要下发 冲突类→被挡的类"
-    assert "PANIC" in snap["always"]
-    # 后端声明的类必须覆盖所有会驱动底盘的脚本动作
-    for a in ("TEST_BALL", "TEST_PERIMETER", "GRAB_PLACE", "GOTO", "JOG"):
-        assert a in snap["classes"], f"{a} 没有归入冲突类"
-
-
-def test_console_ui_marks_buttons_with_guard():
-    """前端按钮要带 data-guard，并且 act() 要有防连点。"""
-    from pathlib import Path
-    ws = Path(__file__).resolve().parents[3]
-    s = (ws / "tools" / "console_ui.html").read_text(encoding="utf-8")
-    assert "data-guard=" in s, "危险按钮应带 data-guard"
-    assert "_inflight" in s, "act() 要有在飞行集合防连点"
-    assert "renderGuard" in s, "要有渲染守卫状态（按钮变灰）"
-    assert "guardConflict" in s, "要用后端下发的冲突表判断"

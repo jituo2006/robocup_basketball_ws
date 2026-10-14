@@ -34,13 +34,14 @@ def generate_launch_description():
                                   description="寻球测试可指定 perception_seek.yaml"),
             DeclareLaunchArgument("use_compressed", default_value="true",
                                   description="原始大图消息投递只有 ~7fps，默认走 JPEG 压缩图"),
-            DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
+            DeclareLaunchArgument("camera_device", default_value="",
+                                  description="Empty uses camera.yaml stable front-camera path"),
 
             # 相机
             Node(package="rb_camera", executable="camera_node", name="rb_camera",
                  output="screen",
-                 parameters=[_share("rb_camera", "config", "camera.yaml"),
-                             {"device": camera_device}]),
+                 parameters=[{"config_file": _share("rb_camera", "config", "camera.yaml"),
+                              "device": camera_device}]),
 
             # 底盘
             Node(package="rb_chassis", executable="rb_chassis_node", name="rb_chassis",

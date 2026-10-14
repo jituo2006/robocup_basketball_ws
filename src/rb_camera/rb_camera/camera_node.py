@@ -33,7 +33,6 @@
 from __future__ import annotations
 
 import math
-import json
 import os
 import re
 import shutil
@@ -50,9 +49,7 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool, String
-from rcl_interfaces.msg import SetParametersResult
-from .exposure import exposure_capabilities, validate_exposure
+from std_msgs.msg import Bool
 
 # V4L2 控件名在不同 UVC 驱动上不一致，这里给出别名表，按顺序取第一个存在的。
 # 本机实测这台 HD USB Camera 的实际控件名：
@@ -80,64 +77,6 @@ _V4L2_ALIASES: dict[str, list[str]] = {
 }
 # auto_exposure 菜单里 1 是 Manual；不同驱动可能写成 bool/toggle，都按"关掉自动"处理
 _AUTO_EXPOSURE_MANUAL = 1
-
-
-def list_video_devices() -> list[tuple[str, str]]:
-    """返回 [(设备路径, 摄像头名)]，只含能用的（可采集的）节点。"""
-    out = []
-    try:
-        ls = subprocess.run(["v4l2-ctl", "--list-devices"], capture_output=True,
-                            text=True, timeout=6).stdout
-    except Exception:  # noqa: BLE001
-        return out
-    cur = ""
-    for line in ls.splitlines():
-        if line and not line.startswith(("\t", " ")) and line.rstrip().endswith(":"):
-            cur = line.rstrip().rstrip(":")
-        elif line.strip().startswith("/dev/video"):
-            out.append((line.strip(), cur))
-    return out
-
-
-def supports_mjpg_capture(dev: str) -> bool:
-    """这个节点能不能出 MJPG 图 —— 用来跳过 metadata 节点。
-
-    同一个物理摄像机会暴露两个 /dev/video：一个是图，一个是 metadata。
-    metadata 那个打不开/没帧，必须排掉（否则会挑中它，表现为"相机打不开"）。
-    """
-    try:
-        r = subprocess.run(["v4l2-ctl", "-d", dev, "--list-formats"],
-                           capture_output=True, text=True, timeout=6)
-        return "'MJPG'" in r.stdout or "'YUYV'" in r.stdout
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def resolve_device_by_name(name: str, log=None) -> str | None:
-    """按摄像头名（子串匹配，不区分大小写）找可采集的 /dev/videoN。
-
-    ⚠️ 不能用 /dev/videoN 写死：编号随插拔顺序变，重启就认错设备。
-    """
-    if not name:
-        return None
-    # ⚠️ 归一化空白：实测卡名是 "LRCP  V1080P"（两个空格），配置里写一个空格
-    #    就会匹配失败 → 退到写死的 /dev/videoN（不可靠）。
-    key = " ".join(str(name).split()).lower()
-    def norm(s):
-        return " ".join((s or "").split()).lower()
-    cands = [(d, n) for d, n in list_video_devices() if key in norm(n)]
-    if not cands:
-        # 再退一步：按第一个词匹配（"LRCP V1080P" → "lrcp"）
-        first = key.split(" ")[0]
-        cands = [(d, n) for d, n in list_video_devices() if first and first in norm(n)]
-    for d, n in cands:
-        if supports_mjpg_capture(d):
-            if log:
-                log(f"按名字 '{name}' 找到设备 {d}（{n}）")
-            return d
-    if log and cands:
-        log(f"名字 '{name}' 匹配到 {[d for d, _ in cands]} 但都不支持采集，跳过")
-    return None
 
 
 def parse_v4l2_ctrls(text: str) -> dict[str, int]:
@@ -185,18 +124,10 @@ class CameraNode(Node):
         intr = self.cfg.get("intrinsics", {}) or {}
 
         # 常用项允许 ROS 参数覆盖（方便现场临时换设备/分辨率，不改文件）
-        # ⚠️ 限制 OpenCV 线程数：默认它会用满所有核来做 resize/编解码，
-        #    两个相机 + 两个感知一起上会把 16 核吃光（实测负载 22 > 16 核，
-        #    采集从 30fps 掉到 4~5fps → 画面卡顿）。单线程足够。
-        try:
-            import cv2 as _cv2
-            _cv2.setNumThreads(1)
-        except Exception:  # noqa: BLE001
-            pass
-        self.device = str(self.declare_parameter("device", str(cam.get("device", "/dev/video0"))).value)
-        # ⚠️ 优先按【摄像头名】认设备（编号会随插拔顺序变，写死会认错）
-        self.device_name = str(self.declare_parameter(
-            "device_name", str(cam.get("device_name", ""))).value)
+        # Empty launch override uses the configured stable /dev/v4l/by-id path.
+        # If absent, retry that camera rather than opening a different device.
+        device_override = str(self.declare_parameter("device", "").value).strip()
+        self.device = device_override or str(cam.get("device", "/dev/video0"))
         self.width = int(self.declare_parameter("width", int(cam.get("width", 1280))).value)
         self.height = int(self.declare_parameter("height", int(cam.get("height", 720))).value)
         self.fps = float(self.declare_parameter("fps", float(cam.get("fps", 30.0))).value)
@@ -215,12 +146,7 @@ class CameraNode(Node):
         #    同时"发布 30fps 采集 11fps"（在重复发同一帧）。
         #    感知用的是压缩话题（rb_perception 订阅 .../compressed），原始图没人用。
         #    需要 RViz 看原图时再把它打开。
-        # ⚠️ publish_raw 和 publish_compressed 是【同一类】开关，
-        #    都放在配置的 camera: 块里（output: 块只放话题名）。
-        #    我第一版写成从 output: 读 —— 读不到，只是恰好默认值也是 False
-        #    才没暴露出问题（配置项形同虚设）。
-        self.publish_raw = bool(self.declare_parameter(
-            "publish_raw", bool(cam.get("publish_raw", False))).value)
+        self.publish_raw = bool((self.cfg.get("output") or {}).get("publish_raw", False))
         self.ae_enabled = bool(ae.get("enabled", False))
         self.ae_target = float(ae.get("target_brightness", 115.0))
         self.ae_deadband = float(ae.get("deadband", 8.0))
@@ -305,12 +231,12 @@ class CameraNode(Node):
         self._latest: Any = None
         self._latest_stamp = None
         self._seq = 0
+        self._last_pub_seq = 0
         self._running = True
         self._ok = False
         self._cap: cv2.VideoCapture | None = None
         self._read_failures = 0
         self._frames_read = 0
-        self._last_pub_seq = -1
         self._frames_published = 0
         self._last_status_t = time.time()
         self._last_read = 0
@@ -318,17 +244,6 @@ class CameraNode(Node):
         self._actual_w = 0
         self._actual_h = 0
         self._actual_fourcc = ""
-
-        # Serialize driver writes with software AE so manual values cannot be overwritten.
-        self._control_lock = threading.RLock()
-        self.declare_parameter("exposure.value", self._ae_current)
-        self.ae_enabled = bool(self.declare_parameter("exposure.auto", self.ae_enabled).value)
-        self._ae_current = int(self.get_parameter("exposure.value").value)
-        self.controls_cfg["exposure"] = self._ae_current
-        self.add_on_set_parameters_callback(self._on_exposure_parameters)
-        self.exposure_pub = self.create_publisher(
-            String, self.image_topic.rsplit("/", 1)[0] + "/exposure", 1)
-        self.exposure_timer = self.create_timer(1.0, self.publish_exposure)
 
         self._thread = threading.Thread(target=self._capture_loop, name="rb_camera_capture", daemon=True)
         self._thread.start()
@@ -338,7 +253,7 @@ class CameraNode(Node):
         self.status_timer = self.create_timer(1.0, self.publish_status)
 
         self.get_logger().info(
-            f"camera 配置(device 可能被 device_name 覆盖，实际看「相机已打开」): {self.device} {self.width}x{self.height}@{self.fps:.0f} {self.fourcc} "
+            f"camera 就绪: {self.device} {self.width}x{self.height}@{self.fps:.0f} {self.fourcc} "
             f"-> {self.image_topic}"
             + (f" (发布限速 {self.publish_rate_hz:.1f}Hz)" if self.publish_rate_hz > 0 else "")
         )
@@ -388,74 +303,7 @@ class CameraNode(Node):
             return False
         return r.returncode == 0
 
-    def _exposure_caps(self):
-        result = subprocess.run(
-            ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
-            capture_output=True, text=True, timeout=2)
-        return exposure_capabilities(result.stdout) if result.returncode == 0 else None
-
-    def _on_exposure_parameters(self, params):
-        requested = {p.name: p.value for p in params}
-        keys = {"exposure.value", "exposure.auto"}
-        if not keys.intersection(requested):
-            return SetParametersResult(successful=True)
-        try:
-            if set(requested) - keys:
-                raise ValueError("曝光参数须单独提交")
-            if "exposure.auto" in requested and type(requested["exposure.auto"]) is not bool:
-                raise ValueError("自动曝光开关必须为布尔值")
-            with self._control_lock:
-                if not self._ok:
-                    raise ValueError("摄像头未出图，不能调整曝光")
-                caps = self._exposure_caps()
-                value = requested.get("exposure.value")
-                automatic = requested.get("exposure.auto", False if value is not None else self.ae_enabled)
-                if value is not None:
-                    validate_exposure(value, caps)
-                    if automatic:
-                        raise ValueError("手动曝光值不能与开启自动曝光同时提交")
-                if not caps:
-                    raise ValueError("驱动未报告曝光控制")
-                auto_ctrl = self._find_ctrl("auto_exposure", self._v4l2_ctrls())
-                if auto_ctrl and not self._set_ctrl(auto_ctrl, _AUTO_EXPOSURE_MANUAL):
-                    raise ValueError("驱动未能切换手动模式")
-                previous = caps["value"]
-                if value is not None:
-                    if not self._set_ctrl(caps["control"], value):
-                        raise ValueError("驱动拒绝曝光值")
-                    actual = self._exposure_caps()
-                    if not actual or actual["value"] != value:
-                        self._set_ctrl(caps["control"], previous)
-                        raise ValueError("曝光读回与设置不一致，已尝试恢复")
-                    previous = value
-                self.ae_enabled = automatic
-                self._ae_current = previous
-                self.controls_cfg["exposure"] = previous
-                self._ae_buf.clear()
-                self._ae_skip = self.ae_settle_frames
-            return SetParametersResult(successful=True)
-        except (ValueError, OSError, subprocess.SubprocessError) as exc:
-            return SetParametersResult(successful=False, reason=str(exc))
-
-    def publish_exposure(self):
-        info = {"node": self.get_fully_qualified_name(), "device": self.device,
-                "available": False, "auto": self.ae_enabled}
-        try:
-            with self._control_lock:
-                caps = self._exposure_caps() if self._ok else None
-                if caps:
-                    info.update(caps, available=True, auto=self.ae_enabled)
-        except (OSError, subprocess.SubprocessError) as exc:
-            info["error"] = str(exc)
-        msg = String()
-        msg.data = json.dumps(info)
-        self.exposure_pub.publish(msg)
-
     def _apply_controls(self) -> None:
-        with self._control_lock:
-            self._configure_controls()
-
-    def _configure_controls(self) -> None:
         """锁定自动曝光 / 白平衡 / 增益，让图像稳定 —— 颜色标定一次就能长期有效。
 
         ⚠️ 本机实测这台相机：自动模式下 `exposure_time_absolute` 和
@@ -555,19 +403,6 @@ class CameraNode(Node):
 
     # -- 采集线程 ----------------------------------------------------------
     def _open_capture(self) -> bool:
-        # 按名字认设备（比 /dev/videoN 稳，编号会随插拔顺序变）
-        if self.device_name:
-            found = resolve_device_by_name(
-                self.device_name,
-                log=lambda m: self.get_logger().info(m))
-            if found and found != self.device:
-                self.get_logger().info(f"设备按名字解析: {self.device} → {found}")
-                self.device = found
-            elif not found:
-                self.get_logger().warn(
-                    f"按名字 '{self.device_name}' 没找到可采集的摄像头，"
-                    "等待该设备重连，避免操作另一台摄像头")
-                return False
         try:
             cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
         except Exception as exc:  # noqa: BLE001
@@ -656,7 +491,9 @@ class CameraNode(Node):
                     self._sleep(0.01)
                 continue
 
-            read_stamp = self.get_clock().now().to_msg()
+            # Host receipt time, before processing. VideoCapture does not expose
+            # the UVC hardware exposure timestamp.
+            stamp = self.get_clock().now().to_msg()
             self._read_failures = 0
             if self.flip == 1:
                 frame = cv2.flip(frame, 1)
@@ -670,17 +507,12 @@ class CameraNode(Node):
 
             with self._lock:
                 self._latest = frame
-                self._latest_stamp = read_stamp
+                self._latest_stamp = stamp
                 self._seq += 1
             self._frames_read += 1
             self._ok = True
 
     def _auto_exposure(self, frame) -> None:
-        with self._control_lock:
-            if self.ae_enabled:
-                self._adjust_auto_exposure(frame)
-
-    def _adjust_auto_exposure(self, frame) -> None:
         """按目标亮度闭环调曝光 —— 每 ae_every_n 帧走一小步，带死区防震荡。
 
         现场教训：exposure=600 是晚上调的，第二天白天 96.9% 像素过曝、整片死白，
@@ -755,29 +587,21 @@ class CameraNode(Node):
             frame = None if self._latest is None else self._latest
             seq = self._seq
             stamp = self._latest_stamp
-        if frame is None:
+        if frame is None or stamp is None or seq == self._last_pub_seq:
             return
-        # ⚠️ 没有新帧就【不要】重复发布！
-        #    原来这里把 seq 读出来却从没用过 → 定时器每个 tick 都把【同一帧】
-        #    重新 cv2.imencode 一遍发出去。实测采集 4~5fps 而发布 30fps：
-        #      * 白白烧 CPU（JPEG 编码是这里最贵的一步）
-        #      * 画面看着一卡一卡（30 帧里有 25 帧是完全相同的复制品）
-        #    现在只在 _seq 变化时发 —— 发布帧率自然等于采集帧率。
-        if seq == self._last_pub_seq:
-            return
-        self._last_pub_seq = seq
-        try:
-            msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().warn(f"图像转换失败: {exc}")
-            return
-        msg.header.stamp = stamp
-        msg.header.frame_id = self.frame_id
         if self.publish_raw:
+            try:
+                msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(f"图像转换失败: {exc}")
+                return
+            msg.header.stamp = stamp
+            msg.header.frame_id = self.frame_id
             self.image_pub.publish(msg)
         self.info_pub.publish(self._make_info(stamp))
         if self.compressed_pub is not None:
             self._publish_compressed(frame, stamp)
+        self._last_pub_seq = seq
         self._frames_published += 1
 
     def _publish_compressed(self, frame, stamp) -> None:
