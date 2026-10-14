@@ -20,6 +20,35 @@
 
 set -o pipefail
 
+# PTP uses this host as master; it does not require Internet/NTP to align sensors.
+# The patched driver only admits device-PTP samples and converts TAI to ROS UTC.
+# Service active means installed/running; actual LiDAR lock is checked by data.
+if [ -f /etc/robocup/livox_ptp_utc_offset ]; then
+  _ptp_iface=$(cat /etc/robocup/ptp_interface 2>/dev/null || echo enp114s0)
+  for _service in "robocup-ptp4l@$_ptp_iface.service" "robocup-phc2sys@$_ptp_iface.service"; do
+    if ! systemctl is-active --quiet "$_service"; then
+      if ! sudo -n systemctl start "$_service"; then
+        echo "PTP 服务启动失败：${_service}；请检查 tools/install_ptp.sh 安装。" >&2
+        exit 1
+      fi
+    fi
+  done
+  echo "已启用硬件 PTP；等待雷达真实 PTP 数据后启动 FAST-LIO。"
+  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; then
+    echo "系统暂未连接 NTP，使用本机时钟进行雷达相对同步。"
+  fi
+elif command -v timedatectl >/dev/null 2>&1; then
+  # Legacy installation: retain the previous boot-time wall-clock check.
+  for (( _sync_wait=0; _sync_wait<45; _sync_wait++ )); do
+    [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ] && break
+    sleep 1
+  done
+  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" != "yes" ]; then
+    echo "系统校时未完成，请先完成校时再启动雷达。" >&2
+    exit 1
+  fi
+fi
+
 WS=/home/user/robocup_basketball_ws
 cd "$WS" || exit 1
 
@@ -66,6 +95,7 @@ safe_kill() {
 echo "[1/3] 清理残留进程（防止重复驱动抢端口）…"
 killed=0
 for pat in \
+    lidar_session.py \
     livox_ros_driver2_node \
     fastlio_mapping \
     mapping.launch.py \
@@ -121,4 +151,18 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
-exec ros2 launch rb_bringup bringup_lidar_vision.launch.py
+# 保持足够的 CAN 发送队列，避免队列过小导致 ENOBUFS 丢指令。
+if ip link show can0 >/dev/null 2>&1; then
+  _q=$(cat /sys/class/net/can0/tx_queue_len 2>/dev/null || echo 0)
+  if [ "${_q:-0}" -lt 500 ] 2>/dev/null; then
+    if ! ip link set can0 txqueuelen 1000 2>/dev/null; then
+      if ! sudo -n ip link set can0 txqueuelen 1000; then
+        echo "CAN 发送队列调整失败，启动中止；请先设置 can0 txqueuelen 1000。" >&2
+        exit 1
+      fi
+    fi
+    echo "can0 txqueuelen: $_q -> $(cat /sys/class/net/can0/tx_queue_len)"
+  fi
+fi
+
+exec ros2 launch rb_bringup bringup_lidar_vision.launch.py "$@"

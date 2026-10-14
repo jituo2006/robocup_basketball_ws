@@ -12,6 +12,12 @@ void check(const std::array<uint8_t, 8> &actual,
 }
 
 int main() {
+  for (int board : {-1, 0, 4, std::numeric_limits<int>::max()}) {
+    if (rb_dji::validBoardId(board)) return 1;
+  }
+  for (int board : {1, 2, 3}) {
+    if (!rb_dji::validBoardId(board)) return 1;
+  }
   for (uint16_t motor = 1; motor <= 4; ++motor) {
     for (uint16_t op : {rb_dji::kMotorOn, rb_dji::kMotorOff,
                        rb_dji::kVelocityConfig, rb_dji::kReadInfo})

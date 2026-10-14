@@ -149,6 +149,12 @@ public:
     //    （现场实测：ros2 service call 返回 success=true，但 /rb_launcher/ok 上一条消息都没有。）
     status_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() {
       std::lock_guard<std::mutex> lock(mtx_);
+      if (port_ok_ && (!serial_ || !serial_->connected())) {
+        port_ok_ = false;
+        active_ = false;
+        serial_.reset();
+        publishStatus("SERIAL", false, "机构USB/串口已断开，等待重连");
+      }
       publishOk();
       if (!last_status_.empty()) {
         std_msgs::msg::String out;
@@ -216,6 +222,7 @@ private:
       serial_ = std::make_unique<SerialPortR1>(*ioc_, port_, baud_);
       port_ok_ = true;
       RCLCPP_INFO(get_logger(), "机构串口重连成功: %s", port_.c_str());
+      publishStatus("SERIAL", true, "机构串口重连成功");
     } catch (const std::exception &) {
       port_ok_ = false;
       serial_.reset();
@@ -290,12 +297,17 @@ private:
       return;
     }
     try {
-      serial_->send_string(cmd + line_ending_);
-      res->success = true;
-      res->message = "已发送 " + cmd;
+      res->success = serial_->send_string(cmd + line_ending_);
+      res->message = res->success ? "已发送 " + cmd : "串口写入失败，设备可能已断开";
     } catch (const std::exception &ex) {
       res->success = false;
       res->message = std::string("发送失败: ") + ex.what();
+    }
+    if (!res->success) {
+      active_ = false;
+      port_ok_ = false;
+      serial_.reset();
+      publishOk();
     }
     publishStatus("TEXT", res->success, res->message);
   }

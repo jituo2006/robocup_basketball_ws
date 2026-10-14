@@ -59,27 +59,27 @@ ACTION_NAMES = {
 
 # 预设：现场按实际机构语义再调
 PRESETS = {
-    # ⚠️ 这台机构走【文本协议】：STOP / ZERO / MOVE 1 90 5（抓）/ MOVE 1 0 5（放）
+    # ⚠️ 这台机构走【文本协议】：dji_stop / dji_zero / dji_move 1 90 5（抓）/ dji_move 1 0 5（放）
     #    仓库原来那套 11 字节二进制帧对它无效（"指令没反应"的真正原因）。
-    #    现场给的开机顺序：先 STOP，再 ZERO 初始化，然后 MOVE。
+    #    现场给的开机顺序：先 dji_stop，再 dji_zero 初始化，然后 dji_move。
     "grab_place": [
-        {"text": "STOP", "hold_s": 0.3, "note": "先停"},
-        {"text": "ZERO", "hold_s": 0.8, "note": "初始化/回零"},
-        {"text": "MOVE 1 90 5", "hold_s": 1.2, "note": "抓取"},
+        {"text": "dji_stop", "hold_s": 0.3, "note": "先停"},
+        {"text": "dji_zero", "hold_s": 0.8, "note": "初始化/回零"},
+        {"text": "dji_move 1 90 5", "hold_s": 1.2, "note": "抓取"},
     ],
     "grab_hold": [
-        {"text": "STOP", "hold_s": 0.3, "note": ""},
-        {"text": "ZERO", "hold_s": 0.8, "note": ""},
-        {"text": "MOVE 1 90 5", "hold_s": 3.0, "note": "抓取并保持 3s（看夹住没）"},
+        {"text": "dji_stop", "hold_s": 0.3, "note": ""},
+        {"text": "dji_zero", "hold_s": 0.8, "note": ""},
+        {"text": "dji_move 1 90 5", "hold_s": 3.0, "note": "抓取并保持 3s（看夹住没）"},
     ],
     "place_only": [
-        {"text": "MOVE 1 0 5", "hold_s": 1.0, "note": "放下"},
+        {"text": "dji_move 1 0 5", "hold_s": 1.0, "note": "放下"},
     ],
     "slow_walk": [
-        {"text": "STOP", "hold_s": 1.0, "note": "停"},
-        {"text": "ZERO", "hold_s": 1.5, "note": "初始化"},
-        {"text": "MOVE 1 90 5", "hold_s": 2.0, "note": "抓取"},
-        {"text": "MOVE 1 0 5", "hold_s": 2.0, "note": "放下"},
+        {"text": "dji_stop", "hold_s": 1.0, "note": "停"},
+        {"text": "dji_zero", "hold_s": 1.5, "note": "初始化"},
+        {"text": "dji_move 1 90 5", "hold_s": 2.0, "note": "抓取"},
+        {"text": "dji_move 1 0 5", "hold_s": 2.0, "note": "放下"},
     ],
 }
 
@@ -146,13 +146,13 @@ def main(argv=None) -> int:
     for s in steps:
         txt = str(s.get("text", "")).strip()
         if txt:
-            # 文本指令：只允许 STOP / ZERO / MOVE <n> <n> <n>
+            # 文本指令：只允许 dji_stop / dji_zero / dji_move <n> <n> <n>
             parts = txt.split()
-            if parts[0] not in ("STOP", "ZERO", "MOVE"):
-                print(f"不认识的文本指令: {txt!r}（只支持 STOP / ZERO / MOVE）", file=sys.stderr)
+            if parts[0] not in ("dji_stop", "dji_zero", "dji_move"):
+                print(f"不认识的文本指令: {txt!r}（只支持 dji_stop / dji_zero / dji_move）", file=sys.stderr)
                 return 2
-            if parts[0] == "MOVE" and len(parts) != 4:
-                print(f"MOVE 要是 'MOVE <id> <角度> <n>' 三个参数: {txt!r}", file=sys.stderr)
+            if parts[0] == "dji_move" and len(parts) != 4:
+                print(f"MOVE 要是 'dji_move <id> <角度> <n>' 三个参数: {txt!r}", file=sys.stderr)
                 return 2
         elif int(s.get("action", -1)) not in ACTION_NAMES:
             print(f"步骤里动作码非法: {s}", file=sys.stderr)
@@ -219,13 +219,13 @@ def main(argv=None) -> int:
                 continue
             break
     except KeyboardInterrupt:
-        print("\n  收到 Ctrl-C → 发 STOP 并退出")
+        print("\n  收到 Ctrl-C → 发 dji_stop 并退出")
         call_launch(node, cli, 7, 0, 0)
         return 130
     finally:
-        # 无论如何都收尾：发 STOP，避免机械停在高位
-        ok, msg = call_text(node, cli_text, "STOP", timeout=2.0)
-        print(f"\n  收尾 STOP: {'✓' if ok else '✗'} {msg}")
+        # 无论如何都收尾：发 dji_stop，避免机械停在高位
+        ok, msg = call_text(node, cli_text, "dji_stop", timeout=2.0)
+        print(f"\n  收尾 dji_stop: {'✓' if ok else '✗'} {msg}")
         print(f"  toggle 累计: 夹爪 {flips[4]} 次、滑轨 {flips[5]} 次"
               f"（下位机是开关语义，偶数=回到初始态）")
         node.destroy_node()

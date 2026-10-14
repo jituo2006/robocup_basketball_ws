@@ -1,6 +1,23 @@
 import math
 import pytest
-from rb_mission.navigation import ArrivalConfig, ArrivalGate, PoseFeedback
+from rb_mission.navigation import ArrivalConfig, ArrivalGate, PoseFeedback, ProgressWatchdog
+
+
+def test_progress_watchdog_allows_long_running_motion_but_rejects_stalls():
+    watch = ProgressWatchdog(0., timeout=2., epsilon=.005)
+    for second in range(100):
+        assert not watch.stalled(float(second), 1.-second*.006)
+    assert watch.stalled(102., watch.best)
+
+
+def test_progress_watchdog_clock_reset_and_nonfinite_input():
+    watch = ProgressWatchdog(100.)
+    assert not watch.stalled(101., 1.)
+    assert not watch.stalled(1., 1.)
+    assert watch.stalled(11., 1.)
+    assert watch.stalled(12., math.nan)
+    with pytest.raises(ValueError):
+        ProgressWatchdog(0., timeout=math.inf)
 
 
 def test_pass_through_is_not_arrival_and_drift_recovers():

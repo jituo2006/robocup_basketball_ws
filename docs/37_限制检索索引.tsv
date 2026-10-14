@@ -1,0 +1,1297 @@
+文件	行号	函数或配置	检索命中内容
+src/rb_bringup/scripts/lidar_health.py	9	cdr_header_stamp	raise ValueError('无效的 CDR Header')
+src/rb_bringup/scripts/lidar_health.py	12	cdr_header_stamp	raise ValueError('无效的 Header 纳秒')
+src/rb_bringup/scripts/lidar_health.py	17	Stream.__init__	def __init__(self, max_gap):
+src/rb_bringup/scripts/lidar_health.py	18	Stream.__init__	self.max_gap = max_gap
+src/rb_bringup/scripts/lidar_health.py	25	Stream.observe	if not math.isfinite(stamp) or not -.05 <= wall-stamp <= 1.:
+src/rb_bringup/scripts/lidar_health.py	27	Stream.observe	return False
+src/rb_bringup/scripts/lidar_health.py	30	Stream.observe	return False  # 重发旧帧不延长连续输出时间。
+src/rb_bringup/scripts/lidar_health.py	31	Stream.observe	if not 0 < stamp-self.stamp <= self.max_gap or mono-self.received > self.max_gap:
+src/rb_bringup/scripts/lidar_health.py	34	Stream.observe	return False
+src/rb_bringup/scripts/lidar_health.py	42	Stream.live	and mono-self.received <= self.max_gap)
+src/rb_bringup/scripts/lidar_health.py	65	LidarHealth.observe	return False
+src/rb_bringup/scripts/lidar_health.py	67	LidarHealth.observe	if not all(math.isfinite(v) for v in position):
+src/rb_bringup/scripts/lidar_health.py	71	LidarHealth.observe	return False
+src/rb_bringup/scripts/lidar_health.py	79	LidarHealth.observe	return False
+src/rb_bringup/scripts/lidar_health.py	83	LidarHealth.inputs_receiving	def inputs_receiving(self, mono, max_silence=2.):
+src/rb_bringup/scripts/lidar_health.py	85	LidarHealth.inputs_receiving	return all(received is not None and mono-received <= max_silence
+src/rb_bringup/scripts/lidar_health.py	103	LidarHealth.inputs_stable	and mono-max(self.imu.since, self.lidar.since) >= self.stable_seconds)
+src/rb_bringup/scripts/lidar_session.py	20	stop_process	proc.wait(timeout=3.)
+src/rb_bringup/scripts/lidar_session.py	23	stop_process	proc.wait(timeout=2.)
+src/rb_bringup/scripts/lidar_session.py	98	main	rclpy.spin_once(node, timeout_sec=.02)
+src/rb_camera/config/camera.yaml	27	配置或模块级	max_read_failures: 15     # 连续读失败多少次就重开相机
+src/rb_camera/config/camera.yaml	90	配置或模块级	min: 30                   # 曝光下限，别调到全黑
+src/rb_camera/config/camera.yaml	91	配置或模块级	max: 3000                 # 曝光上限，别调到拖慢帧率
+src/rb_camera/config/camera_rear.yaml	12	配置或模块级	max_read_failures: 15
+src/rb_camera/config/camera_rear.yaml	30	配置或模块级	min: 30
+src/rb_camera/config/camera_rear.yaml	31	配置或模块级	max: 3000
+src/rb_camera/rb_camera/camera_node.py	90	list_video_devices	text=True, timeout=6).stdout
+src/rb_camera/rb_camera/camera_node.py	110	supports_mjpg_capture	capture_output=True, text=True, timeout=6)
+src/rb_camera/rb_camera/camera_node.py	113	supports_mjpg_capture	return False
+src/rb_camera/rb_camera/camera_node.py	150	parse_v4l2_ctrls	brightness 0x00980900 (int)    : min=-64 max=64 step=1 default=0 value=0
+src/rb_camera/rb_camera/camera_node.py	152	parse_v4l2_ctrls	auto_exposure 0x009a0901 (menu)   : min=0 max=3 default=3 value=3 (Aperture Priority Mode)
+src/rb_camera/rb_camera/camera_node.py	153	parse_v4l2_ctrls	exposure_time_absolute 0x009a0902 (int) : min=1 max=5000 ... value=156 flags=inactive
+src/rb_camera/rb_camera/camera_node.py	188	CameraNode.__init__	# ⚠️ 限制 OpenCV 线程数：默认它会用满所有核来做 resize/编解码，
+src/rb_camera/rb_camera/camera_node.py	228	CameraNode.__init__	self.ae_every_n = max(1, int(ae.get("tune_every_n", 15)))
+src/rb_camera/rb_camera/camera_node.py	229	CameraNode.__init__	self.ae_min = int(ae.get("min", 30))
+src/rb_camera/rb_camera/camera_node.py	230	CameraNode.__init__	self.ae_max = int(ae.get("max", 3000))
+src/rb_camera/rb_camera/camera_node.py	237	CameraNode.__init__	self.ae_settle_frames = max(1, int(ae.get("settle_frames", 5)))
+src/rb_camera/rb_camera/camera_node.py	240	CameraNode.__init__	self.ae_avg_frames = max(1, int(ae.get("avg_frames", 3)))
+src/rb_camera/rb_camera/camera_node.py	242	CameraNode.__init__	self.max_read_failures = int(cam.get("max_read_failures", 15))
+src/rb_camera/rb_camera/camera_node.py	293	CameraNode.__init__	depth=max(1, self.qos_depth),
+src/rb_camera/rb_camera/camera_node.py	336	CameraNode.__init__	rate = self.publish_rate_hz if self.publish_rate_hz > 0 else max(self.fps, 1.0)
+src/rb_camera/rb_camera/camera_node.py	374	CameraNode._v4l2_ctrls	capture_output=True, text=True, timeout=5)
+src/rb_camera/rb_camera/camera_node.py	386	CameraNode._set_ctrl	capture_output=True, text=True, timeout=5)
+src/rb_camera/rb_camera/camera_node.py	388	CameraNode._set_ctrl	return False
+src/rb_camera/rb_camera/camera_node.py	394	CameraNode._exposure_caps	capture_output=True, text=True, timeout=2)
+src/rb_camera/rb_camera/camera_node.py	404	CameraNode._on_exposure_parameters	raise ValueError("曝光参数须单独提交")
+src/rb_camera/rb_camera/camera_node.py	406	CameraNode._on_exposure_parameters	raise ValueError("自动曝光开关必须为布尔值")
+src/rb_camera/rb_camera/camera_node.py	409	CameraNode._on_exposure_parameters	raise ValueError("摄像头未出图，不能调整曝光")
+src/rb_camera/rb_camera/camera_node.py	416	CameraNode._on_exposure_parameters	raise ValueError("手动曝光值不能与开启自动曝光同时提交")
+src/rb_camera/rb_camera/camera_node.py	418	CameraNode._on_exposure_parameters	raise ValueError("驱动未报告曝光控制")
+src/rb_camera/rb_camera/camera_node.py	421	CameraNode._on_exposure_parameters	raise ValueError("驱动未能切换手动模式")
+src/rb_camera/rb_camera/camera_node.py	425	CameraNode._on_exposure_parameters	raise ValueError("驱动拒绝曝光值")
+src/rb_camera/rb_camera/camera_node.py	429	CameraNode._on_exposure_parameters	raise ValueError("曝光读回与设置不一致，已尝试恢复")
+src/rb_camera/rb_camera/camera_node.py	570	CameraNode._open_capture	return False
+src/rb_camera/rb_camera/camera_node.py	575	CameraNode._open_capture	return False
+src/rb_camera/rb_camera/camera_node.py	582	CameraNode._open_capture	return False
+src/rb_camera/rb_camera/camera_node.py	649	CameraNode._capture_loop	if self._read_failures >= self.max_read_failures:
+src/rb_camera/rb_camera/camera_node.py	711	CameraNode._adjust_auto_exposure	ratio = self.ae_target / max(mean, 1.0)
+src/rb_camera/rb_camera/camera_node.py	714	CameraNode._adjust_auto_exposure	span = max(1, int(self._ae_current * 0.5))
+src/rb_camera/rb_camera/camera_node.py	715	CameraNode._adjust_auto_exposure	new = max(self._ae_current - span, min(self._ae_current + span, new))
+src/rb_camera/rb_camera/camera_node.py	716	CameraNode._adjust_auto_exposure	new = max(self.ae_min, min(self.ae_max, new))
+src/rb_camera/rb_camera/camera_node.py	733	CameraNode._sleep	end = time.time() + max(0.0, sec)
+src/rb_camera/rb_camera/camera_node.py	735	CameraNode._sleep	time.sleep(min(0.05, max(0.0, end - time.time())))
+src/rb_camera/rb_camera/camera_node.py	841	CameraNode.stop	self._thread.join(timeout=2.0)
+src/rb_camera/rb_camera/exposure.py	11	exposure_capabilities	re.findall(r"\b(min|max|step|default|value)=(-?\d+)", match[0]))
+src/rb_camera/rb_camera/exposure.py	12	exposure_capabilities	if not {"min", "max", "value"} <= fields.keys():
+src/rb_camera/rb_camera/exposure.py	15	exposure_capabilities	if fields["step"] <= 0 or fields["max"] < fields["min"]:
+src/rb_camera/rb_camera/exposure.py	23	validate_exposure	raise ValueError("曝光值必须为整数")
+src/rb_camera/rb_camera/exposure.py	25	validate_exposure	raise ValueError("摄像头未报告曝光范围")
+src/rb_camera/rb_camera/exposure.py	26	validate_exposure	if not caps["min"] <= value <= caps["max"]:
+src/rb_camera/rb_camera/exposure.py	27	validate_exposure	raise ValueError(f"曝光范围为 {caps['min']}–{caps['max']}")
+src/rb_camera/rb_camera/exposure.py	28	validate_exposure	if (value - caps["min"]) % caps["step"]:
+src/rb_camera/rb_camera/exposure.py	29	validate_exposure	raise ValueError(f"曝光步长为 {caps['step']}")
+src/rb_chassis/config/chassis.yaml	4	配置或模块级	#        setParameter(limit_vel=2.0, limit_acc=2.0, width=0.17, length=0.17,
+src/rb_chassis/config/chassis.yaml	20	配置或模块级	limit_vel: 1.0          # 速度上限 (m/s, rad/s)。比赛建议先设小值
+src/rb_chassis/config/chassis.yaml	21	配置或模块级	limit_acc: 1.5          # 加速度上限。原实现此项无效，这里已生效
+src/rb_chassis/config/chassis.yaml	22	配置或模块级	# 停车（cmd_vel 超时/急停）专用减速度。
+src/rb_chassis/config/chassis.yaml	24	配置或模块级	#    现场表现「急停猛往后窜一下」。3.0 约为 limit_acc 的两倍。
+src/rb_chassis/config/chassis.yaml	50	配置或模块级	cmd_vel_timeout_ms: 200 # 收不到 /cmd_vel 就发零速（安全网，不要调大）
+src/rb_chassis/include/chassis_lib/base_chassis.h	15	配置或模块级	*   1. 新增 /cmd_vel 指令超时检测（原来没有，底盘会一直沿用最后一条速度）
+src/rb_chassis/include/chassis_lib/base_chassis.h	25	配置或模块级	double limit_vel = 1.0;      // 速度上限 (m/s 或 rad/s)
+src/rb_chassis/include/chassis_lib/base_chassis.h	26	配置或模块级	double limit_acc = 2.0;      // 加速度上限 (m/s^2 或 rad/s^2)
+src/rb_chassis/include/chassis_lib/base_chassis.h	38	配置或模块级	std::chrono::milliseconds cmd_vel_timeout_{200};
+src/rb_chassis/include/chassis_lib/base_chassis.h	40	配置或模块级	// 加速度限制用的"上一条已下发速度"
+src/rb_chassis/include/chassis_lib/base_chassis.h	56	配置或模块级	void setCommandTimeout(std::chrono::milliseconds timeout) { cmd_vel_timeout_ = timeout; }
+src/rb_chassis/include/chassis_lib/base_chassis.h	57	配置或模块级	std::chrono::milliseconds commandTimeout() const { return cmd_vel_timeout_; }
+src/rb_chassis/include/chassis_lib/base_chassis.h	59	配置或模块级	/// 按 limit_vel / limit_acc 对目标速度做限幅与斜率限制，返回处理后的速度。
+src/rb_chassis/include/chassis_lib/omni_chassis.h	15	配置或模块级	* 只修复了限速/超时/日志三类工程缺陷（见 base_chassis.h 与 execute()）。
+src/rb_chassis/include/chassis_lib/omni_chassis.h	26	配置或模块级	// 停车（cmd_vel 超时 / 急停）时的减速度上限 m/s²。
+src/rb_chassis/include/chassis_lib/omni_chassis.h	27	配置或模块级	// ⚠️ 必须有这一项：停车若走平时的 limit_acc 会太慢（不安全），
+src/rb_chassis/include/chassis_lib/omni_chassis.h	32	配置或模块级	bool timeout_zero_sent_ = false;
+src/rb_chassis/include/chassis_lib/omni_chassis.h	42	配置或模块级	void setParameter(double limit_vel, double limit_acc, double width, double length,
+src/rb_chassis/include/utils/utils.h	9	配置或模块级	clamp(const T &val, const T &min, const T &max)
+src/rb_chassis/include/utils/utils.h	11	配置或模块级	if(val < min)
+src/rb_chassis/include/utils/utils.h	12	配置或模块级	return min;
+src/rb_chassis/include/utils/utils.h	13	配置或模块级	else if(val > max)
+src/rb_chassis/include/utils/utils.h	14	配置或模块级	return max;
+src/rb_chassis/include/utils/utils.h	74	配置或模块级	double limit_output;
+src/rb_chassis/include/utils/utils.h	76	配置或模块级	PID(const double &kp, const double &ki, const double &kd, const double &limit_output)
+src/rb_chassis/include/utils/utils.h	81	配置或模块级	this->limit_output = limit_output;
+src/rb_chassis/include/utils/utils.h	91	配置或模块级	return clamp(output, -limit_output, limit_output);
+src/rb_chassis/src/base_chassis.cpp	7	配置或模块级	double slew(double target, double previous, double max_delta) {
+src/rb_chassis/src/base_chassis.cpp	9	配置或模块级	if (delta > max_delta) return previous + max_delta;
+src/rb_chassis/src/base_chassis.cpp	10	配置或模块级	if (delta < -max_delta) return previous - max_delta;
+src/rb_chassis/src/base_chassis.cpp	23	配置或模块级	RCLCPP_INFO(get_logger(), "Chassis 已就绪: odom=%s cmd_vel=%s timeout=%ldms",
+src/rb_chassis/src/base_chassis.cpp	25	配置或模块级	static_cast<long>(cmd_vel_timeout_.count()));
+src/rb_chassis/src/base_chassis.cpp	41	配置或模块级	return (std::chrono::steady_clock::now() - last_velocity_command_time_) <= cmd_vel_timeout_;
+src/rb_chassis/src/base_chassis.cpp	51	配置或模块级	out.linear.x = std::clamp(out.linear.x, -limit_vel, limit_vel);
+src/rb_chassis/src/base_chassis.cpp	52	配置或模块级	out.linear.y = std::clamp(out.linear.y, -limit_vel, limit_vel);
+src/rb_chassis/src/base_chassis.cpp	53	配置或模块级	out.angular.z = std::clamp(out.angular.z, -limit_vel, limit_vel);
+src/rb_chassis/src/base_chassis.cpp	55	配置或模块级	// ② 斜率（加速度）限制 —— 原实现的 limit_acc 被设置但从未使用
+src/rb_chassis/src/base_chassis.cpp	61	配置或模块级	const double max_delta = std::max(limit_acc, 1e-3) * dt;
+src/rb_chassis/src/base_chassis.cpp	62	配置或模块级	out.linear.x = slew(out.linear.x, last_sent_vel_.linear.x, max_delta);
+src/rb_chassis/src/base_chassis.cpp	63	配置或模块级	out.linear.y = slew(out.linear.y, last_sent_vel_.linear.y, max_delta);
+src/rb_chassis/src/base_chassis.cpp	64	配置或模块级	out.angular.z = slew(out.angular.z, last_sent_vel_.angular.z, max_delta);
+src/rb_chassis/src/omni_chassis.cpp	56	配置或模块级	// 零轮速也要同步斜率限制状态，避免超时恢复时沿用停车前速度。
+src/rb_chassis/src/omni_chassis.cpp	70	配置或模块级	// ---------- ① 指令超时保护 ----------
+src/rb_chassis/src/omni_chassis.cpp	77	配置或模块级	//   "通信超时"故障（软件 MotorOn 清不掉、只能断电）—— 这正是"关终端/杀节点
+src/rb_chassis/src/omni_chassis.cpp	81	配置或模块级	if (!timeout_zero_sent_) {
+src/rb_chassis/src/omni_chassis.cpp	82	配置或模块级	RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，按停车减速度斜坡降到零",
+src/rb_chassis/src/omni_chassis.cpp	84	配置或模块级	timeout_zero_sent_ = true;
+src/rb_chassis/src/omni_chassis.cpp	93	配置或模块级	timeout_zero_sent_ = false;
+src/rb_chassis/src/omni_chassis.cpp	96	配置或模块级	// ---------- ② 限幅 + 加速度限制 ----------
+src/rb_chassis/src/omni_chassis.cpp	97	配置或模块级	// 停车用专用减速度（比平时的 limit_acc 快，但仍是斜坡不是阶跃）
+src/rb_chassis/src/omni_chassis.cpp	98	配置或模块级	const double saved_acc = limit_acc;
+src/rb_chassis/src/omni_chassis.cpp	99	配置或模块级	if (stopping) limit_acc = stop_accel_;
+src/rb_chassis/src/omni_chassis.cpp	101	配置或模块级	limit_acc = saved_acc;
+src/rb_chassis/src/omni_chassis.cpp	138	配置或模块级	void OmniChassis::setParameter(double limit_vel, double limit_acc, double width, double length,
+src/rb_chassis/src/omni_chassis.cpp	140	配置或模块级	this->limit_vel = limit_vel;
+src/rb_chassis/src/omni_chassis.cpp	141	配置或模块级	this->limit_acc = limit_acc;
+src/rb_chassis/src/omni_chassis.cpp	148	配置或模块级	limit_vel, limit_acc, width, length, wheel_radius, ratio);
+src/rb_chassis/src/rb_chassis_node.cpp	7	配置或模块级	//   4. 修掉原实现的限速失效 bug、补上指令超时零速保护
+src/rb_chassis/src/rb_chassis_node.cpp	49	配置或模块级	const auto limit_vel = param_node->declare_parameter<double>("limit_vel", 1.0);
+src/rb_chassis/src/rb_chassis_node.cpp	50	配置或模块级	const auto limit_acc = param_node->declare_parameter<double>("limit_acc", 1.5);
+src/rb_chassis/src/rb_chassis_node.cpp	51	配置或模块级	// 停车（cmd_vel 超时/急停）专用减速度：要快，但不能是阶跃（会过冲反转）
+src/rb_chassis/src/rb_chassis_node.cpp	58	配置或模块级	const auto timeout_ms = param_node->declare_parameter<int>("cmd_vel_timeout_ms", 200);
+src/rb_chassis/src/rb_chassis_node.cpp	75	配置或模块级	if (period_ms <= 0 || timeout_ms <= 0 || can_interface.empty() ||
+src/rb_chassis/src/rb_chassis_node.cpp	77	配置或模块级	RCLCPP_ERROR(param_node->get_logger(), "CAN 接口名或控制周期/超时参数无效");
+src/rb_chassis/src/rb_chassis_node.cpp	106	配置或模块级	node->setCommandTimeout(std::chrono::milliseconds(timeout_ms));
+src/rb_chassis/src/rb_chassis_node.cpp	108	配置或模块级	node->setParameter(limit_vel, limit_acc, width, length, wheel_radius, ratio);
+src/rb_launcher/config/launcher.yaml	13	配置或模块级	#    序列号限制），多个 CH34x 同时插着时会指向别的设备 —— 机构指令就发错地方。
+src/rb_launcher/src/rb_launcher_node.cpp	107	配置或模块级	//    "usb2ttl" 这类名字是通配的（本机 udev 那条就没有端口/序列号限制），
+src/rb_launcher/src/rb_launcher_node.cpp	109	配置或模块级	//    （实测被集成测试抓到：期望"端口不存在→拒绝"，结果回退到真机构并成功。）
+src/rb_launcher/src/rb_launcher_node.cpp	135	配置或模块级	const auto period = std::chrono::duration<double>(1.0 / std::max(send_rate_hz_, 1.0));
+src/rb_launcher/src/rb_launcher_node.cpp	260	配置或模块级	res->message = "串口未就绪，命令已拒绝（port=" + port_ + "）";
+src/rb_localization/config/localization.yaml	76	配置或模块级	# 真实位置输入过期即发布 ok=false；ROS 参数 source_timeout_s 支持在线调参。
+src/rb_localization/config/localization.yaml	77	配置或模块级	source_timeout_s: 1.0
+src/rb_localization/rb_localization/ekf2d.py	211	Ekf2D.update_bearing	return False
+src/rb_localization/rb_localization/ekf2d.py	219	Ekf2D.update_bearing	return False
+src/rb_localization/rb_localization/ekf2d.py	261	Ekf2D.std	return (float(math.sqrt(max(self.P[0, 0], 0.0))),
+src/rb_localization/rb_localization/ekf2d.py	262	Ekf2D.std	float(math.sqrt(max(self.P[1, 1], 0.0))),
+src/rb_localization/rb_localization/ekf2d.py	263	Ekf2D.std	float(math.sqrt(max(self.P[2, 2], 0.0))))
+src/rb_localization/rb_localization/freshness.py	17	SourceFreshness.accept	def accept(self, source, stamp, now, timeout):
+src/rb_localization/rb_localization/freshness.py	19	SourceFreshness.accept	if not math.isfinite(stamp) or stamp <= 0 or not 0 <= now - stamp <= timeout:
+src/rb_localization/rb_localization/freshness.py	20	SourceFreshness.accept	return False
+src/rb_localization/rb_localization/freshness.py	22	SourceFreshness.accept	return False
+src/rb_localization/rb_localization/freshness.py	25	SourceFreshness.accept	return False
+src/rb_localization/rb_localization/freshness.py	30	SourceFreshness.valid	def valid(self, now, timeout):
+src/rb_localization/rb_localization/freshness.py	32	SourceFreshness.valid	return self.stamp is not None and 0 <= now - self.stamp <= timeout
+src/rb_localization/rb_localization/localization_node.py	86	LocalizationNode.__init__	self.source_timeout_s = float(self.declare_parameter(
+src/rb_localization/rb_localization/localization_node.py	87	LocalizationNode.__init__	"source_timeout_s", float(src.get("source_timeout_s", 1.0))).value)
+src/rb_localization/rb_localization/localization_node.py	88	LocalizationNode.__init__	if not math.isfinite(self.source_timeout_s) or self.source_timeout_s <= 0:
+src/rb_localization/rb_localization/localization_node.py	89	LocalizationNode.__init__	raise ValueError("source_timeout_s 必须为有限正数")
+src/rb_localization/rb_localization/localization_node.py	177	LocalizationNode.__init__	self.publish_timer = self.create_timer(1.0 / max(self.publish_rate_hz, 1.0),
+src/rb_localization/rb_localization/localization_node.py	223	LocalizationNode.on_tuning_parameters	if parameter.name != "source_timeout_s":
+src/rb_localization/rb_localization/localization_node.py	226	LocalizationNode.on_tuning_parameters	if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+src/rb_localization/rb_localization/localization_node.py	227	LocalizationNode.on_tuning_parameters	return SetParametersResult(successful=False, reason="source_timeout_s 必须为有限正数")
+src/rb_localization/rb_localization/localization_node.py	231	LocalizationNode._refresh_tuning	self.source_timeout_s = float(self.get_parameter("source_timeout_s").value)
+src/rb_localization/rb_localization/localization_node.py	253	LocalizationNode._reset_lidar_session	if self.odom_count and all(math.isfinite(v) for v in self.ekf.pose):
+src/rb_localization/rb_localization/localization_node.py	256	LocalizationNode._reset_lidar_session	self.ekf.set_pose(*self.start_pose, std_xy=max(sx, sy), std_yaw=syaw)
+src/rb_localization/rb_localization/localization_node.py	272	LocalizationNode.on_lidar_session	or not math.isfinite(cutoff) or ready and cutoff <= 0):
+src/rb_localization/rb_localization/localization_node.py	299	LocalizationNode._accept_source	return False
+src/rb_localization/rb_localization/localization_node.py	305	LocalizationNode._accept_source	if not all(math.isfinite(v) for v in values):
+src/rb_localization/rb_localization/localization_node.py	306	LocalizationNode._accept_source	return False
+src/rb_localization/rb_localization/localization_node.py	309	LocalizationNode._accept_source	return False
+src/rb_localization/rb_localization/localization_node.py	311	LocalizationNode._accept_source	return False  # 重启前的排队消息不能进入新会话。
+src/rb_localization/rb_localization/localization_node.py	313	LocalizationNode._accept_source	if not self.source_freshness.accept(source, stamp, now, self.source_timeout_s):
+src/rb_localization/rb_localization/localization_node.py	314	LocalizationNode._accept_source	return False
+src/rb_localization/rb_localization/localization_node.py	385	LocalizationNode.on_odom	and (dt > self.source_timeout_s
+src/rb_localization/rb_localization/localization_node.py	401	LocalizationNode.on_odom	elif 0.0 < dt <= self.source_timeout_s:
+src/rb_localization/rb_localization/localization_node.py	428	LocalizationNode.on_detections	if not self.source_freshness.valid(now, self.source_timeout_s):
+src/rb_localization/rb_localization/localization_node.py	442	LocalizationNode.on_detections	if not math.isfinite(det.bearing_rad):
+src/rb_localization/rb_localization/localization_node.py	444	LocalizationNode.on_detections	newest_stamp = max(newest_stamp, stamp)
+src/rb_localization/rb_localization/localization_node.py	508	LocalizationNode.publish_state	self.get_clock().now().nanoseconds * 1e-9, self.source_timeout_s)
+src/rb_mission/config/mission.yaml	65	配置或模块级	# ⚠️ 这块填错会让 _zone_ok() 误判"位置不合规"，从而拒绝传球。
+src/rb_mission/config/mission.yaml	100	配置或模块级	limits:
+src/rb_mission/config/mission.yaml	101	配置或模块级	max_linear: 0.25          # m/s，通行/导航/回位统一平移上限
+src/rb_mission/config/mission.yaml	102	配置或模块级	max_angular: 0.80         # rad/s
+src/rb_mission/config/mission.yaml	111	配置或模块级	# 进入 approach_radius 后把速度上限压到 approach_speed：
+src/rb_mission/config/mission.yaml	127	配置或模块级	seek_speed_ratio: 0.8       # 找球时的速度 = max_linear × 此比例（有距离估计时再按距离减速）
+src/rb_mission/config/mission.yaml	129	配置或模块级	timeouts:
+src/rb_mission/config/mission.yaml	131	配置或模块级	state_timeout_s: 25.0     # 仅保留发射确认看门狗，避免未确认时重复发射
+src/rb_mission/config/mission.yaml	132	配置或模块级	nav_timeout_s: 0.0        # 0取消固定导航/搜索总时限；可显式设正值启用
+src/rb_mission/config/mission.yaml	133	配置或模块级	mission_timeout_s: 0.0    # 0取消固定任务总时限
+src/rb_mission/config/mission.yaml	141	配置或模块级	max_ball_count: 2         # 软件上限；当前 Bool 无法确认真实持球数，仍需计数传感器
+src/rb_mission/config/mission.yaml	166	配置或模块级	detection_timeout_s: 0.5   # 源时间戳与消息时间戳都必须新鲜
+src/rb_mission/config/mission.yaml	167	配置或模块级	min_confidence: 0.5
+src/rb_mission/config/mission.yaml	199	配置或模块级	max_repel_vel: 0.30      # 排斥速度上限 m/s，避免急转
+src/rb_mission/config/mission.yaml	200	配置或模块级	min_confidence: 0.30     # 低于此置信度的检测不参与避障
+src/rb_mission/config/mission.yaml	212	配置或模块级	pose_timeout_s: 1.0               # 真实位姿时间戳最大年龄，s
+src/rb_mission/config/mission.yaml	213	配置或模块级	loc_ok_timeout_s: 1.0             # 定位有效状态消息最大接收间隔，s
+src/rb_mission/config/mission.yaml	214	配置或模块级	velocity_window_s: 0.15           # 位姿差分估速窗口，s；必须小于 pose_timeout_s
+src/rb_mission/config/mission.yaml	219	配置或模块级	settle_timeout_s: 0.0             # 0取消总确认时限，仍必须用新鲜反馈确认停稳
+src/rb_mission/config/rules_2026_revised.yaml	16	配置或模块级	start_delay_s: {min: 5.0, max: 15.0}
+src/rb_mission/config/rules_2026_revised.yaml	18	配置或模块级	max_carried_balls: 2
+src/rb_mission/config/rules_2026_revised.yaml	42	配置或模块级	time: {seconds_per_point: 5, max: 10, requires_return: true}
+src/rb_mission/config/rules_2026_revised.yaml	48	配置或模块级	time: {seconds_per_point: 2, max: 10, requires_return: true}
+src/rb_mission/rb_mission/geometry.py	12	point_in_polygon	return False
+src/rb_mission/rb_mission/geometry.py	36	clamp	return max(lo, min(hi, v))
+src/rb_mission/rb_mission/geometry.py	42	goto_command	max_lin: float, max_ang: float,
+src/rb_mission/rb_mission/geometry.py	53	goto_command	满速 max_lin，于是"指令停下时车已经冲过头"：
+src/rb_mission/rb_mission/geometry.py	56	goto_command	在 approach_radius 内把速度上限压到 approach_speed，换取到位精度。
+src/rb_mission/rb_mission/geometry.py	62	goto_command	# 接近限速：进入 approach_radius 后把速度上限压到 approach_speed
+src/rb_mission/rb_mission/geometry.py	63	goto_command	eff_max = max_lin
+src/rb_mission/rb_mission/geometry.py	65	goto_command	eff_max = min(max_lin, approach_speed)
+src/rb_mission/rb_mission/geometry.py	83	goto_command	wz = clamp(kp_yaw * wrap_pi(desired_yaw - cur_yaw), -max_ang, max_ang)
+src/rb_mission/rb_mission/geometry.py	89	face_bearing_command	kp_yaw: float, max_ang: float) -> tuple[float, float]:
+src/rb_mission/rb_mission/geometry.py	100	face_bearing_command	return clamp(kp_yaw * err, -max_ang, max_ang), err
+src/rb_mission/rb_mission/match_rules.py	14	validate_match_config	delay = cfg.get("timeouts", {}).get("start_delay_s", 8.0)
+src/rb_mission/rb_mission/match_rules.py	16	validate_match_config	raise ValueError("start_delay_s 必须为数值")
+src/rb_mission/rb_mission/match_rules.py	17	validate_match_config	if not math.isfinite(delay) or not 5.0 <= delay <= 15.0:
+src/rb_mission/rb_mission/match_rules.py	18	validate_match_config	raise ValueError("§2.3-7：start_delay_s 必须在 5–15 秒内")
+src/rb_mission/rb_mission/match_rules.py	20	validate_match_config	for name in ("actions_per_mission", "max_ball_count"):
+src/rb_mission/rb_mission/match_rules.py	23	validate_match_config	raise ValueError(f"§2.5：{name} 必须为 1 或 2")
+src/rb_mission/rb_mission/match_rules.py	32	validate_match_config	raise ValueError(f"§2.5：{mission} 的目标球/干扰球类别配置错误")
+src/rb_mission/rb_mission/match_rules.py	44	competition_gaps	# These limitations cannot be cleared merely by editing a confirmation flag.
+src/rb_mission/rb_mission/match_rules.py	74	score_round	raise ValueError("mission 必须为 PASS 或 SHOOT")
+src/rb_mission/rb_mission/match_rules.py	76	score_round	raise ValueError("每回合最多记录两次动作")
+src/rb_mission/rb_mission/match_rules.py	77	score_round	if not math.isfinite(remaining_s) or remaining_s < 0:
+src/rb_mission/rb_mission/match_rules.py	78	score_round	raise ValueError("remaining_s 必须为有限非负数")
+src/rb_mission/rb_mission/match_rules.py	81	score_round	raise ValueError("interference_contacts 必须为非负整数")
+src/rb_mission/rb_mission/match_rules.py	85	score_round	raise ValueError("pass_target 必须为 0/1/2/3")
+src/rb_mission/rb_mission/match_rules.py	87	score_round	raise ValueError("shot_result 必须为 miss/contact/basket")
+src/rb_mission/rb_mission/match_rules.py	99	score_round	score += min(10, math.floor(remaining_s / (5 if mission == "PASS" else 2)))
+src/rb_mission/rb_mission/mission_node.py	79	MissionNode.__init__	lim = self.cfg.get("limits", {}) or {}
+src/rb_mission/rb_mission/mission_node.py	85	MissionNode.__init__	value = (lim if section == "limits" else nav).get(key, default)
+src/rb_mission/rb_mission/mission_node.py	98	MissionNode.__init__	tm = self.cfg.get("timeouts", {}) or {}
+src/rb_mission/rb_mission/mission_node.py	100	MissionNode.__init__	self.state_timeout_s = float(tm.get("state_timeout_s", 25.0))
+src/rb_mission/rb_mission/mission_node.py	102	MissionNode.__init__	# 用同一个 25s 超时必然误触发 —— 实测就踩到过（10m ÷ 0.4m/s ≈ 25s）。
+src/rb_mission/rb_mission/mission_node.py	103	MissionNode.__init__	# 所以给导航阶段一个单独、更宽松的超时。
+src/rb_mission/rb_mission/mission_node.py	104	MissionNode.__init__	self.nav_timeout_s = float(tm.get("nav_timeout_s", 0.0))
+src/rb_mission/rb_mission/mission_node.py	105	MissionNode.__init__	self.mission_timeout_s = float(tm.get("mission_timeout_s", 0.0))
+src/rb_mission/rb_mission/mission_node.py	111	MissionNode.__init__	self.max_ball_count = int(rules.get("max_ball_count", 2))
+src/rb_mission/rb_mission/mission_node.py	122	MissionNode.__init__	self.avoid_max = float(av.get("max_repel_vel", 0.30))
+src/rb_mission/rb_mission/mission_node.py	123	MissionNode.__init__	self.avoid_min_conf = float(av.get("min_confidence", 0.30))
+src/rb_mission/rb_mission/mission_node.py	198	MissionNode._tuning_defaults	"limits.max_linear": 0.4, "limits.max_angular": 0.8,
+src/rb_mission/rb_mission/mission_node.py	199	MissionNode._tuning_defaults	"limits.kp_linear": 1.5, "limits.kp_yaw": 2.0,
+src/rb_mission/rb_mission/mission_node.py	200	MissionNode._tuning_defaults	"limits.position_tolerance": 0.10, "limits.yaw_tolerance": 0.08,
+src/rb_mission/rb_mission/mission_node.py	201	MissionNode._tuning_defaults	"limits.approach_radius_m": 0.40, "limits.approach_speed": 0.12,
+src/rb_mission/rb_mission/mission_node.py	202	MissionNode._tuning_defaults	"navigation.pose_timeout_s": 1.0,
+src/rb_mission/rb_mission/mission_node.py	203	MissionNode._tuning_defaults	"navigation.loc_ok_timeout_s": 1.0,
+src/rb_mission/rb_mission/mission_node.py	209	MissionNode._tuning_defaults	"navigation.settle_timeout_s": 0.0,
+src/rb_mission/rb_mission/mission_node.py	216	MissionNode._validate_tuning	if not math.isfinite(value) or value < 0 or (value == 0 and name not in (
+src/rb_mission/rb_mission/mission_node.py	217	MissionNode._validate_tuning	"navigation.exit_margin_m", "navigation.settle_timeout_s")):
+src/rb_mission/rb_mission/mission_node.py	218	MissionNode._validate_tuning	raise ValueError(f"{name} 必须是有限正数（exit_margin_m/settle_timeout_s 可为 0）")
+src/rb_mission/rb_mission/mission_node.py	219	MissionNode._validate_tuning	if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
+src/rb_mission/rb_mission/mission_node.py	220	MissionNode._validate_tuning	raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
+src/rb_mission/rb_mission/mission_node.py	221	MissionNode._validate_tuning	if (values["navigation.settle_timeout_s"] > 0
+src/rb_mission/rb_mission/mission_node.py	222	MissionNode._validate_tuning	and values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]):
+src/rb_mission/rb_mission/mission_node.py	223	MissionNode._validate_tuning	raise ValueError("settle_time_s 必须小于 settle_timeout_s")
+src/rb_mission/rb_mission/mission_node.py	226	MissionNode._apply_tuning	for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
+src/rb_mission/rb_mission/mission_node.py	230	MissionNode._apply_tuning	setattr(self, attr, values["limits." + key])
+src/rb_mission/rb_mission/mission_node.py	240	MissionNode.on_tuning_parameters	return SetParametersResult(successful=False, reason="config_file 修改需重启；现场调参请用 limits.* / navigation.*")
+src/rb_mission/rb_mission/mission_node.py	249	MissionNode.on_tuning_parameters	# 这里只验证，不能提前修改控制状态：其他参数回调还可能拒绝此次请求。
+src/rb_mission/rb_mission/mission_node.py	267	MissionNode._localization_ready	and fresh(now, self.feedback.stamp, self.pose_timeout_s)
+src/rb_mission/rb_mission/mission_node.py	268	MissionNode._localization_ready	and fresh(now, self.last_loc_ok_time, self.loc_ok_timeout_s))
+src/rb_mission/rb_mission/mission_node.py	280	MissionNode.on_pose	if not math.isfinite(norm):
+src/rb_mission/rb_mission/mission_node.py	290	MissionNode.on_pose	self.pose_timeout_s, self.velocity_window_s):
+src/rb_mission/rb_mission/mission_node.py	321	MissionNode.on_set_mission	res.accepted, res.message = False, "急停中，拒绝启动任务；解除急停后先切换 IDLE"
+src/rb_mission/rb_mission/mission_node.py	327	MissionNode.on_set_mission	res.accepted, res.message = False, "定位无效或过期，拒绝启动任务"
+src/rb_mission/rb_mission/mission_node.py	344	MissionNode._accept_goto	return False, "急停中，拒绝 GOTO"
+src/rb_mission/rb_mission/mission_node.py	346	MissionNode._accept_goto	return False, (f"当前任务 {self.mission} 非 IDLE，请先 "
+src/rb_mission/rb_mission/mission_node.py	349	MissionNode._accept_goto	return False, "当前状态不允许 GOTO；请先切换 IDLE"
+src/rb_mission/rb_mission/mission_node.py	351	MissionNode._accept_goto	return False, "定位无效或过期，拒绝 GOTO"
+src/rb_mission/rb_mission/mission_node.py	352	MissionNode._accept_goto	if not all(math.isfinite(v) for v in (x, y, yaw)):
+src/rb_mission/rb_mission/mission_node.py	353	MissionNode._accept_goto	return False, "目标坐标无效"
+src/rb_mission/rb_mission/mission_node.py	358	MissionNode._accept_goto	return False, f"目标 ({x:.2f},{y:.2f}) 超出场地范围"
+src/rb_mission/rb_mission/mission_node.py	382	MissionNode.on_goal_pose	f'/goal_pose 坐标系 {msg.header.frame_id!r} 与 {expected_frame!r} 不一致，拒绝目标')
+src/rb_mission/rb_mission/mission_node.py	444	MissionNode.tick	if self.ball_count > self.max_ball_count:
+src/rb_mission/rb_mission/mission_node.py	445	MissionNode.tick	self.set_phase(P_FAULT, "持球计数超过配置上限（规则最多2颗），已停车")
+src/rb_mission/rb_mission/mission_node.py	459	MissionNode.tick	self.set_phase(P_FAULT, "启动延迟结束时定位失效，拒绝稍后自动启动")
+src/rb_mission/rb_mission/mission_node.py	463	MissionNode.tick	# 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
+src/rb_mission/rb_mission/mission_node.py	464	MissionNode.tick	if self.elapsed() > float(self.cfg.get('timeouts', {}).get('localization_wait_s', 90.)):
+src/rb_mission/rb_mission/mission_node.py	466	MissionNode.tick	self.set_phase(P_FAULT, "定位失效等待超时")
+src/rb_mission/rb_mission/mission_node.py	470	MissionNode.tick	if (self.mission != "IDLE" and self.mission_timeout_s > 0
+src/rb_mission/rb_mission/mission_node.py	471	MissionNode.tick	and self.mission_elapsed() > self.mission_timeout_s):
+src/rb_mission/rb_mission/mission_node.py	472	MissionNode.tick	self.set_phase(P_FAULT, f"任务总超时 {self.mission_timeout_s}s")
+src/rb_mission/rb_mission/mission_node.py	482	MissionNode.tick	limit = self.nav_timeout_s if self.phase in (P_SEEK_BALL, P_NAV_ZONE, P_RETURN, P_GOTO) \
+src/rb_mission/rb_mission/mission_node.py	483	MissionNode.tick	else self.state_timeout_s if self.phase == P_LAUNCH else 0.
+src/rb_mission/rb_mission/mission_node.py	484	MissionNode.tick	if limit > 0 and self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and self.elapsed() > limit:
+src/rb_mission/rb_mission/mission_node.py	485	MissionNode.tick	self.get_logger().warn(f"阶段 {self.phase} 超时 {limit:.0f}s，重试")
+src/rb_mission/rb_mission/mission_node.py	495	MissionNode.retry_or_fault	self.set_phase(P_FAULT, "发射确认超时，已请求停止重复帧；需检查机构")
+src/rb_mission/rb_mission/mission_node.py	499	MissionNode.retry_or_fault	self.set_phase(P_IDLE, "GOTO 超时，已取消")
+src/rb_mission/rb_mission/mission_node.py	535	MissionNode._phase_seek_ball	if self.last_ball_dist < self.cfg.get("limits", {}).get("close_lost_distance_m", 0.9) \
+src/rb_mission/rb_mission/mission_node.py	542	MissionNode._phase_seek_ball	self.publish_cmd(0.0, 0.0, self.max_ang * 0.5)
+src/rb_mission/rb_mission/mission_node.py	552	MissionNode._phase_seek_ball	# 速度按"距离"给一个减速曲线（原来固定 max_lin*0.5 太慢，实测整段要 20s+）：
+src/rb_mission/rb_mission/mission_node.py	554	MissionNode._phase_seek_ball	wz, err = face_bearing_command(0.0, det.bearing_rad, self.kp_yaw, self.max_ang)
+src/rb_mission/rb_mission/mission_node.py	555	MissionNode._phase_seek_ball	speed = self.max_lin * self.cfg.get("limits", {}).get("seek_speed_ratio", 0.8)
+src/rb_mission/rb_mission/mission_node.py	557	MissionNode._phase_seek_ball	speed = min(speed, max(0.08, self.kp_lin * max(0.0, det.distance_m - 0.25)))
+src/rb_mission/rb_mission/mission_node.py	567	MissionNode._phase_acquire	self.publish_motion(self.max_lin * 0.3, 0.0, 0.0)
+src/rb_mission/rb_mission/mission_node.py	583	MissionNode._phase_align	self.publish_cmd(0.0, 0.0, self.max_ang * 0.4)
+src/rb_mission/rb_mission/mission_node.py	592	MissionNode._phase_align	raise ValueError("篮筐地图坐标尚未确认")
+src/rb_mission/rb_mission/mission_node.py	599	MissionNode._phase_align	if not all(math.isfinite(v) for v in (bx, by, aim_bearing)):
+src/rb_mission/rb_mission/mission_node.py	600	MissionNode._phase_align	raise ValueError("篮筐或出球点坐标无效")
+src/rb_mission/rb_mission/mission_node.py	605	MissionNode._phase_align	wz, err = face_bearing_command(0.0, aim_bearing, self.kp_yaw, self.max_ang)
+src/rb_mission/rb_mission/mission_node.py	614	MissionNode._phase_launch	self.set_phase(P_RETURN, "动作上限已达到，不再发射")
+src/rb_mission/rb_mission/mission_node.py	641	MissionNode._phase_launch	self.set_phase(P_FAULT, "发射服务拒绝/无结果，动作未计数")
+src/rb_mission/rb_mission/mission_node.py	662	MissionNode._phase_launch	self.set_phase(P_FAULT, "停止重复帧被拒绝，动作未计数")
+src/rb_mission/rb_mission/mission_node.py	686	MissionNode.clamp_into_field	cx = min(max(float(x), margin), fl - margin)
+src/rb_mission/rb_mission/mission_node.py	687	MissionNode.clamp_into_field	cy = min(max(float(y), margin), fw - margin)
+src/rb_mission/rb_mission/mission_node.py	715	MissionNode._navigate_to	return False
+src/rb_mission/rb_mission/mission_node.py	721	MissionNode._navigate_to	self.settle_time_s, self.settle_timeout_s)
+src/rb_mission/rb_mission/mission_node.py	729	MissionNode._navigate_to	self._now_seconds(), float(self.cfg.get('timeouts', {}).get('motion_stall_s', 10.)))
+src/rb_mission/rb_mission/mission_node.py	736	MissionNode._navigate_to	return False
+src/rb_mission/rb_mission/mission_node.py	740	MissionNode._navigate_to	if mode == "timeout":
+src/rb_mission/rb_mission/mission_node.py	743	MissionNode._navigate_to	self.set_phase(P_FAULT, "到位确认超时，已停车")
+src/rb_mission/rb_mission/mission_node.py	744	MissionNode._navigate_to	return False
+src/rb_mission/rb_mission/mission_node.py	751	MissionNode._navigate_to	wz = clamp(self.kp_yaw * yaw_error, -self.max_ang, self.max_ang)
+src/rb_mission/rb_mission/mission_node.py	753	MissionNode._navigate_to	return False
+src/rb_mission/rb_mission/mission_node.py	754	MissionNode._navigate_to	max_speed = self.max_lin
+src/rb_mission/rb_mission/mission_node.py	756	MissionNode._navigate_to	max_speed = min(max_speed, self.correction_max_linear)
+src/rb_mission/rb_mission/mission_node.py	758	MissionNode._navigate_to	max_speed, self.max_ang,
+src/rb_mission/rb_mission/mission_node.py	762	MissionNode._navigate_to	self.publish_motion(vx, vy, wz, max_linear=max_speed)
+src/rb_mission/rb_mission/mission_node.py	763	MissionNode._navigate_to	return False
+src/rb_mission/rb_mission/mission_node.py	821	MissionNode.is_three_point	return False
+src/rb_mission/rb_mission/mission_node.py	846	MissionNode._call_launcher	raise ValueError("定位无效或过期")
+src/rb_mission/rb_mission/mission_node.py	848	MissionNode._call_launcher	timeout = float(automatic.get("detection_timeout_s", 0.5))
+src/rb_mission/rb_mission/mission_node.py	851	MissionNode._call_launcher	if det is None or stamp is None or not math.isfinite(timeout) or timeout <= 0 or not 0 <= now - stamp <= timeout:
+src/rb_mission/rb_mission/mission_node.py	852	MissionNode._call_launcher	raise ValueError("篮筐视觉观测缺失或过期")
+src/rb_mission/rb_mission/mission_node.py	854	MissionNode._call_launcher	if not 0 <= now - detection_stamp <= timeout:
+src/rb_mission/rb_mission/mission_node.py	855	MissionNode._call_launcher	raise ValueError("篮筐检测源时间戳过期")
+src/rb_mission/rb_mission/mission_node.py	857	MissionNode._call_launcher	if not math.isfinite(confidence) or confidence < float(automatic.get("min_confidence", 0.5)):
+src/rb_mission/rb_mission/mission_node.py	858	MissionNode._call_launcher	raise ValueError("篮筐视觉置信度不足")
+src/rb_mission/rb_mission/mission_node.py	859	MissionNode._call_launcher	if not math.isfinite(det.bearing_rad):
+src/rb_mission/rb_mission/mission_node.py	860	MissionNode._call_launcher	raise ValueError("篮筐尚未对准")
+src/rb_mission/rb_mission/mission_node.py	866	MissionNode._call_launcher	self.detail = f"自动投篮拒绝：{exc}"
+src/rb_mission/rb_mission/mission_node.py	942	MissionNode._avoidance_adjust	mag = self.avoid_gain * (1.0 / max(dist, 0.15) - 1.0 / self.avoid_range)
+src/rb_mission/rb_mission/mission_node.py	946	MissionNode._avoidance_adjust	# 限幅，避免排斥叠加后超过 max_lin
+src/rb_mission/rb_mission/mission_node.py	948	MissionNode._avoidance_adjust	if speed > self.max_lin:
+src/rb_mission/rb_mission/mission_node.py	949	MissionNode._avoidance_adjust	fx *= self.max_lin / speed
+src/rb_mission/rb_mission/mission_node.py	950	MissionNode._avoidance_adjust	fy *= self.max_lin / speed
+src/rb_mission/rb_mission/mission_node.py	953	MissionNode.publish_motion	def publish_motion(self, vx: float, vy: float, wz: float, max_linear=None) -> None:
+src/rb_mission/rb_mission/mission_node.py	956	MissionNode.publish_motion	if max_linear is not None:
+src/rb_mission/rb_mission/mission_node.py	958	MissionNode.publish_motion	if speed > max_linear:
+src/rb_mission/rb_mission/mission_node.py	959	MissionNode.publish_motion	vx, vy = vx * max_linear / speed, vy * max_linear / speed
+src/rb_mission/rb_mission/mission_node.py	964	MissionNode.publish_cmd	msg.linear.x = clamp(vx, -self.max_lin, self.max_lin)
+src/rb_mission/rb_mission/mission_node.py	965	MissionNode.publish_cmd	msg.linear.y = clamp(vy, -self.max_lin, self.max_lin)
+src/rb_mission/rb_mission/mission_node.py	966	MissionNode.publish_cmd	msg.angular.z = clamp(wz, -self.max_ang, self.max_ang)
+src/rb_mission/rb_mission/navigation.py	8	fresh	def fresh(now, stamp, timeout):
+src/rb_mission/rb_mission/navigation.py	9	fresh	return stamp is not None and 0.0 <= now - stamp <= timeout
+src/rb_mission/rb_mission/navigation.py	14	ProgressWatchdog.__init__	def __init__(self, now, timeout=10., epsilon=.005):
+src/rb_mission/rb_mission/navigation.py	15	ProgressWatchdog.__init__	if (not all(math.isfinite(v) for v in (now, timeout, epsilon))
+src/rb_mission/rb_mission/navigation.py	16	ProgressWatchdog.__init__	or timeout <= 0 or epsilon <= 0):
+src/rb_mission/rb_mission/navigation.py	17	ProgressWatchdog.__init__	raise ValueError('无进展观察时间和改善阈值须为有限正数')
+src/rb_mission/rb_mission/navigation.py	18	ProgressWatchdog.__init__	self.timeout, self.epsilon = timeout, epsilon
+src/rb_mission/rb_mission/navigation.py	26	ProgressWatchdog.stalled	if not math.isfinite(now) or not math.isfinite(error):
+src/rb_mission/rb_mission/navigation.py	32	ProgressWatchdog.stalled	return now-self.last_progress >= self.timeout
+src/rb_mission/rb_mission/navigation.py	44	PoseFeedback.update	def update(self, pose, stamp, now, timeout, window):
+src/rb_mission/rb_mission/navigation.py	45	PoseFeedback.update	if not all(math.isfinite(v) for v in (*pose, stamp, now)) or stamp <= 0:
+src/rb_mission/rb_mission/navigation.py	46	PoseFeedback.update	return False
+src/rb_mission/rb_mission/navigation.py	52	PoseFeedback.update	if not fresh(now, stamp, timeout):
+src/rb_mission/rb_mission/navigation.py	53	PoseFeedback.update	return False
+src/rb_mission/rb_mission/navigation.py	55	PoseFeedback.update	return False  # timer republication is not a new stationary measurement
+src/rb_mission/rb_mission/navigation.py	56	PoseFeedback.update	if self.stamp is None or stamp - self.stamp > timeout:
+src/rb_mission/rb_mission/navigation.py	79	ArrivalConfig	settle_timeout_s: float = 5.0
+src/rb_mission/rb_mission/navigation.py	92	ArrivalGate.update	"""Return approach/correct/settling/complete/timeout.
+src/rb_mission/rb_mission/navigation.py	94	ArrivalGate.update	The confirmation deadline survives excursions until the whole goal resets.
+src/rb_mission/rb_mission/navigation.py	97	ArrivalGate.update	if not all(math.isfinite(v) for v in (now, distance, yaw_error)):
+src/rb_mission/rb_mission/navigation.py	109	ArrivalGate.update	if (cfg.settle_timeout_s > 0 and self.started is not None
+src/rb_mission/rb_mission/navigation.py	110	ArrivalGate.update	and now - self.started >= cfg.settle_timeout_s):
+src/rb_mission/rb_mission/navigation.py	111	ArrivalGate.update	return 'timeout'
+src/rb_mission/rb_mission/navigation.py	117	ArrivalGate.update	and math.isfinite(linear_speed) and math.isfinite(angular_speed)
+src/rb_mission/rb_mission/navigation.py	122	ArrivalGate.update	self.stable_since = max(now, sample_time)
+src/rb_mission/rb_mission/shot_planner.py	16	finite	if not math.isfinite(value):
+src/rb_mission/rb_mission/shot_planner.py	17	finite	raise ValueError(f"{name} 必须为有限数值")
+src/rb_mission/rb_mission/shot_planner.py	28	shot_solution	raise ValueError("篮筐地图坐标尚未确认")
+src/rb_mission/rb_mission/shot_planner.py	41	shot_solution	raise ValueError("目标距离必须大于零")
+src/rb_mission/rb_mission/shot_planner.py	44	shot_solution	raise ValueError("出球方向尚未对准篮筐")
+src/rb_mission/rb_mission/shot_planner.py	50	shot_solution	raise ValueError("相机目标方位与地图篮筐不一致")
+src/rb_mission/rb_mission/shot_planner.py	52	shot_solution	if math.isfinite(float(camera_depth)) and float(camera_depth) > 0:
+src/rb_mission/rb_mission/shot_planner.py	55	shot_solution	raise ValueError("相机方位角超出前向视场")
+src/rb_mission/rb_mission/shot_planner.py	59	shot_solution	max_error = finite(cfg.get("range_tolerance_m", 0.5), "测距容差")
+src/rb_mission/rb_mission/shot_planner.py	60	shot_solution	if max_error <= 0 or math.hypot(vx - bx, vy - by) > max_error:
+src/rb_mission/rb_mission/shot_planner.py	61	shot_solution	raise ValueError("相机测距与地图篮筐位置不一致")
+src/rb_mission/rb_mission/shot_planner.py	64	shot_solution	raise ValueError("视觉权重必须在 0..1")
+src/rb_mission/rb_mission/shot_planner.py	68	shot_solution	raise ValueError("缺少有效相机测距")
+src/rb_mission/rb_mission/shot_planner.py	75	shot_solution	raise ValueError("视觉目标尚未对准出球方向")
+src/rb_mission/rb_mission/shot_planner.py	79	shot_solution	raise ValueError("至少需要两条实测投篮标定记录")
+src/rb_mission/rb_mission/shot_planner.py	86	shot_solution	raise ValueError("标定距离/转速/角度指令越界")
+src/rb_mission/rb_mission/shot_planner.py	88	shot_solution	raise ValueError("标定距离必须严格递增")
+src/rb_mission/rb_mission/shot_planner.py	91	shot_solution	raise ValueError(f"距离 {distance:.2f}m 超出实测射程表范围")
+src/rb_mission/rb_mission/shot_planner.py	97	shot_solution	raise ValueError("无法计算投篮参数")
+src/rb_perception/config/perception.yaml	46	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception.yaml	47	配置或模块级	max_area_ratio: 0.20
+src/rb_perception/config/perception.yaml	59	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception.yaml	60	配置或模块级	max_area_ratio: 0.20
+src/rb_perception/config/perception.yaml	73	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception.yaml	76	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception.yaml	77	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception.yaml	88	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception.yaml	91	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception.yaml	92	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception.yaml	105	配置或模块级	min_total_area_ratio: 0.0008
+src/rb_perception/config/perception.yaml	120	配置或模块级	# 判据是包含度(交集/min面积)，因为同物体两框大小可能差很多，IoU 会偏低漏抑制。
+src/rb_perception/config/perception.yaml	129	配置或模块级	# ⚠️⚠️ 必须限制 ONNX Runtime 的线程数（实测踩坑）！
+src/rb_perception/config/perception.yaml	180	配置或模块级	min_points: 6
+src/rb_perception/config/perception.yaml	181	配置或模块级	max_range_m: 6.0
+src/rb_perception/config/perception_rear.yaml	26	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_rear.yaml	27	配置或模块级	max_area_ratio: 0.2
+src/rb_perception/config/perception_rear.yaml	49	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_rear.yaml	50	配置或模块级	max_area_ratio: 0.2
+src/rb_perception/config/perception_rear.yaml	73	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_rear.yaml	76	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_rear.yaml	77	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_rear.yaml	86	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_rear.yaml	89	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_rear.yaml	90	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_rear.yaml	111	配置或模块级	min_total_area_ratio: 0.0008
+src/rb_perception/config/perception_rear.yaml	155	配置或模块级	min_points: 6
+src/rb_perception/config/perception_rear.yaml	156	配置或模块级	max_range_m: 6.0
+src/rb_perception/config/perception_seek.yaml	27	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_seek.yaml	28	配置或模块级	max_area_ratio: 0.2
+src/rb_perception/config/perception_seek.yaml	50	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_seek.yaml	51	配置或模块级	max_area_ratio: 0.2
+src/rb_perception/config/perception_seek.yaml	74	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_seek.yaml	77	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_seek.yaml	78	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_seek.yaml	87	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_seek.yaml	90	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_seek.yaml	91	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_seek.yaml	112	配置或模块级	min_total_area_ratio: 0.0008
+src/rb_perception/config/perception_seek.yaml	154	配置或模块级	min_points: 6
+src/rb_perception/config/perception_seek.yaml	155	配置或模块级	max_range_m: 6.0
+src/rb_perception/config/perception_test.yaml	49	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_test.yaml	50	配置或模块级	max_area_ratio: 0.20
+src/rb_perception/config/perception_test.yaml	62	配置或模块级	min_area_ratio: 0.0006
+src/rb_perception/config/perception_test.yaml	63	配置或模块级	max_area_ratio: 0.20
+src/rb_perception/config/perception_test.yaml	76	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_test.yaml	79	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_test.yaml	80	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_test.yaml	91	配置或模块级	min_dist_ratio: 0.08
+src/rb_perception/config/perception_test.yaml	94	配置或模块级	min_radius_ratio: 0.02
+src/rb_perception/config/perception_test.yaml	95	配置或模块级	max_radius_ratio: 0.35
+src/rb_perception/config/perception_test.yaml	108	配置或模块级	min_total_area_ratio: 0.0008
+src/rb_perception/config/perception_test.yaml	127	配置或模块级	# 限制 ONNX 线程数，别把 FAST-LIO 饿死（见 perception.yaml 注释）
+src/rb_perception/rb_perception/detectors.py	94	CameraModel.undistort_px	d = np.array(list(self.distortion[:5]) + [0.0] * max(0, 5 - len(self.distortion)),
+src/rb_perception/rb_perception/detectors.py	192	BlobDetector.__init__	self.min_area_ratio = float(cfg.get("min_area_ratio", 0.0005))
+src/rb_perception/rb_perception/detectors.py	193	BlobDetector.__init__	self.max_area_ratio = float(cfg.get("max_area_ratio", 0.5))
+src/rb_perception/rb_perception/detectors.py	214	BlobDetector.detect	if ratio < self.min_area_ratio or ratio > self.max_area_ratio:
+src/rb_perception/rb_perception/detectors.py	229	BlobDetector.detect	conf = float(min(1.0, 0.35 + 0.65 * min(circ, 1.0)))
+src/rb_perception/rb_perception/detectors.py	236	BlobDetector.detect	else max(uw, cam.measure_size((px, y), (px, y + bh)))
+src/rb_perception/rb_perception/detectors.py	265	CircleDetector.__init__	self.min_dist_ratio = float(cfg.get("min_dist_ratio", 0.05))
+src/rb_perception/rb_perception/detectors.py	268	CircleDetector.__init__	self.min_radius_ratio = float(cfg.get("min_radius_ratio", 0.01))
+src/rb_perception/rb_perception/detectors.py	269	CircleDetector.__init__	self.max_radius_ratio = float(cfg.get("max_radius_ratio", 0.5))
+src/rb_perception/rb_perception/detectors.py	279	CircleDetector._is_hollow	rr = max(1, int(r * 0.5))
+src/rb_perception/rb_perception/detectors.py	280	CircleDetector._is_hollow	x0, x1 = max(0, cx - rr), min(w, cx + rr)
+src/rb_perception/rb_perception/detectors.py	281	CircleDetector._is_hollow	y0, y1 = max(0, cy - rr), min(h, cy + rr)
+src/rb_perception/rb_perception/detectors.py	317	CircleDetector.detect	minDist=max(10.0, self.min_dist_ratio * min(h, w)),
+src/rb_perception/rb_perception/detectors.py	320	CircleDetector.detect	minRadius=int(self.min_radius_ratio * min(h, w)),
+src/rb_perception/rb_perception/detectors.py	321	CircleDetector.detect	maxRadius=int(self.max_radius_ratio * min(h, w)),
+src/rb_perception/rb_perception/detectors.py	333	CircleDetector.detect	x0, y0 = max(0, cx - r), max(0, cy - r)
+src/rb_perception/rb_perception/detectors.py	334	CircleDetector.detect	x1, y1 = min(w, cx + r), min(h, cy + r)
+src/rb_perception/rb_perception/detectors.py	335	CircleDetector.detect	conf = float(min(1.0, 0.5 + 0.5 * min(1.0, r / (0.25 * min(h, w)))))
+src/rb_perception/rb_perception/detectors.py	367	StripeDetector.__init__	self.min_total_area_ratio = float(cfg.get("min_total_area_ratio", 0.0008))
+src/rb_perception/rb_perception/detectors.py	374	StripeDetector._components	def _components(mask: np.ndarray, min_area: float) -> list[tuple[int, int, int, int]]:
+src/rb_perception/rb_perception/detectors.py	378	StripeDetector._components	if cv2.contourArea(cnt) < min_area:
+src/rb_perception/rb_perception/detectors.py	393	StripeDetector.detect	boxes_a = self._components(mask_a, self.min_total_area_ratio * total * 0.3)
+src/rb_perception/rb_perception/detectors.py	394	StripeDetector.detect	boxes_b = self._components(mask_b, self.min_total_area_ratio * total * 0.3)
+src/rb_perception/rb_perception/detectors.py	400	StripeDetector.detect	tol = self.x_tolerance_ratio * max(aw, bw)
+src/rb_perception/rb_perception/detectors.py	404	StripeDetector.detect	if min(ay + ah, by + bh) - max(ay, by) < -0.5 * max(ah, bh):
+src/rb_perception/rb_perception/detectors.py	407	StripeDetector.detect	x0, y0 = min(ax, bx), min(ay, by)
+src/rb_perception/rb_perception/detectors.py	408	StripeDetector.detect	x1, y1 = max(ax + aw, bx + bw), max(ay + ah, by + bh)
+src/rb_perception/rb_perception/detectors.py	415	StripeDetector.detect	if (cw * ch) / total < self.min_total_area_ratio:
+src/rb_perception/rb_perception/detectors.py	476	OnnxDetector	max_detections    默认 20
+src/rb_perception/rb_perception/detectors.py	488	OnnxDetector.__init__	if not math.isfinite(self.input_content_scale) or not 0 < self.input_content_scale <= 1:
+src/rb_perception/rb_perception/detectors.py	489	OnnxDetector.__init__	raise ValueError("input_content_scale 须在 (0, 1] 内")
+src/rb_perception/rb_perception/detectors.py	493	OnnxDetector.__init__	# 0 表示关闭。判据是包含度 inter/min(area)，不是 IoU（同物体两框大小可能差很多）。
+src/rb_perception/rb_perception/detectors.py	497	OnnxDetector.__init__	self.max_det = int(cfg.get("max_detections", 20))
+src/rb_perception/rb_perception/detectors.py	504	OnnxDetector.__init__	self.every_n = max(1, int(cfg.get("every_n_frames", 1) or 1))
+src/rb_perception/rb_perception/detectors.py	524	OnnxDetector.__init__	# ⚠️⚠️ 必须限制线程数，否则 ONNX Runtime 默认吃满**所有核**。
+src/rb_perception/rb_perception/detectors.py	530	OnnxDetector.__init__	so.intra_op_num_threads = max(1, int(cfg.get("intra_op_threads", 2)))
+src/rb_perception/rb_perception/detectors.py	531	OnnxDetector.__init__	so.inter_op_num_threads = max(1, int(cfg.get("inter_op_threads", 1)))
+src/rb_perception/rb_perception/detectors.py	540	OnnxDetector.__init__	# ⚠️ 只取 >32 的静态维：否则动态模型里 max([1,3]) = 3（通道数），
+src/rb_perception/rb_perception/detectors.py	544	OnnxDetector.__init__	self.input_size = max(dims) if dims else 640
+src/rb_perception/rb_perception/detectors.py	585	OnnxDetector._letterbox	s = min(self.input_size / w, self.input_size / h) * self.input_content_scale
+src/rb_perception/rb_perception/detectors.py	586	OnnxDetector._letterbox	nw, nh = max(1, int(round(w * s))), max(1, int(round(h * s)))
+src/rb_perception/rb_perception/detectors.py	600	OnnxDetector._containment	"""包含度 = 交集 / min(面积)。同物体两框大小差很多时比 IoU 稳。"""
+src/rb_perception/rb_perception/detectors.py	603	OnnxDetector._containment	ix = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+src/rb_perception/rb_perception/detectors.py	604	OnnxDetector._containment	iy = max(0.0, min(ay2, by2) - max(ay1, by1))
+src/rb_perception/rb_perception/detectors.py	606	OnnxDetector._containment	aa = max(0.0, (ax2 - ax1)) * max(0.0, (ay2 - ay1))
+src/rb_perception/rb_perception/detectors.py	607	OnnxDetector._containment	ba = max(0.0, (bx2 - bx1)) * max(0.0, (by2 - by1))
+src/rb_perception/rb_perception/detectors.py	608	OnnxDetector._containment	m = min(aa, ba)
+src/rb_perception/rb_perception/detectors.py	642	OnnxDetector._nms	areas = np.maximum(0.0, x2 - x1) * np.maximum(0.0, y2 - y1)
+src/rb_perception/rb_perception/detectors.py	651	OnnxDetector._nms	xx1 = np.maximum(x1[i], x1[rest])
+src/rb_perception/rb_perception/detectors.py	652	OnnxDetector._nms	yy1 = np.maximum(y1[i], y1[rest])
+src/rb_perception/rb_perception/detectors.py	653	OnnxDetector._nms	xx2 = np.minimum(x2[i], x2[rest])
+src/rb_perception/rb_perception/detectors.py	654	OnnxDetector._nms	yy2 = np.minimum(y2[i], y2[rest])
+src/rb_perception/rb_perception/detectors.py	655	OnnxDetector._nms	inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
+src/rb_perception/rb_perception/detectors.py	656	OnnxDetector._nms	iou = inter / np.maximum(areas[i] + areas[rest] - inter, 1e-9)
+src/rb_perception/rb_perception/detectors.py	665	OnnxDetector._classify_by_color	x1, y1, x2, y2 = (int(max(0, box[0])), int(max(0, box[1])),
+src/rb_perception/rb_perception/detectors.py	672	OnnxDetector._classify_by_color	cv2.ellipse(mask, (w // 2, h // 2), (max(1, int(w / 2 * 0.85)),
+src/rb_perception/rb_perception/detectors.py	673	OnnxDetector._classify_by_color	max(1, int(h / 2 * 0.85))), 0, 0, 360, 255, -1)
+src/rb_perception/rb_perception/detectors.py	781	OnnxDetector.detect	keep_all = keep_all[: self.max_det]
+src/rb_perception/rb_perception/detectors.py	812	OnnxDetector.detect	size_px = uw if label == 'pillar' else max(uw, uh)
+src/rb_perception/rb_perception/lidar_ball.py	36	配置或模块级	"z_max": -0.75,            # 车体系 z 上限；球心离地约 0.12m
+src/rb_perception/rb_perception/lidar_ball.py	40	配置或模块级	"min_points": 6,
+src/rb_perception/rb_perception/lidar_ball.py	41	配置或模块级	"max_range_m": 6.0,
+src/rb_perception/rb_perception/lidar_ball.py	70	pointcloud2_to_xyz	m = np.isfinite(out).all(axis=1)
+src/rb_perception/rb_perception/lidar_ball.py	107	remove_floor	keep = np.abs(p[:, 2] - floor_z) > max(band_m, 1e-3)
+src/rb_perception/rb_perception/lidar_ball.py	111	_grid_clusters	def _grid_clusters(pts: np.ndarray, tol: float, min_pts: int) -> list[np.ndarray]:
+src/rb_perception/rb_perception/lidar_ball.py	113	_grid_clusters	if len(pts) < min_pts:
+src/rb_perception/rb_perception/lidar_ball.py	115	_grid_clusters	cell = max(tol, 1e-3)
+src/rb_perception/rb_perception/lidar_ball.py	138	_grid_clusters	if len(comp) >= min_pts:
+src/rb_perception/rb_perception/lidar_ball.py	159	cluster_is_ball	max_r = float(np.linalg.norm(d, axis=1).max())
+src/rb_perception/rb_perception/lidar_ball.py	160	cluster_is_ball	span_x = float(d[:, 0].max() - d[:, 0].min())
+src/rb_perception/rb_perception/lidar_ball.py	161	cluster_is_ball	span_y = float(d[:, 1].max() - d[:, 1].min())
+src/rb_perception/rb_perception/lidar_ball.py	162	cluster_is_ball	span_z = float(d[:, 2].max() - d[:, 2].min())
+src/rb_perception/rb_perception/lidar_ball.py	163	cluster_is_ball	if not (ball_radius - tol) <= max_r <= (ball_radius + tol):
+src/rb_perception/rb_perception/lidar_ball.py	170	cluster_is_ball	"n": int(n), "max_r": max_r,
+src/rb_perception/rb_perception/lidar_ball.py	194	find_ball_candidates	p = p[(rng > 0.4) & (rng <= float(c["max_range_m"]))]
+src/rb_perception/rb_perception/lidar_ball.py	199	find_ball_candidates	for cl in _grid_clusters(p, float(c["cluster_tolerance_m"]), int(c["min_points"])):
+src/rb_perception/rb_perception/lidar_ball.py	219	_xy_from_bearing	if not math.isfinite(b):
+src/rb_perception/rb_perception/lidar_ball.py	222	_xy_from_bearing	if not math.isfinite(d):
+src/rb_perception/rb_perception/lidar_ball.py	224	_xy_from_bearing	slant = d / max(math.cos(b), 1e-3)
+src/rb_perception/rb_perception/lidar_ball.py	255	fuse	if not (math.isfinite(cx) and math.isfinite(cy)):
+src/rb_perception/rb_perception/perception_node.py	87	PerceptionNode.__init__	self.max_per_label = int(self.declare_parameter("max_detections_per_label", 5).value)
+src/rb_perception/rb_perception/perception_node.py	242	PerceptionNode.process_frame	if per_label.get(r.label, 0) >= self.max_per_label:
+src/rb_perception/rb_perception/perception_node.py	339	PerceptionNode.publish_debug_image	cv2.putText(vis, text, (x0, max(14, y0 - 6)),
+src/rb_tests/rb_tests/checks/camera_check.py	80	main	rclpy.spin_once(node, timeout_sec=0.01)
+src/rb_tests/rb_tests/checks/camera_check.py	98	main	proc.wait(timeout=8)
+src/rb_tests/rb_tests/checks/verify_goto_avoid.py	65	main.spin_for	rclpy.spin_once(node, timeout_sec=0.02)
+src/rb_tests/rb_tests/checks/verify_goto_avoid.py	96	main	if not cli.wait_for_service(timeout_sec=6.0):
+src/rb_tests/rb_tests/checks/verify_goto_avoid.py	184	_finish	proc.wait(timeout=8)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	74	Procs.stop_all	p.wait(timeout=6)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	164	main	rclpy.spin_once(node, timeout_sec=0.05)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	193	main	ox_min = min(o[0] for o in odom); ox_max = max(o[0] for o in odom)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	194	main	oy_min = min(o[1] for o in odom); oy_max = max(o[1] for o in odom)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	195	main	lx_min = min(l[0] for l in loc); lx_max = max(l[0] for l in loc)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	196	main	ly_min = min(l[1] for l in loc); ly_max = max(l[1] for l in loc)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	201	main	elif abs(span_l - span_o) > max(0.25, 0.35 * span_o):
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	215	main	yaw_span = max(abs(_wrap(o[2] - odom[0][2])) for o in odom)
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	228	main	if not (math.isfinite(x) and math.isfinite(y)):
+src/rb_tests/rb_tests/checks/verify_lidar_replay.py	230	main	if max(abs(x), abs(y)) > 25.0:
+src/rb_tests/rb_tests/checks/verify_offline.py	92	Runner.alive	return False
+src/rb_tests/rb_tests/checks/verify_offline.py	101	Runner.stop	proc.wait(timeout=8)
+src/rb_tests/rb_tests/checks/verify_offline.py	116	Runner.stop_all	deadline = time.time() + 8
+src/rb_tests/rb_tests/checks/verify_offline.py	120	Runner.stop_all	proc.wait(timeout=max(0.1, deadline - time.time()))
+src/rb_tests/rb_tests/checks/verify_offline.py	205	配置或模块级	# 检查 3/4：底盘运动学 + 超时保护
+src/rb_tests/rb_tests/checks/verify_offline.py	222	check_chassis	"--ros-args -p dry_run:=true -p limit_acc:=100.0 "
+src/rb_tests/rb_tests/checks/verify_offline.py	235	check_chassis.spin_for	rclpy.spin_once(node, timeout_sec=0.02)
+src/rb_tests/rb_tests/checks/verify_offline.py	269	check_chassis	ok_mag = len(got) == 4 and all(abs(abs(v) - expect) <= max(3.0, expect * 0.15) for v in got)
+src/rb_tests/rb_tests/checks/verify_offline.py	283	check_chassis	# ---- 超时保护：停发后应归零 ----
+src/rb_tests/rb_tests/checks/verify_offline.py	285	check_chassis	timeout_ok = False
+src/rb_tests/rb_tests/checks/verify_offline.py	294	check_chassis	timeout_ok = True
+src/rb_tests/rb_tests/checks/verify_offline.py	311	check_chassis	if not timeout_ok:
+src/rb_tests/rb_tests/checks/verify_offline.py	312	check_chassis	return Result("底盘运动学", False, f"{detail}；但超时后未归零（安全网失效！）")
+src/rb_tests/rb_tests/checks/verify_offline.py	340	check_launcher.spin_for	rclpy.spin_once(node, timeout_sec=0.05)
+src/rb_tests/rb_tests/checks/verify_offline.py	348	check_launcher	if alive and cli.wait_for_service(timeout_sec=6.0):
+src/rb_tests/rb_tests/checks/verify_offline.py	373	check_launcher	"无串口时节点存活、ok=false（服务调用超时属正常）")
+src/rb_tests/rb_tests/checks/verify_offline.py	448	check_mission.spin_for	rclpy.spin_once(node, timeout_sec=0.05)
+src/rb_tests/rb_tests/checks/verify_offline.py	451	check_mission	if not cli.wait_for_service(timeout_sec=8.0):
+src/rb_tests/rb_tests/checks/verify_offline.py	463	check_mission	deadline = time.time() + 150.0
+src/rb_tests/rb_tests/checks/verify_offline.py	464	check_mission	while time.time() < deadline and not all(p in seen for p in required):
+src/rb_tests/rb_tests/checks/verify_offline.py	508	check_offline_bringup	rclpy.spin_once(node, timeout_sec=0.05)
+src/rb_tests/rb_tests/checks/vision_rate_check.py	80	measure	rclpy.spin_once(node, timeout_sec=0.01)
+src/rb_tests/rb_tests/checks/vision_rate_check.py	101	measure	proc.wait(timeout=6)
+src/rb_tests/rb_tests/checks/vision_rate_check.py	133	main	slowest = min(results, key=lambda r: r["det_fps"])
+src/rb_tests/rb_tests/checks/vision_rate_check.py	137	main	f"     感知算法本身很快（480p 约 10ms/帧 = 90fps 上限），瓶颈多在 ROS 消息路径。\n"
+src/rb_tests/rb_tests/fakes/fake_detections.py	45	FakeDetections.__init__	self.create_timer(1.0 / max(rate, 1.0), self.tick)
+src/rb_tests/rb_tests/fakes/fake_detections.py	62	FakeDetections._det	px = cx + fx * math.tan(max(-1.2, min(1.2, bearing_body)))
+src/rb_tests/rb_tests/fakes/fake_detections.py	64	FakeDetections._det	size_px = fx * real_size / max(dist, 0.05)
+src/rb_tests/rb_tests/fakes/publish_test_image.py	71	main	period = 1.0 / max(args.rate, 0.1)
+src/rb_tests/rb_tests/fakes/publish_test_image.py	79	main	rclpy.spin_once(node, timeout_sec=0.0)
+src/rb_tests/resource/mission_goto_avoid.yaml	35	配置或模块级	#    限制、决赛篮筐可动）**均未提及改动场地标线**，故沿用。
+src/rb_tests/resource/mission_goto_avoid.yaml	59	配置或模块级	# ⚠️ 这块填错会让 _zone_ok() 误判"位置不合规"，从而拒绝传球。
+src/rb_tests/resource/mission_goto_avoid.yaml	85	配置或模块级	limits:
+src/rb_tests/resource/mission_goto_avoid.yaml	86	配置或模块级	max_linear: 0.40          # m/s，比赛先保守
+src/rb_tests/resource/mission_goto_avoid.yaml	87	配置或模块级	max_angular: 0.80         # rad/s
+src/rb_tests/resource/mission_goto_avoid.yaml	102	配置或模块级	seek_speed_ratio: 0.8       # 找球时的速度 = max_linear × 此比例（有距离估计时再按距离减速）
+src/rb_tests/resource/mission_goto_avoid.yaml	104	配置或模块级	timeouts:
+src/rb_tests/resource/mission_goto_avoid.yaml	106	配置或模块级	state_timeout_s: 25.0     # 对准/吸取这类"原地"阶段的超时
+src/rb_tests/resource/mission_goto_avoid.yaml	108	配置或模块级	#   到动作区最远约 10m，0.4m/s 就要 25s —— 用 25s 超时必然误触发（实测踩到过）。
+src/rb_tests/resource/mission_goto_avoid.yaml	110	配置或模块级	nav_timeout_s: 90.0
+src/rb_tests/resource/mission_goto_avoid.yaml	111	配置或模块级	mission_timeout_s: 300.0  # 一次任务总超时（规则每环节约 10 分钟）
+src/rb_tests/resource/mission_goto_avoid.yaml	117	配置或模块级	max_ball_count: 2         # §2.5 违规：单次持球超过两颗
+src/rb_tests/resource/mission_goto_avoid.yaml	156	配置或模块级	max_repel_vel: 0.30      # 排斥速度上限 m/s，避免急转
+src/rb_tests/resource/mission_goto_avoid.yaml	157	配置或模块级	min_confidence: 0.30     # 低于此置信度的检测不参与避障
+tools/calibrate_camera.py	300	_pose_signature	x0, y0 = pts.min(axis=0)
+tools/calibrate_camera.py	301	_pose_signature	x1, y1 = pts.max(axis=0)
+tools/calibrate_camera.py	302	_pose_signature	scale = math.sqrt(max(float(x1 - x0) * float(y1 - y0), 1.0)) / min(w, h)
+tools/calibrate_camera.py	316	_too_similar	return False
+tools/calibrate_camera.py	320	probe_pattern	max_cols: int = 12, max_rows: int = 9) -> tuple[int, int] | None:
+tools/calibrate_camera.py	352	probe_pattern	for cols in range(max_cols, 2, -1):
+tools/calibrate_camera.py	354	probe_pattern	for rows in range(min(cols, max_rows), 2, -1):
+tools/calibrate_camera.py	395	capture_auto	target_count: int = 20, min_interval: float = 0.30,
+tools/calibrate_camera.py	453	capture_auto	if now - last_t >= min_interval:
+tools/calibrate_camera.py	489	capture_auto	frac = min(1.0, len(objpoints) / max(target_count, 1))
+tools/calibrate_color.py	104	_roi_to_hsv_samples	(max(1, int(w / 2 * ellipse_scale)), max(1, int(h / 2 * ellipse_scale))),
+tools/calibrate_color.py	107	_roi_to_hsv_samples	m = max(1, int(min(w, h) * inset))
+tools/calibrate_color.py	115	derive_ranges	max_ranges: int = 3) -> tuple[list[list[int]], str]:
+tools/calibrate_color.py	120	derive_ranges	n = max(1, len(H))
+tools/calibrate_color.py	130	derive_ranges	hist = _circular_smooth(np.bincount(H, minlength=180).astype(float), 3)
+tools/calibrate_color.py	131	derive_ranges	thr = hist.max() * 0.12
+tools/calibrate_color.py	139	derive_ranges	dom = max(masses)
+tools/calibrate_color.py	153	derive_ranges	if acc >= coverage or len(chosen) >= max_ranges:
+tools/calibrate_color.py	338	validate	cfg = {"hsv_ranges": ranges, "min_area_ratio": 0.0006, "max_area_ratio": 0.2,
+tools/calibrate_color.py	376	main	ap.add_argument("--max-ranges", type=int, default=3, help="最多输出几段，默认 3")
+tools/calibrate_color.py	380	main	ap.add_argument("--max-coverage", type=float, default=15.0,
+tools/calibrate_color.py	381	main	help="掩码占全图的上限%%，超过就拒绝写入（防框选太松，默认 15）")
+tools/calibrate_color.py	410	main	ranges, note = derive_ranges(all_px, args.coverage, args.max_ranges)
+tools/calibrate_color.py	424	main	if cover > args.max_coverage and not args.force:
+tools/calibrate_color.py	425	main	print(f"\033[31m✗ 拒绝写入\033[0m 掩码占全图 {cover:.1f}% > 上限 {args.max_coverage:.0f}%")
+tools/calibrate_color.py	429	main	print(f"   确实想写就加 --force（或调 --max-coverage）。")
+tools/calibrate_color.py	431	main	if cover > args.max_coverage * 0.6:
+tools/can_recover.sh	19	配置或模块级	# 限制旧速度报文积压。1000 个槽位能暂时隐藏 ENOBUFS，不能提高发送速度。
+tools/can_recover.sh	51	配置或模块级	echo "      ${R}✗ 是【协议不应答】: peak_usb 发厂商命令超时(-110 = ETIMEDOUT)${N}"
+tools/check_intrinsics.py	101	main	rclpy.spin_once(node, timeout_sec=0.05)
+tools/check_intrinsics.py	117	main	slant = d_med / max(math.cos(b_med), 1e-3)
+tools/check_latency.py	77	measure	rclpy.spin_once(node, timeout_sec=0.05)
+tools/check_lidar_net.py	63	iface_ips	res = subprocess.run(["ip", "-json", "addr"], capture_output=True, text=True, timeout=5)
+tools/check_lidar_net.py	148	main	capture_output=True, text=True, timeout=8)
+tools/check_match_rules.py	24	main	print("已确认的软件配置：启动延迟 5–15s、每任务 <=2 次动作、持球上限 <=2、双球角色")
+tools/check_ptp.py	71	main	raise ValueError('invalid UTC offset')
+tools/check_ptp.py	77	main	raw.settimeout(.2)
+tools/check_ptp.py	79	main	deadline = time.monotonic() + args.seconds
+tools/check_ptp.py	81	main	while time.monotonic() < deadline:
+tools/check_ptp.py	84	main	except socket.timeout:
+tools/check_ptp.py	103	main	print(f'  转为 UTC 后的收包时间差：{min(ages)*1000:.3f}..{max(ages)*1000:.3f} ms')
+tools/check_ready.sh	23	配置或模块级	local t="$1" min="$2"
+tools/check_ready.sh	25	配置或模块级	# ⚠️ 超时给足 12 秒：点云是大消息，ros2 topic hz 建立订阅 + 收到第一个包
+tools/check_ready.sh	27	配置或模块级	rate=$(timeout 12 ros2 topic hz "$t" 2>/dev/null | grep -oE "average rate: [0-9.]+" | head -1 | awk '{print $3}')
+tools/check_ready.sh	31	配置或模块级	elif awk "BEGIN{exit !($rate >= $min)}"; then
+tools/check_ready.sh	59	配置或模块级	lok=$(timeout 4 ros2 topic echo /localization/ok --once 2>/dev/null | grep -oE "data: (true|false)" | awk '{print $2}')
+tools/check_ready.sh	70	配置或模块级	odom_x=$(timeout 8 ros2 topic echo /Odometry --once --field pose.pose.position.x 2>/dev/null | head -1 | tr -d ' ')
+tools/check_ready.sh	84	配置或模块级	# 后果：rb_localization 的新鲜度守卫（source_timeout_s=0.5s）判定"源过期"，
+tools/check_ready.sh	87	配置或模块级	delay=$(timeout 10 ros2 topic delay /Odometry 2>/dev/null | grep -oE "average delay: [0-9.]+" | head -1 | awk '{print $3}')
+tools/click_goto.py	100	ClickGotoNode.send_goal	if not self.goto_client.wait_for_service(timeout_sec=0.5):
+tools/click_goto.py	117	ClickGotoNode.cancel	if not self.mission_client.wait_for_service(timeout_sec=0.5):
+tools/console.sh	67	配置或模块级	body=$(curl -s --max-time 3 "http://127.0.0.1:$1/" 2>/dev/null) || return 1
+tools/console_app.py	71	overlay_options	result = {"front": True, "rear": True, "min_confidence": 0.25,
+tools/console_app.py	72	overlay_options	"max_age_s": 0.5, "max_frame_delta_s": 0.5, "jpeg_quality": 85}
+tools/console_app.py	74	overlay_options	raise ValueError("画框配置字段无效")
+tools/console_app.py	78	overlay_options	raise ValueError("画框开关须为布尔值")
+tools/console_app.py	79	overlay_options	for name in ("min_confidence", "max_age_s", "max_frame_delta_s"):
+tools/console_app.py	81	overlay_options	if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+tools/console_app.py	82	overlay_options	raise ValueError(f"{name} 须为有限数值")
+tools/console_app.py	83	overlay_options	if not 0 <= result["min_confidence"] <= 1:
+tools/console_app.py	84	overlay_options	raise ValueError("置信度须在0–1之间")
+tools/console_app.py	85	overlay_options	if not 0 < result["max_age_s"] <= 5 or not 0 < result["max_frame_delta_s"] <= 5:
+tools/console_app.py	86	overlay_options	raise ValueError("检测时限须在0–5秒之间")
+tools/console_app.py	88	overlay_options	raise ValueError("JPEG质量须为1–100的整数")
+tools/console_app.py	92	draw_ball_boxes	def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85, center_tolerance=.04):
+tools/console_app.py	104	draw_ball_boxes	if not all(math.isfinite(v) for v in [confidence] + coords) or not min_confidence <= confidence <= 1:
+tools/console_app.py	106	draw_ball_boxes	x1, y1, x2, y2 = [max(0, min(1, v)) for v in coords]
+tools/console_app.py	129	draw_ball_boxes	tx, ty = min(p1[0], max(0, width - 140)), max(0, p1[1] - 24)
+tools/console_app.py	130	draw_ball_boxes	cv2.rectangle(frame, (tx, ty), (min(width - 1, tx + 140), min(height - 1, ty + 24)), (20, 20, 20), -1)
+tools/console_app.py	241	depth_to_slant	def depth_to_slant(depth_m: float, bearing_rad: float, max_bearing_deg: float = 78.0):
+tools/console_app.py	249	depth_to_slant	b 接近 ±90° 时 cos→0 斜距发散，超过 max_bearing_deg 判不可信，返回 nan。
+tools/console_app.py	255	depth_to_slant	if abs(math.degrees(bearing_rad)) > max_bearing_deg:
+tools/console_app.py	333	localization_display_state	def localization_display_state(state, ros_now, wall_now, max_age_s=0.5):
+tools/console_app.py	339	localization_display_state.fresh	return (stamp > 0 and 0 <= ros_now - stamp <= max_age_s
+tools/console_app.py	340	localization_display_state.fresh	and received > 0 and 0 <= wall_now - received <= max_age_s)
+tools/console_app.py	349	localization_display_state	out["odom_delay"] = (max(0.0, ros_now - state["odom_source_stamp"])
+tools/console_app.py	383	render_lidar	scale = min(LIDAR_W, LIDAR_H) / (2.0 * LIDAR_RANGE_M)
+tools/console_app.py	401	render_lidar	scale = min((LIDAR_W - 2 * margin) / max(_fl, 1e-3),
+tools/console_app.py	402	render_lidar	(LIDAR_H - 2 * margin) / max(_fw, 1e-3)) * 0.98
+tools/console_app.py	419	render_lidar	r_px = max(6, int(0.12 * scale))
+tools/console_app.py	529	render_lidar	bx = min(L, hx + 0.30)
+tools/console_app.py	701	Bridge.__init__	self.logs: deque = deque(maxlen=400)
+tools/console_app.py	702	Bridge.__init__	self.launch_logs: deque = deque(maxlen=400)
+tools/console_app.py	704	Bridge.__init__	self.timeline: deque = deque(maxlen=200)
+tools/console_app.py	733	Bridge.__init__	self._cam_times: deque = deque(maxlen=30)
+tools/console_app.py	734	Bridge.__init__	self._cloud_times: deque = deque(maxlen=30)
+tools/console_app.py	1021	Bridge._call	def _call(self, cli, req, timeout=3.0):
+tools/console_app.py	1022	Bridge._call	if not cli.wait_for_service(timeout_sec=timeout):
+tools/console_app.py	1023	Bridge._call	return False, "服务不可用"
+tools/console_app.py	1026	Bridge._call	while not fut.done() and time.time() - t0 < timeout:
+tools/console_app.py	1030	Bridge._call	return False, "无响应"
+tools/console_app.py	1048	Bridge.camera_exposure	return False, "摄像头须为 front 或 rear"
+tools/console_app.py	1050	Bridge.camera_exposure	return False, "缺少曝光设置"
+tools/console_app.py	1052	Bridge.camera_exposure	return False, "曝光值必须为整数"
+tools/console_app.py	1054	Bridge.camera_exposure	return False, "自动曝光开关必须为布尔值"
+tools/console_app.py	1058	Bridge.camera_exposure	return False, "摄像头曝光状态不可用或过期"
+tools/console_app.py	1061	Bridge.camera_exposure	return False, "摄像头节点信息不可用"
+tools/console_app.py	1063	Bridge.camera_exposure	return False, "请分别设置手动值或开启自动曝光"
+tools/console_app.py	1068	Bridge.camera_exposure	if not cli.wait_for_service(timeout_sec=1):
+tools/console_app.py	1069	Bridge.camera_exposure	return False, "摄像头参数服务不可用"
+tools/console_app.py	1076	Bridge.camera_exposure	deadline = time.monotonic() + 5
+tools/console_app.py	1077	Bridge.camera_exposure	while not future.done() and time.monotonic() < deadline:
+tools/console_app.py	1080	Bridge.camera_exposure	return False, "曝光设置响应超时，请查看当前读回值"
+tools/console_app.py	1083	Bridge.camera_exposure	return False, response.result.reason if response else "曝光设置无响应"
+tools/console_app.py	1221	Bridge.lidar_ball_vs_camera	if not (math.isfinite(b) and math.isfinite(dist)):
+tools/console_app.py	1223	Bridge.lidar_ball_vs_camera	slant = dist / max(math.cos(b), 1e-3)
+tools/console_app.py	1240	Bridge.camera_overlay_settings	raise ValueError("请求须为JSON对象")
+tools/console_app.py	1247	Bridge.camera_frame	raise ValueError("摄像头须为front或rear")
+tools/console_app.py	1265	Bridge.camera_frame	fresh = (0 <= now - detection_received <= options["max_age_s"]
+tools/console_app.py	1267	Bridge.camera_frame	and 0 <= ros_now - detection_source <= options["max_age_s"]
+tools/console_app.py	1268	Bridge.camera_frame	and abs(image_source - detection_source) <= options["max_frame_delta_s"])
+tools/console_app.py	1271	Bridge.camera_frame	key = (id(image), detection_received, options["min_confidence"], options["jpeg_quality"])
+tools/console_app.py	1276	Bridge.camera_frame	output = draw_ball_boxes(image, detections, options["min_confidence"], options["jpeg_quality"], center_tolerance=.025 if slot == "rear" else .04)
+tools/console_app.py	1337	ActionGuard	* 跨类硬冲突直接拒绝（跑着寻球就不许起整套/使能底盘）
+tools/console_app.py	1339	ActionGuard	* 长动作有"在跑"标记，超时自动释放（避免卡死把界面锁住）
+tools/console_app.py	1340	ActionGuard	* 被拒绝必须给出原因，绝不静默失败
+tools/console_app.py	1389	ActionGuard	# 长动作的"在跑"最长挂多久（超时自动释放，别把界面锁死）
+tools/console_app.py	1409	ActionGuard.check	# 清理超时的 busy
+tools/console_app.py	1419	ActionGuard.check	msg = (f"拒绝下发【{name}】：{who} 正在执行"
+tools/console_app.py	1422	ActionGuard.check	return False, msg
+tools/console_app.py	1428	ActionGuard.check	msg = (f"拒绝重复下发【{name}】：{cd:.0f}s 内已经下过一次"
+tools/console_app.py	1431	ActionGuard.check	return False, msg
+tools/console_app.py	1502	StackManager.start	return False, "本进程启动时带了 --no-stack-control"
+tools/console_app.py	1505	StackManager.start	return False, "已经在跑"
+tools/console_app.py	1516	StackManager.stop	return False, "没在跑"
+tools/console_app.py	1572	SystemChecks._run	def _run(self, name: str, script: str, timeout: float = 180.0) -> str:
+tools/console_app.py	1576	SystemChecks._run	capture_output=True, text=True, timeout=timeout)
+tools/console_app.py	1579	SystemChecks._run	out = f"（超时 {timeout:.0f}s）"
+tools/console_app.py	1587	SystemChecks.check_ready	return False, "已有检查在跑"
+tools/console_app.py	1600	SystemChecks.check_ready	return False, f"{type(e).__name__}: {e}"
+tools/console_app.py	1605	SystemChecks.can_recover	return False, "已有检查在跑"
+tools/console_app.py	1608	SystemChecks.can_recover	out = self._run("CAN 恢复", "tools/can_recover.sh", timeout=60.0)
+tools/console_app.py	1616	SystemChecks.can_recover	return False, f"{type(e).__name__}: {e}"
+tools/console_app.py	1622	SystemChecks.startup_flow	return False, "一键流程已在跑"
+tools/console_app.py	1636	SystemChecks.startup_flow.worker	deadline = time.time() + 120
+tools/console_app.py	1638	SystemChecks.startup_flow.worker	while time.time() < deadline:
+tools/console_app.py	1655	SystemChecks.startup_flow.worker	self.state["flow_step"] = "等就绪标志超时（看日志）"
+tools/console_app.py	1688	probe_can.sh	return subprocess.run(cmd, capture_output=True, text=True, timeout=4).stdout
+tools/console_app.py	1733	MissionManager._external_running	text=True, timeout=4).stdout
+tools/console_app.py	1736	MissionManager._external_running	return False
+tools/console_app.py	1767	MissionManager.start	return False, f"启动失败: {e}"
+tools/console_app.py	1769	MissionManager.start	time.sleep(max(0.5, wait_s))          # 等 DDS 把服务挂上去
+tools/console_app.py	1771	MissionManager.start	return False, "任务节点起来就退了（看日志）"
+tools/console_app.py	1777	MissionManager.stop	return False, "任务节点没在跑"
+tools/console_app.py	1810	ChassisManager._external_running	text=True, timeout=4).stdout
+tools/console_app.py	1813	ChassisManager._external_running	return False
+tools/console_app.py	1837	ChassisManager.start	return False, "底盘启动流程正在执行，请等待"
+tools/console_app.py	1854	ChassisManager.start	return False, msg
+tools/console_app.py	1860	ChassisManager.start	self.checks._run("CAN 恢复", "tools/can_recover.sh", timeout=60.0)
+tools/console_app.py	1865	ChassisManager.start	return False, "can0 拉不起来（看日志里的 can_recover 输出）"
+tools/console_app.py	1881	ChassisManager.start	deadline = time.time() + wait_s
+tools/console_app.py	1882	ChassisManager.start	while time.time() < deadline:
+tools/console_app.py	1885	ChassisManager.start	return False, self.state["step"]
+tools/console_app.py	1891	ChassisManager.start	return False, "底盘节点启动后就退出了（看日志）"
+tools/console_app.py	1894	ChassisManager.start	self.state.update(flow="failed", step="等使能日志超时")
+tools/console_app.py	1895	ChassisManager.start	return False, f"{wait_s:.0f}s 内没有使能指令入队日志，请检查节点和 CAN 日志"
+tools/console_app.py	1899	ChassisManager.stop	return False, "底盘节点没在跑"
+tools/console_app.py	1901	ChassisManager.stop	return False, "底盘由外部启动，请在原终端停止该实例"
+tools/console_app.py	1977	fixed_seek_tool_args	if not math.isfinite(distance) or distance <= .02:
+tools/console_app.py	1978	fixed_seek_tool_args	raise ValueError('靠近距离须大于0.02米')
+tools/console_app.py	1979	fixed_seek_tool_args	if not math.isfinite(speed) or not 0 < speed <= .25:
+tools/console_app.py	1980	fixed_seek_tool_args	raise ValueError('靠近速度须在0到0.25米/秒之间')
+tools/console_app.py	1983	fixed_seek_tool_args	raise ValueError('start_intake 须为布尔值')
+tools/console_app.py	1985	fixed_seek_tool_args	'--route-scoop-timeout', str(max(15., distance/speed+5.)),
+tools/console_app.py	1995	first_pass_tool_args	if not math.isfinite(value) or value <= .02:
+tools/console_app.py	1996	first_pass_tool_args	raise ValueError('两次铲球距离须大于0.02米')
+tools/console_app.py	2007	match_round_tool_args	raise ValueError('whole_round 须为布尔值')
+tools/console_app.py	2013	match_round_tool_args	raise ValueError('首球方式须为 preloaded/search')
+tools/console_app.py	2020	match_round_tool_args	raise ValueError('整轮测试不能指定单个阶段')
+tools/console_app.py	2033	match_round_tool_args	if not math.isfinite(value) or value <= .02:
+tools/console_app.py	2034	match_round_tool_args	raise ValueError('各区域靠近距离须大于0.02米')
+tools/console_app.py	2066	ToolRunner.start	return False, f"未知调试脚本 {key}"
+tools/console_app.py	2069	ToolRunner.start	return False, f"{self.name} 还在跑，先停掉它"
+tools/console_app.py	2071	ToolRunner.start	return False, f"找不到 {spec['script']}"
+tools/console_app.py	2088	ToolRunner.stop	return False, "没在跑"
+tools/console_app.py	2123	probe_hardware.sh	return subprocess.run(cmd, capture_output=True, text=True, timeout=3).stdout.strip()
+tools/console_app.py	2140	probe_hardware	timeout=4).stdout
+tools/console_app.py	2166	panic	return False, str(e)
+tools/console_app.py	2246	make_app.round_state	raise ValueError('首球方式无效')
+tools/console_app.py	2255	make_app.round_reset	raise ValueError('实验正在执行，请先停止再重开')
+tools/console_app.py	2322	make_app.api_camera_overlay	raise ValueError("请求须为JSON对象")
+tools/console_app.py	2390	make_app.api_action	# ── 下发守卫：拒绝重复/冲突，但绝不拦 PANIC ──
+tools/console_app.py	2488	make_app.api_action	"cluster_tolerance_m", "min_points", "max_range_m",
+tools/console_app.py	2493	make_app.api_action	int(body[k]) if k == "min_points" else float(body[k]))
+tools/console_app.py	2580	main	logbuf: deque = deque(maxlen=400)
+tools/console_overlay.yaml	5	配置或模块级	min_confidence: 0.25
+tools/console_overlay.yaml	6	配置或模块级	max_age_s: 0.5
+tools/console_overlay.yaml	7	配置或模块级	max_frame_delta_s: 0.5
+tools/console_ui.html	25	配置或模块级	main{display:grid;grid-template-columns:270px minmax(420px,1fr) 380px;
+tools/console_ui.html	27	配置或模块级	@media(max-width:1400px){main{grid-template-columns:1fr 1fr}}
+tools/console_ui.html	28	配置或模块级	@media(max-width:900px){main{grid-template-columns:1fr}}
+tools/console_ui.html	55	配置或模块级	@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+tools/console_ui.html	72	配置或模块级	gap:8px;z-index:99;max-width:380px}
+tools/console_ui.html	108	配置或模块级	#matchRoundCard .row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+tools/console_ui.html	110	配置或模块级	#matchRoundCard select,#matchRoundCard input[type=number]{width:100%;min-width:0;
+tools/console_ui.html	141	配置或模块级	<label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.021" step="0.01" value="0.70"></label>
+tools/console_ui.html	142	配置或模块级	<label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+tools/console_ui.html	158	配置或模块级	<label>第1次靠近距离（米） <input id="firstPassDistance1" type="number" min="0.021" step="0.01" value="0.70"></label>
+tools/console_ui.html	159	配置或模块级	<label>第2次靠近距离（米） <input id="firstPassDistance2" type="number" min="0.021" step="0.01" value="0.70"></label>
+tools/console_ui.html	160	配置或模块级	<label>靠近速度（米/秒） <input id="firstPassSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+tools/console_ui.html	208	配置或模块级	<label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.021" step="0.01" value="0.70"></label>
+tools/console_ui.html	209	配置或模块级	<label>弧线后退（米）<input id="roundArcScoop" type="number" min="0.021" step="0.05" value="0.25"></label>
+tools/console_ui.html	212	配置或模块级	<label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.021" step="0.05" value="0.15"></label>
+tools/console_ui.html	213	配置或模块级	<label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+tools/console_ui.html	355	配置或模块级	<label>重复遍数<input type="number" id="gpRepeats" value="1" min="1" step="1"></label>
+tools/console_ui.html	390	配置或模块级	<div class="hint">每次 0.4 秒后自动归零；底盘 200ms 超时是第二道保险。</div>
+tools/console_ui.html	435	配置或模块级	⚠️ 浏览器对同一个域名有并发连接上限，MJPEG 每路都占一条**长连接** ——
+tools/console_ui.html	703	配置或模块级	min_points:'lbmin', max_range_m:'lbmax', match_distance_m:'lbmatch'};
+tools/console_ui.html	864	配置或模块级	$('roundSensorHint').textContent = `模型：${cfg.vision_classes.join('、')}。雷达控制行驶/回位，前摄找球和定位柱，后摄只横移对球。出球柱对准：${pillar.enabled ? '已启用' : '已关闭'}，容差${pillar.tolerance_deg}°，最多等待${pillar.timeout_s}秒。`;
+tools/console_ui.html	949	配置或模块级	p.x = Math.min(Math.max(p.x, (f.x_min_m ?? 0) + m), (f.x_max_m ?? L) - m);
+tools/console_ui.html	950	配置或模块级	p.y = Math.min(Math.max(p.y, m), W - m);
+tools/console_ui.html	1035	配置或模块级	input.min = info.min; input.max = info.max; input.step = info.step;
+tools/console_ui.html	1039	配置或模块级	$(prefix+'Status').textContent = `范围 ${info.min}–${info.max}，步长 ${info.step} · 当前 ${info.value} · ${info.auto?'自动':'手动'}`;
+tools/field_coordinates.py	23	配置或模块级	if isinstance(_value,bool) or not isinstance(_value,(int,float)) or not math.isfinite(_value) or not 0<=_value<=_maximum:
+tools/field_coordinates.py	24	配置或模块级	raise ValueError('invalid '+_name)
+tools/first_pass_route.json	19	配置或模块级	"pillar_timeout_s": 10.0,
+tools/first_pass_route.json	20	配置或模块级	"max_pillar_correction_m": 0.5,
+tools/first_pass_route.py	14	load_config	if cfg.get('coordinate_frame',LEGACY_FRAME) not in (PUBLIC_FRAME,LEGACY_FRAME):raise ValueError('invalid coordinate_frame')
+tools/first_pass_route.py	20	load_config	or not math.isfinite(v) for v in p)
+tools/first_pass_route.py	22	load_config	raise ValueError(f'{key} 必须是场地内的 [x,y]')
+tools/first_pass_route.py	24	load_config	raise ValueError('第二次搜索起点和终点不能重合')
+tools/first_pass_route.py	27	load_config	if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not lo <= v <= hi:
+tools/first_pass_route.py	28	load_config	raise ValueError(f'{key} 不在范围 [{lo},{hi}]')
+tools/first_pass_route.py	30	load_config	raise ValueError('first_release 须为 none/drop/match')
+tools/first_pass_route.py	33	load_config	raise ValueError('target_reference 须为 base/lidar')
+tools/first_pass_route.py	35	load_config	raise ValueError('pillar_required 须为布尔值')
+tools/first_pass_route.py	37	load_config	if (not isinstance(offset, list) or len(offset) != 2 or any(isinstance(v, bool) or not isinstance(v, (int,float)) or not math.isfinite(v) or abs(v)>1 for v in offset)):
+tools/first_pass_route.py	38	load_config	raise ValueError('lidar_in_base_m 须为有效车体安装偏移')
+tools/first_pass_route.py	39	load_config	for key,lo,hi in [('pillar_timeout_s',1,20),('max_pillar_correction_m',.05,1.),
+tools/first_pass_route.py	41	load_config	v=cfg.get(key, {'pillar_timeout_s':10.,'max_pillar_correction_m':.5,
+tools/first_pass_route.py	43	load_config	if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not lo<=v<=hi:
+tools/first_pass_route.py	44	load_config	raise ValueError('invalid '+key)
+tools/first_pass_route.py	46	load_config	if not isinstance(cfg['pass_recheck_attempts'],int):raise ValueError('invalid pass_recheck_attempts')
+tools/first_pass_route.py	52	validate_release	raise ValueError('first_release 须为 none/drop/match')
+tools/first_pass_route.py	56	validate_release	raise ValueError('正式传球需要已验证的 release.pass.commands 和 aim')
+tools/first_pass_route.py	99	FirstPassPlan.scan	status,_=self.r.scan_to(*point,yaw,timeout=max(15.,distance/self.r.args.speed+10.),
+tools/first_pass_route.py	106	apply_pillar_observation	if not result.get('valid'):return False
+tools/first_pass_route.py	111	apply_pillar_observation	if math.hypot(predicted[0]-bx,predicted[1]-by)>plan.assist_cfg['max_pillar_correction_m']:
+tools/first_pass_route.py	112	apply_pillar_observation	return False
+tools/first_pass_route.py	127	calibrate_pillar	return False
+tools/first_pass_route.py	130	calibrate_pillar	return False
+tools/first_pass_route.py	145	calibrate_pillar	return False
+tools/first_pass_route.py	154	calibrate_pillar	return False
+tools/first_pass_route.py	155	calibrate_pillar	deadline=time.monotonic()+plan.assist_cfg['pillar_timeout_s']
+tools/first_pass_route.py	156	calibrate_pillar	while time.monotonic()<deadline:
+tools/first_pass_route.py	161	calibrate_pillar	emit('地标校正量超过允许上限，停车；需检查标记位置或朝向基准')
+tools/first_pass_route.py	162	calibrate_pillar	return False
+tools/first_pass_route.py	167	calibrate_pillar	return False
+tools/first_pass_route.py	174	move_to_pass	if not calibrate_pillar(plan.r,plan,emit):return False
+tools/first_pass_route.py	176	move_to_pass	if not plan.move(point):return False
+tools/first_pass_route.py	179	move_to_pass	if not calibrate_pillar(plan.r,plan,emit):return False
+tools/first_pass_route.py	186	move_to_pass	return False
+tools/first_pass_route.py	195	execute	('speed', 'route_scoop_distance', 'route_scoop_timeout')}
+tools/first_pass_route.py	203	execute.pickup	if not runner.rotate_to(wrap(runner.pose[2]+math.pi), timeout=45.):
+tools/first_pass_route.py	204	execute.pickup	return False
+tools/first_pass_route.py	206	execute.pickup	runner.args.route_scoop_timeout = max(15., distance/runner.args.route_scoop_speed+5.)
+tools/first_pass_route.py	214	execute	return False
+tools/first_pass_route.py	216	execute	return False
+tools/first_pass_route.py	218	execute	return False
+tools/first_pass_route.py	227	execute	return False
+tools/first_pass_route.py	230	execute	return False
+tools/first_pass_route.py	232	execute	return False
+tools/first_pass_route.py	240	execute	if not runner.rotate_to(math.atan2(target[1]-runner.pose[1],target[0]-runner.pose[0]),timeout=45.):return False
+tools/first_pass_route.py	245	execute	if not plan.target_aligned:return False
+tools/first_pass_route.py	248	execute	return False
+tools/first_pass_route.py	254	execute	return False
+tools/first_pass_route.py	256	execute	return False
+tools/first_pass_route.py	260	execute	return False
+tools/first_pass_route.py	263	execute	return False
+tools/first_pass_route.py	265	execute	return False
+tools/front_obstacle_guard.py	12	fresh	def fresh(stamp, now, timeout):
+tools/front_obstacle_guard.py	13	fresh	return math.isfinite(stamp) and stamp > 0 and -.05 <= now-stamp <= timeout
+tools/front_obstacle_guard.py	19	rotation_matrix	if q.shape != (4,) or not np.isfinite(q).all() or norm < 1e-6:
+tools/front_obstacle_guard.py	20	rotation_matrix	raise ValueError('invalid transform quaternion')
+tools/front_obstacle_guard.py	30	transform_points	if t.shape != (3,) or not np.isfinite(t).all():
+tools/front_obstacle_guard.py	31	transform_points	raise ValueError('invalid transform translation')
+tools/front_obstacle_guard.py	44	corridor	ahead = radius + cfg.obstacle_stop_gap + speed*cfg.obstacle_timeout + speed*speed/(2*cfg.obstacle_deceleration)
+tools/front_obstacle_guard.py	54	camera_hazard	if not fresh(stamp,now,cfg.obstacle_timeout) or not math.isfinite(d.confidence) or d.confidence < cfg.obstacle_confidence:
+tools/front_obstacle_guard.py	57	camera_hazard	if not all(math.isfinite(v) and 0<=v<=1 for v in bbox) or not (d.x_min<d.x_max and d.y_min<d.y_max):
+tools/front_obstacle_guard.py	61	camera_hazard	if vx > .001 and d.x_min <= .70 and d.x_max >= .30 and max(d.x_max-d.x_min,d.y_max-d.y_min) >= getattr(cfg, 'obstacle_box_size', .22):
+tools/front_obstacle_guard.py	64	camera_hazard	if not math.isfinite(distance) or distance<=0 or not math.isfinite(bearing) or abs(bearing)>=math.pi/2:
+tools/front_obstacle_guard.py	69	camera_hazard	r = diameter/2 if math.isfinite(diameter) and 0<diameter<.5 else .12
+tools/front_obstacle_guard.py	81	lidar_hazard	p = p[np.isfinite(p).all(axis=1)]
+tools/front_obstacle_guard.py	109	pointcloud_xyz	raise ValueError('missing xyz fields')
+tools/front_obstacle_guard.py	113	pointcloud_xyz	raise ValueError('invalid cloud buffer layout')
+tools/front_obstacle_guard.py	119	pointcloud_xyz	raise ValueError('unsupported xyz field')
+tools/front_obstacle_guard.py	124	pointcloud_xyz	return p[np.isfinite(p).all(axis=1)]
+tools/gui_guard.py	46	WindowGuard.closed	return False
+tools/gui_guard.py	49	WindowGuard.closed	return False
+tools/intake_control.py	13	_sequence	return False, ' / '.join(replies)
+tools/livox_shutdown/patch_shutdown.py	12	replace_once	raise ValueError('Unexpected Livox source; inspect before patching')
+tools/match_round_route.py	47	load_config.number	if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
+tools/match_round_route.py	48	load_config.number	raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
+tools/match_round_route.py	51	load_config.point	raise ValueError('路线坐标须为 [x,y]')
+tools/match_round_route.py	60	load_config	raise ValueError('首球方式须为 preloaded/search')
+tools/match_round_route.py	64	load_config	raise ValueError('pillar_alignment.enabled 须为布尔值')
+tools/match_round_route.py	66	load_config	('stable_frames', 1, math.inf), ('timeout_s', math.nextafter(0., math.inf), math.inf),
+tools/match_round_route.py	67	load_config	('max_turn_deg', 1, 30), ('max_ang_rad_s', .02, .25),
+tools/match_round_route.py	72	load_config	raise ValueError('定位柱稳定帧数须为整数')
+tools/match_round_route.py	78	load_config	raise ValueError('中线搜索左端须小于右端')
+tools/match_round_route.py	82	load_config	raise ValueError('弧线至少需要两个角度')
+tools/match_round_route.py	91	load_config	raise ValueError('内侧搜索下端须小于上端')
+tools/match_round_route.py	96	load_config	raise ValueError('放球指令须为非空单行字符串列表')
+tools/match_round_route.py	99	load_config	raise ValueError('动作类型须为 pass/shoot')
+tools/match_round_route.py	104	load_config	raise ValueError('动作点不能与瞄准目标重合')
+tools/match_round_route.py	110	load_config	raise ValueError('出球指令须为非空单行字符串列表')
+tools/match_round_route.py	112	load_config	raise ValueError('需要同时配置传球、投篮动作点')
+tools/match_round_route.py	117	load_config	raise ValueError('传球动作点须在传球圆内')
+tools/match_round_route.py	119	load_config	raise ValueError('投篮动作点须在投篮边界外')
+tools/match_round_route.py	125	validate_mode	raise ValueError('任务/实验模式无效')
+tools/match_round_route.py	127	validate_mode	raise ValueError('出球模式须为 drop/match')
+tools/match_round_route.py	129	validate_mode	raise ValueError('机构开关须为布尔值')
+tools/match_round_route.py	133	validate_mode	raise ValueError('双次流程须先在 tools/match_rounds.json 配置真实出球 commands 和 aim；可先用取球实验')
+tools/match_round_route.py	143	search_order	raise ValueError('只支持第1、2、3回合')
+tools/match_round_route.py	177	RoundRoute.__init__	raise ValueError('规则第1轮首球须预装；场上取首球仅用于放球联调')
+tools/match_round_route.py	186	RoundRoute.move_world	ok = self.r.goto(*p, timeout=max(20., distance/self.r.args.speed+15.),
+tools/match_round_route.py	197	RoundRoute.turn	return self.r.rotate_to(self.frame.yaw(heading), timeout=45.)
+tools/match_round_route.py	201	RoundRoute.scan	# found=目标触发停车，empty=到线端没找到，failed=运动异常/超时。
+tools/match_round_route.py	205	RoundRoute.scan	timeout=max(15., distance/self.r.args.speed+10.),
+tools/match_round_route.py	222	RoundRoute.unwind	return False
+tools/match_round_route.py	262	RoundRoute.search_area	if not self.r.rotate_to(wrap(before+math.pi), timeout=45.):
+tools/match_round_route.py	264	RoundRoute.search_area	saved_distance, saved_timeout = self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout
+tools/match_round_route.py	268	RoundRoute.search_area	self.r.args.route_scoop_timeout = max(15., cfg[area]['scoop_m']/self.r.args.route_scoop_speed+5.)
+tools/match_round_route.py	273	RoundRoute.search_area	self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout = saved_distance, saved_timeout
+tools/match_round_route.py	286	RoundRoute.action_point	return False
+tools/match_round_route.py	289	RoundRoute.action_point	return False
+tools/match_round_route.py	292	RoundRoute.action_point	return False
+tools/match_round_route.py	301	RoundRoute.action_point	if not self.r.rotate_to(heading, timeout=45.):
+tools/match_round_route.py	302	RoundRoute.action_point	return False
+tools/match_round_route.py	312	RoundRoute.action_point	return False
+tools/match_round_route.py	323	RoundRoute.release	return False
+tools/match_round_route.py	331	RoundRoute.release	return False
+tools/match_round_route.py	339	RoundRoute.home	return False
+tools/match_round_route.py	341	RoundRoute.home	return False
+tools/match_round_route.py	357	RoundRoute.execute	return False
+tools/match_round_route.py	361	RoundRoute.execute	return False
+tools/match_round_route.py	366	RoundRoute.execute	return False
+tools/match_round_route.py	368	RoundRoute.execute	return False
+tools/match_round_route.py	374	RoundRoute.execute	return False
+tools/match_round_route.py	383	RoundRoute.execute	return False
+tools/match_round_route.py	385	RoundRoute.execute	return False
+tools/match_round_route.py	390	RoundRoute.execute	return False
+tools/match_round_steps.py	13	steps	raise ValueError('回合须为1、2或3')
+tools/match_round_steps.py	22	session_path	raise ValueError('任务须为 pass/shoot')
+tools/match_round_steps.py	34	load_session	raise ValueError('阶段状态不匹配，请从第1阶段重新开始')
+tools/match_round_steps.py	36	load_session	if len(pose) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in pose):
+tools/match_round_steps.py	37	load_session	raise ValueError('阶段起点无效，请从第1阶段重新开始')
+tools/match_round_steps.py	55	validate_step	raise ValueError('阶段编号须为1、2或3')
+tools/match_round_steps.py	61	validate_step	raise ValueError('首球方式已改变，请摆回出发区并点击“重开本轮”')
+tools/match_round_steps.py	65	validate_step	raise ValueError('本轮尚未建立起点，请把车放回出发区并运行第1阶段')
+tools/match_round_steps.py	67	validate_step	raise ValueError(f"请先运行第{state['next_step']}阶段；重新实验请摆回出发点运行第1阶段")
+tools/match_round_steps.py	146	execute_step	raise ValueError('缺少前摄停车点，请重新开始本轮')
+tools/match_round_steps.py	149	execute_step	# 后摄仍需默认3个新帧居中，已取消固定总时间和净位移上限。
+tools/match_round_steps.py	150	execute_step	ok = runner.rotate_to(wrap(plan.search_origin[2]+math.pi), timeout=45.) and runner.rear_visual_scoop(approach=False)
+tools/match_round_steps.py	157	execute_step	raise ValueError('尚未完成后摄对正')
+tools/match_round_steps.py	161	execute_step	if not runner.rotate_to(heading, timeout=45.):
+tools/match_round_steps.py	172	execute_step	runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
+tools/match_round_steps.py	198	execute_step	return False
+tools/match_round_steps.py	229	execute_cycle	return False
+tools/match_rounds.json	79	配置或模块级	"timeout_s": 6.0,
+tools/match_rounds.json	80	配置或模块级	"max_turn_deg": 20.0,
+tools/match_rounds.json	81	配置或模块级	"max_ang_rad_s": 0.15,
+tools/match_run.py	92	main	ap.add_argument("--timeout", type=float, default=420.0, help="监控最长时间(s)")
+tools/match_run.py	157	main	rclpy.spin_once(node, timeout_sec=0.05)
+tools/match_run.py	192	main	if not cli.wait_for_service(timeout_sec=8.0):
+tools/match_run.py	201	main	rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+tools/match_run.py	205	main	print(f"      {C_BAD}✗{C_OFF} 任务被拒绝：{msg}")
+tools/match_run.py	211	main	delay = mission_cfg["timeouts"]["start_delay_s"]
+tools/match_run.py	223	main	while time.time() - t_start < args.timeout:
+tools/match_run.py	224	main	rclpy.spin_once(node, timeout_sec=0.1)
+tools/match_run.py	242	main	print(f"\n  {C_WARN}监控超时（{args.timeout:.0f}s）—— 任务可能还在跑{C_OFF}")
+tools/measure_chassis.py	87	drive	rclpy.spin_once(node, timeout_sec=1.0 / rate_hz)
+tools/measure_chassis.py	91	drive	rclpy.spin_once(node, timeout_sec=0.02)
+tools/measure_chassis.py	156	main	rclpy.spin_once(node, timeout_sec=0.1)
+tools/measure_landmark.py	133	LandmarkMeasurer.estimate	"x_spread": max(lxs) - min(lxs),
+tools/measure_landmark.py	134	LandmarkMeasurer.estimate	"y_spread": max(lys) - min(lys),
+tools/measure_landmark.py	190	main	ap.add_argument("--min-samples", type=int, default=10, help="少于这个样本数就拒绝写入")
+tools/measure_landmark.py	191	main	ap.add_argument("--max-spread", type=float, default=0.15,
+tools/measure_landmark.py	192	main	help="采样抖动超过这个值（米）就拒绝写入，默认 0.15")
+tools/measure_landmark.py	211	main	rclpy.spin_once(node, timeout_sec=0.05)
+tools/measure_landmark.py	236	main	if est["n"] < args.min_samples:
+tools/measure_landmark.py	237	main	print(f"❌ 样本太少（{est['n']} < {args.min_samples}）")
+tools/measure_landmark.py	239	main	if max(est["x_spread"], est["y_spread"]) > args.max_spread:
+tools/measure_landmark.py	240	main	print(f"❌ 抖动太大（{max(est['x_spread'], est['y_spread']):.3f} m "
+tools/measure_landmark.py	241	main	f"> {args.max_spread}）—— 车是不是动了？或者柱子时隐时现？")
+tools/measure_landmark.py	252	main	print("\n❌ 质量不达标，**拒绝写入**（避免把噪声写进配置文件）", file=sys.stderr)
+tools/panic.sh	55	配置或模块级	timeout 4 ros2 topic pub --once /mission/estop std_msgs/msg/Bool '{data: true}' \
+tools/panic.sh	57	配置或模块级	# 零速连发几帧（覆盖 200ms 超时窗口）
+tools/panic.sh	58	配置或模块级	timeout 6 ros2 topic pub -r 20 -t 8 /cmd_vel geometry_msgs/msg/Twist \
+tools/pillar_localization.json	12	配置或模块级	"max_age_s": 0.5,
+tools/pillar_localization.json	13	配置或模块级	"max_sync_gap_s": 0.15,
+tools/pillar_localization.json	17	配置或模块级	"min_points": 18,
+tools/pillar_localization.json	18	配置或模块级	"min_vertical_span_m": 0.35,
+tools/pillar_localization.json	19	配置或模块级	"max_residual_m": 0.015,
+tools/pillar_localization.json	20	配置或模块级	"min_arc_deg": 55.0,
+tools/pillar_localization.json	21	配置或模块级	"min_range_m": 0.6,
+tools/pillar_localization.json	22	配置或模块级	"max_range_m": 6.0,
+tools/pillar_localization.json	53	配置或模块级	"max_position_sigma_m": 0.15,
+tools/pillar_localization.py	20	load_config	if not isinstance(v, list) or len(v) != size or any(isinstance(x, bool) or not isinstance(x, (int,float)) or not math.isfinite(x) for x in v):
+tools/pillar_localization.py	21	load_config	raise ValueError('invalid '+key)
+tools/pillar_localization.py	22	load_config	if c.get('coordinate_frame','legacy_x_basket') not in ('legacy_x_basket','field_center_y_basket'):raise ValueError('invalid coordinate_frame')
+tools/pillar_localization.py	25	load_config	raise ValueError('landmark outside field')
+tools/pillar_localization.py	26	load_config	for k in ['radius_m','height_m','max_age_s','max_sync_gap_s','confidence','bearing_gate_deg',
+tools/pillar_localization.py	27	load_config	'cluster_gap_m','min_points','min_vertical_span_m','max_residual_m','min_arc_deg',
+tools/pillar_localization.py	28	load_config	'min_range_m','max_range_m','stable_frames','stable_center_m']:
+tools/pillar_localization.py	30	load_config	if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0:
+tools/pillar_localization.py	31	load_config	raise ValueError('invalid '+k)
+tools/pillar_localization.py	32	load_config	if c['min_range_m'] >= c['max_range_m'] or c['confidence']>1 or c['bearing_gate_deg']>30 or c['min_arc_deg']>180:
+tools/pillar_localization.py	33	load_config	raise ValueError('invalid association limits')
+tools/pillar_localization.py	34	load_config	for k in ['min_points','stable_frames']:
+tools/pillar_localization.py	35	load_config	if not isinstance(c[k],int) or c[k]<3: raise ValueError('invalid '+k)
+tools/pillar_localization.py	37	load_config	if not math.isfinite(c[k]) or abs(c[k])>180: raise ValueError('invalid '+k)
+tools/pillar_localization.py	39	load_config	if not isinstance(c[k], bool): raise ValueError('invalid '+k)
+tools/pillar_localization.py	41	load_config	raise ValueError('target_shape must be cylinder/paper')
+tools/pillar_localization.py	43	load_config	('range_sigma_m', .03), ('max_position_sigma_m', .15)]:
+tools/pillar_localization.py	45	load_config	if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0:
+tools/pillar_localization.py	46	load_config	raise ValueError('invalid '+key)
+tools/pillar_localization.py	48	load_config	raise ValueError('invalid paper_reference_confirmed')
+tools/pillar_localization.py	50	load_config	if not isinstance(c.setdefault(key,default),bool):raise ValueError('invalid '+key)
+tools/pillar_localization.py	51	load_config	for key,default,maximum in [('lidar_landmark_gate_m',1.,3.),('lidar_bearing_sigma_deg',.5,15.)]:
+tools/pillar_localization.py	53	load_config	if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0<value<=maximum:
+tools/pillar_localization.py	54	load_config	raise ValueError('invalid '+key)
+tools/pillar_localization.py	56	load_config	raise ValueError('invalid nearby_object_fallback_enabled')
+tools/pillar_localization.py	57	load_config	for key,default,maximum in [('nearby_object_min_points',8,200),
+tools/pillar_localization.py	62	load_config	if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0<value<=maximum:
+tools/pillar_localization.py	63	load_config	raise ValueError('invalid '+key)
+tools/pillar_localization.py	84	position_observation	sigma=math.hypot(max(cfg.get('range_sigma_m',.03),fit.get('residual_m',fit.get('plane_residual_m',0.))),distance*angular)
+tools/pillar_localization.py	85	position_observation	confirmed=ready(cfg,source) and sigma<=cfg.get('max_position_sigma_m',.15)
+tools/pillar_localization.py	118	fit_column	if len(p)<cfg['min_points'] or np.ptp(p[:,2])<cfg['min_vertical_span_m'] or np.ptp(p[:,2])>cfg['height_m']+.2:
+tools/pillar_localization.py	131	fit_column	if np.min(r)<1e-6:return None
+tools/pillar_localization.py	139	fit_column	arc=2*math.pi-np.max(np.diff(np.r_[angles,angles[0]+2*math.pi]))
+tools/pillar_localization.py	140	fit_column	if residual>cfg['max_residual_m'] or math.degrees(arc)<cfg['min_arc_deg']:return None
+tools/pillar_localization.py	147	fit_panel	if len(p)<cfg['min_points'] or not cfg['min_vertical_span_m']<=np.ptp(p[:,2])<=cfg['height_m']+.2:
+tools/pillar_localization.py	168	fit_nearby_object	width=float(max(np.ptp(p[:,0]),np.ptp(p[:,1])))
+tools/pillar_localization.py	181	observe	if any(not math.isfinite(s) or s<=0 or not -.05<=now-s<=cfg['max_age_s'] for s in stamps):
+tools/pillar_localization.py	184	observe	if max(stamps)-min(stamps)>cfg['max_sync_gap_s']:return {**result,'status':'unsynchronised'}
+tools/pillar_localization.py	185	observe	if len(pose)!=3 or not np.isfinite(pose).all():return {**result,'status':'invalid_pose'}
+tools/pillar_localization.py	191	observe	and math.isfinite(d.bearing_rad) and np.isfinite(box).all()
+tools/pillar_localization.py	193	observe	and ds>0 and -.05<=now-ds<=cfg['max_age_s']
+tools/pillar_localization.py	194	observe	and abs(ds-cloud_stamp)<=cfg['max_sync_gap_s']):visible.append(d)
+tools/pillar_localization.py	201	observe	p=p[np.isfinite(p).all(axis=1)]
+tools/pillar_localization.py	205	observe	p=p[(distance>=cfg['min_range_m'])&(distance<=cfg['max_range_m'])]
+tools/pillar_localization.py	278	observe	if not cfg['min_range_m']<=distance<=cfg['max_range_m']:return {**result,'status':'paper_plane_outside_range'}
+tools/preflight.sh	29	配置或模块级	if timeout 12 ros2 pkg prefix "$p" >/dev/null 2>&1; then ok "$p 可加载"; else no_sw "$p 找不到" "colcon build --symlink-install"; fi
+tools/ptp/patch_livox.py	36	patched	raise ValueError('Existing PTP patch differs; inspect driver before updating')
+tools/ptp/patch_livox.py	39	patched	raise ValueError('Livox source differs from expected patch location')
+tools/serial_probe_echo.py	41	main	ser = serial.Serial(PORT, 115200, timeout=0.05, write_timeout=1.0)
+tools/serial_send_text.py	30	try_baud	stopbits=1, timeout=0.2, write_timeout=1.0)
+tools/teleop_chassis.py	19	配置或模块级	再加底盘侧的 cmd_vel_timeout_ms=200 兜底：即使脚本崩了，200ms 后自动停。
+tools/teleop_chassis.py	127	main	rclpy.spin_once(node, timeout_sec=0.01)
+tools/test_chassis.py	44	配置或模块级	# 远低于 limit_vel=1.0，即使方向判错也不会造成严重后果。
+tools/test_chassis.py	73	Probe.hold	rclpy.spin_once(self, timeout_sec=0.02)
+tools/test_chassis.py	75	Probe.read	def read(self, timeout: float = 1.0) -> list[int] | None:
+tools/test_chassis.py	78	Probe.read	while time.time() - t0 < timeout and self.wheels is None and rclpy.ok():
+tools/test_chassis.py	79	Probe.read	rclpy.spin_once(self, timeout_sec=0.02)
+tools/test_chassis.py	94	dry_run_test	node.read(timeout=2.0)
+tools/test_chassis.py	96	dry_run_test	idle = node.read(timeout=2.0)
+tools/test_chassis.py	134	dry_run_test	# 超时归零
+tools/test_chassis.py	136	dry_run_test	after = node.read(timeout=2.0)
+tools/test_chassis.py	139	dry_run_test	print("       ❌ 停发后没有归零（cmd_vel_timeout_ms 失效！）")
+tools/test_chassis.py	155	drive_test	node.read(timeout=2.0)
+tools/test_chassis.py	172	can_state	capture_output=True, text=True, timeout=5).stdout
+tools/test_grab_place.py	87	call_launch	timeout: float = 3.0) -> tuple[bool, str]:
+tools/test_grab_place.py	88	call_launch	if not cli.wait_for_service(timeout_sec=timeout):
+tools/test_grab_place.py	89	call_launch	return False, "服务 /rb_launcher/launch 不可用（机构节点没起？）"
+tools/test_grab_place.py	94	call_launch	while not fut.done() and time.time() - t0 < timeout:
+tools/test_grab_place.py	95	call_launch	rclpy.spin_once(node, timeout_sec=0.05)
+tools/test_grab_place.py	97	call_launch	return False, "服务调用超时"
+tools/test_grab_place.py	102	call_launch	return False, f"服务异常: {e}"
+tools/test_grab_place.py	105	call_text	def call_text(node, cli, command: str, timeout: float = 3.0) -> tuple[bool, str]:
+tools/test_grab_place.py	107	call_text	if not cli.wait_for_service(timeout_sec=timeout):
+tools/test_grab_place.py	108	call_text	return False, "服务 /rb_launcher/text 不可用（机构节点没起？）"
+tools/test_grab_place.py	113	call_text	while not fut.done() and time.time() - t0 < timeout:
+tools/test_grab_place.py	114	call_text	rclpy.spin_once(node, timeout_sec=0.05)
+tools/test_grab_place.py	116	call_text	return False, "服务调用超时"
+tools/test_grab_place.py	121	call_text	return False, f"服务异常: {e}"
+tools/test_grab_place.py	218	main	time.sleep(max(0.0, args.interval))
+tools/test_grab_place.py	227	main	ok, msg = call_text(node, cli_text, "dji_stop", timeout=2.0)
+tools/test_perimeter_ball.py	16	配置或模块级	* 启动持续等待定位就绪，没有启动等待超时；动作异常/Ctrl-C 发零速退出。
+tools/test_perimeter_ball.py	81	depth_to_slant	max_bearing_deg: float = 78.0) -> float:
+tools/test_perimeter_ball.py	93	depth_to_slant	if abs(math.degrees(bearing_rad)) > max_bearing_deg:
+tools/test_perimeter_ball.py	107	ball_xy	raise ValueError(
+tools/test_perimeter_ball.py	151	ball_body_from_rear	slant = d / max(math.cos(b), 1e-3)
+tools/test_perimeter_ball.py	197	pose_at	def pose_at(history, stamp: float, max_gap: float = 0.15):
+tools/test_perimeter_ball.py	203	pose_at	if ta < stamp < tb and tb - ta <= max_gap:
+tools/test_perimeter_ball.py	274	Runner.__init__	self.obstacle_cloud_history = deque(maxlen=4)
+tools/test_perimeter_ball.py	280	Runner.__init__	self.pose_history = deque(maxlen=250)
+tools/test_perimeter_ball.py	311	Runner._on_pose	if not math.isfinite(norm):
+tools/test_perimeter_ball.py	322	Runner._on_pose	if (not all(math.isfinite(v) for v in (*pose, stamp)) or stamp <= self.pose_stamp
+tools/test_perimeter_ball.py	450	Runner.best_ball_rear	or not math.isfinite(d.confidence) or d.confidence < self.args.ball_confidence
+tools/test_perimeter_ball.py	451	Runner.best_ball_rear	or not math.isfinite(d.bearing_rad) or not math.isfinite(d.distance_m)
+tools/test_perimeter_ball.py	458	Runner.measure_rear_stable	def measure_rear_stable(self, timeout: float = 6.0, n: int | None = None):
+tools/test_perimeter_ball.py	463	Runner.measure_rear_stable	want = max(3, int(n or self.args.stable_frames))
+tools/test_perimeter_ball.py	467	Runner.measure_rear_stable	while len(got) < want and time.time() - t0 < timeout:
+tools/test_perimeter_ball.py	487	Runner.detection_fresh	return math.isfinite(stamp) and stamp > 0 and -0.05 <= now - stamp <= getattr(getattr(self, "args", None), "detection_timeout", 0.5)
+tools/test_perimeter_ball.py	494	Runner.spin	self.rclpy.spin_once(self.node, timeout_sec=0.02)
+tools/test_perimeter_ball.py	518	Runner.require_fresh_pose	if self.pose is None or not all(math.isfinite(v) for v in self.pose):
+tools/test_perimeter_ball.py	524	Runner.require_fresh_pose	if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now - stamp <= self.args.pose_timeout:
+tools/test_perimeter_ball.py	534	Runner.stop	self.rclpy.spin_once(self.node, timeout_sec=0.02)
+tools/test_perimeter_ball.py	541	Runner.reset_experiment_start	if not client.wait_for_service(timeout_sec=5.):
+tools/test_perimeter_ball.py	544	Runner.reset_experiment_start	deadline = time.monotonic()+5.
+tools/test_perimeter_ball.py	545	Runner.reset_experiment_start	while self.rclpy.ok() and not future.done() and time.monotonic()<deadline:
+tools/test_perimeter_ball.py	546	Runner.reset_experiment_start	self.rclpy.spin_once(self.node, timeout_sec=.05)
+tools/test_perimeter_ball.py	548	Runner.reset_experiment_start	raise RuntimeError('定位起点重置超时，保持停车')
+tools/test_perimeter_ball.py	569	Runner.wait_pose	self.rclpy.spin_once(self.node, timeout_sec=0.05)
+tools/test_perimeter_ball.py	581	Runner.wait_motion_ready	if not obstacle_guard.fresh(self.det_stamp,now,self.args.obstacle_timeout):
+tools/test_perimeter_ball.py	607	Runner.publish_command	wz=float(msg.angular.z), yaw_rate=self.yaw_rate if math.isfinite(self.yaw_rate) else None)
+tools/test_perimeter_ball.py	614	Runner.update_obstacle_cloud	if not obstacle_guard.fresh(stamp,now,self.args.obstacle_timeout):
+tools/test_perimeter_ball.py	633	Runner.check_obstacle	if not all(math.isfinite(v) for v in (vx,vy)):
+tools/test_perimeter_ball.py	641	Runner.check_obstacle	if not obstacle_guard.fresh(self.det_stamp, now, self.args.obstacle_timeout):
+tools/test_perimeter_ball.py	648	Runner.check_obstacle	self.obstacle_cloud_stamp,now,self.args.obstacle_timeout):
+tools/test_perimeter_ball.py	666	Runner.goto	def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
+tools/test_perimeter_ball.py	675	Runner.goto	settle_timeout_s=0.)
+tools/test_perimeter_ball.py	682	Runner.goto	if (not all(math.isfinite(v) for v in (tx, ty, tol)) or tol <= 0):
+tools/test_perimeter_ball.py	683	Runner.goto	raise ValueError('到点目标和容差必须有效且有限')
+tools/test_perimeter_ball.py	689	Runner.goto	feedback.update(self.pose, self.pose_stamp, now, self.args.pose_timeout, window)
+tools/test_perimeter_ball.py	702	Runner.goto	return False
+tools/test_perimeter_ball.py	705	Runner.goto	speed = min(speed, correction)
+tools/test_perimeter_ball.py	708	Runner.goto	speed, self.args.max_ang, face_travel=False,
+tools/test_perimeter_ball.py	726	Runner.rotate_to	def rotate_to(self, target_yaw: float, timeout: float) -> bool:
+tools/test_perimeter_ball.py	735	Runner.rotate_to	return False
+tools/test_perimeter_ball.py	755	Runner.rotate_to	return False
+tools/test_perimeter_ball.py	760	Runner.rotate_to	if not math.isfinite(wz):
+tools/test_perimeter_ball.py	763	Runner.rotate_to	t.angular.z = max(-self.args.max_ang, min(self.args.max_ang, wz))
+tools/test_perimeter_ball.py	772	Runner.best_ball	and math.isfinite(d.confidence) and d.confidence >= self.args.ball_confidence
+tools/test_perimeter_ball.py	773	Runner.best_ball	and math.isfinite(d.bearing_rad) and abs(d.bearing_rad) < math.radians(78)
+tools/test_perimeter_ball.py	774	Runner.best_ball	and math.isfinite(d.distance_m) and d.distance_m > 0.05
+tools/test_perimeter_ball.py	777	Runner.best_ball	return max(cands, key=lambda d: d.confidence) if cands else None
+tools/test_perimeter_ball.py	790	Runner.ball_field_xy	if pose is None or not math.isfinite(det.distance_m) or det.distance_m <= 0:
+tools/test_perimeter_ball.py	794	Runner.measure_ball_stable	def measure_ball_stable(self, timeout: float = 6.0, n: int | None = None):
+tools/test_perimeter_ball.py	804	Runner.measure_ball_stable	want = max(3, int(n or self.args.stable_frames))
+tools/test_perimeter_ball.py	809	Runner.measure_ball_stable	while time.monotonic() - t0 < timeout:
+tools/test_perimeter_ball.py	818	Runner.measure_ball_stable	# 停车后同一目标应连续一致，拒绝在两颗球之间跳变。
+tools/test_perimeter_ball.py	829	Runner.measure_ball_stable	if stamp - last_observation > self.args.detection_timeout:
+tools/test_perimeter_ball.py	846	Runner.servo_to_ball	steps: int, max_move: float, max_turn_deg: float):
+tools/test_perimeter_ball.py	858	Runner.servo_to_ball	if self.find_ball(timeout=12.0) is None:
+tools/test_perimeter_ball.py	859	Runner.servo_to_ball	return False, last
+tools/test_perimeter_ball.py	874	Runner.servo_to_ball	turn = max(-math.radians(max_turn_deg),
+tools/test_perimeter_ball.py	875	Runner.servo_to_ball	min(math.radians(max_turn_deg), -bearing))
+tools/test_perimeter_ball.py	878	Runner.servo_to_ball	if not self.rotate_to(wrap_pi(self.pose[2] + turn), timeout=15.0):
+tools/test_perimeter_ball.py	879	Runner.servo_to_ball	return False, last
+tools/test_perimeter_ball.py	884	Runner.servo_to_ball	move = max(-max_move, min(max_move, dd))
+tools/test_perimeter_ball.py	893	Runner.servo_to_ball	timeout=20.0, tolerance=self.args.step_tol):
+tools/test_perimeter_ball.py	894	Runner.servo_to_ball	return False, last
+tools/test_perimeter_ball.py	898	Runner.servo_to_ball	return False, last
+tools/test_perimeter_ball.py	900	Runner.backup_along	def backup_along(self, dist: float, timeout: float = 25.0) -> bool:
+tools/test_perimeter_ball.py	903	Runner.backup_along	return False
+tools/test_perimeter_ball.py	909	Runner.backup_along	return self.goto(tx, ty, timeout=timeout)
+tools/test_perimeter_ball.py	925	Runner.centered_target_candidates	if not all(math.isfinite(v) for v in values):
+tools/test_perimeter_ball.py	935	Runner.centered_target_candidates	return max(candidates, key=lambda d: d.confidence) if candidates else None
+tools/test_perimeter_ball.py	957	Runner.intake_text	if not self.intake_client.wait_for_service(timeout_sec=1.):
+tools/test_perimeter_ball.py	958	Runner.intake_text	return False, '机构服务未启动'
+tools/test_perimeter_ball.py	962	Runner.intake_text	deadline = time.monotonic()+3.
+tools/test_perimeter_ball.py	963	Runner.intake_text	while not future.done() and time.monotonic() < deadline:
+tools/test_perimeter_ball.py	964	Runner.intake_text	self.rclpy.spin_once(self.node, timeout_sec=.03)
+tools/test_perimeter_ball.py	967	Runner.intake_text	return False, '机构指令无响应'
+tools/test_perimeter_ball.py	976	Runner.aligned_intake_approach	return False
+tools/test_perimeter_ball.py	1001	Runner._rear_visual_scoop	# 没球框时停车等待；对正不再受固定总时间/净横移40cm限制。
+tools/test_perimeter_ball.py	1025	Runner._rear_visual_scoop	last_observation_stamp = max(last_observation_stamp, stamp)
+tools/test_perimeter_ball.py	1045	Runner._rear_visual_scoop	return False
+tools/test_perimeter_ball.py	1051	Runner._rear_visual_scoop	# 默认速度上限 0.04m/s、纠偏最低 0.015m/s，只设置 linear.y。
+tools/test_perimeter_ball.py	1052	Runner._rear_visual_scoop	speed = min(self.args.route_rear_align_speed, max(.015, abs(error)*.4))
+tools/test_perimeter_ball.py	1072	Runner.rear_distance_scoop	min_speed = min(self.args.route_scoop_speed,
+tools/test_perimeter_ball.py	1092	Runner.rear_distance_scoop	if not self.rotate_to(heading, timeout=45.):
+tools/test_perimeter_ball.py	1093	Runner.rear_distance_scoop	return False
+tools/test_perimeter_ball.py	1101	Runner.rear_distance_scoop	return False
+tools/test_perimeter_ball.py	1105	Runner.rear_distance_scoop	# 最低速度也不能超过用户设置的速度上限，到容差内仍立即停车。
+tools/test_perimeter_ball.py	1106	Runner.rear_distance_scoop	tw.linear.x = -min(self.args.route_scoop_speed,
+tools/test_perimeter_ball.py	1107	Runner.rear_distance_scoop	max(min_speed, self.args.kp*remaining))
+tools/test_perimeter_ball.py	1109	Runner.rear_distance_scoop	tw.angular.z = max(-self.args.max_ang,min(self.args.max_ang,wz)) if math.isfinite(wz) else 0.
+tools/test_perimeter_ball.py	1119	Runner.scan_to	def scan_to(self, tx, ty, heading, timeout, speed, detect=True, centered=False):
+tools/test_perimeter_ball.py	1149	Runner.scan_to	if not self.rotate_to(heading, timeout=45.):
+tools/test_perimeter_ball.py	1158	Runner.scan_to	velocity = min(speed, self.args.kp*remaining)
+tools/test_perimeter_ball.py	1164	Runner.scan_to	tw.angular.z = max(-self.args.max_ang, min(self.args.max_ang, wz)) if math.isfinite(wz) else 0.0
+tools/test_perimeter_ball.py	1172	Runner.fixed_left_scan	self.args.route_scan_timeout, self.args.route_scan_speed)
+tools/test_perimeter_ball.py	1180	Runner.fixed_seek_and_scoop	raise ValueError("固定铲球路线只搜索篮球")
+tools/test_perimeter_ball.py	1190	Runner.fixed_seek_and_scoop	if not self.rotate_to(heading, timeout=30.0):
+tools/test_perimeter_ball.py	1191	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1195	Runner.fixed_seek_and_scoop	self.args.approach_speed = min(saved_approach, self.args.route_forward_speed)
+tools/test_perimeter_ball.py	1196	Runner.fixed_seek_and_scoop	if not self.goto(*near_line, timeout=self.args.route_forward_timeout,
+tools/test_perimeter_ball.py	1198	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1200	Runner.fixed_seek_and_scoop	if not self.rotate_to(heading, timeout=15.0):
+tools/test_perimeter_ball.py	1201	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1203	Runner.fixed_seek_and_scoop	self.args.approach_speed = min(saved_approach, self.args.route_scan_speed)
+tools/test_perimeter_ball.py	1206	Runner.fixed_seek_and_scoop	timeout=max(20., abs(self.args.route_scan_start_offset)/self.args.route_scan_speed+15.),
+tools/test_perimeter_ball.py	1209	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1214	Runner.fixed_seek_and_scoop	if not self.rotate_to(heading, timeout=15.0):
+tools/test_perimeter_ball.py	1215	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1218	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1222	Runner.fixed_seek_and_scoop	if not self.rotate_to(wrap_pi(yaw_before+math.pi), timeout=45.0):
+tools/test_perimeter_ball.py	1223	Runner.fixed_seek_and_scoop	return False
+tools/test_perimeter_ball.py	1233	Runner._scan_for_ball	confirmed = self.measure_ball_stable(timeout=min(6.0, max(0.0, t0 + seconds - time.monotonic())))
+tools/test_perimeter_ball.py	1240	Runner._scan_for_ball	until = min(time.monotonic() + self.args.scan_step_seconds, t0 + seconds)
+tools/test_perimeter_ball.py	1253	Runner.move_into_field	def move_into_field(self, dist: float, timeout: float = 30.0) -> bool:
+tools/test_perimeter_ball.py	1258	Runner.move_into_field	return False
+tools/test_perimeter_ball.py	1264	Runner.move_into_field	return False
+tools/test_perimeter_ball.py	1267	Runner.move_into_field	tx = min(max(tx, m), self.field_l - m)
+tools/test_perimeter_ball.py	1268	Runner.move_into_field	ty = min(max(ty, m), self.field_w - m)
+tools/test_perimeter_ball.py	1270	Runner.move_into_field	return self.goto(tx, ty, timeout=timeout)
+tools/test_perimeter_ball.py	1272	Runner.find_ball	def find_ball(self, timeout: float):
+tools/test_perimeter_ball.py	1283	Runner.find_ball	log("找球①", f"前摄原地搜索 {self.args.ball_label}（{timeout:.0f}s）")
+tools/test_perimeter_ball.py	1284	Runner.find_ball	det = self._scan_for_ball(timeout, self.args.search_wz, "前摄")
+tools/test_perimeter_ball.py	1298	Runner.find_ball	if not self.rotate_to(want, timeout=20.0):
+tools/test_perimeter_ball.py	1342	takeover_mission	return False
+tools/test_perimeter_ball.py	1375	main	ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
+tools/test_perimeter_ball.py	1379	main	ap.add_argument("--pose-timeout", type=float, default=1.0,
+tools/test_perimeter_ball.py	1382	main	ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
+tools/test_perimeter_ball.py	1386	main	ap.add_argument("--max-ang", type=float, default=0.3, help="角速度上限 rad/s")
+tools/test_perimeter_ball.py	1392	main	ap.add_argument("--search-timeout", type=float, default=90.0, help="分段搜索总时长 s")
+tools/test_perimeter_ball.py	1436	main	ap.add_argument("--max-approaches", type=int, default=3, help="接近球最多试几次")
+tools/test_perimeter_ball.py	1438	main	ap.add_argument("--detection-timeout", type=float, default=0.5)
+tools/test_perimeter_ball.py	1448	main	ap.add_argument('--goto-stop-speed', type=float, default=.03, help='到点实测平移速度上限 m/s')
+tools/test_perimeter_ball.py	1449	main	ap.add_argument('--goto-stop-yaw-rate', type=float, default=.05, help='到点实测角速度上限 rad/s')
+tools/test_perimeter_ball.py	1451	main	ap.add_argument('--goto-settle-timeout', type=float, default=5., help='兼容旧参数，已取消到点确认总时限')
+tools/test_perimeter_ball.py	1453	main	ap.add_argument('--goto-correction-speed', type=float, default=.08, help='到点后的纠偏速度上限 m/s')
+tools/test_perimeter_ball.py	1460	main	ap.add_argument("--route-forward-timeout", type=float, default=60.0, help='兼容旧参数，已取消固定总时限')
+tools/test_perimeter_ball.py	1466	main	ap.add_argument("--route-scan-timeout", type=float, default=60.0, help='兼容旧参数，已取消固定总时限')
+tools/test_perimeter_ball.py	1471	main	ap.add_argument("--route-ball-min-distance", type=float, default=0.45)
+tools/test_perimeter_ball.py	1472	main	ap.add_argument("--route-ball-max-distance", type=float, default=1.0)
+tools/test_perimeter_ball.py	1476	main	ap.add_argument("--route-scoop-min-speed", type=float, default=0.05,
+tools/test_perimeter_ball.py	1477	main	help="末段最低后退速度 m/s，仍受 route-scoop-speed 上限约束；需实车调试")
+tools/test_perimeter_ball.py	1478	main	ap.add_argument("--route-scoop-timeout", type=float, default=15.0, help='兼容旧参数，已取消固定总时限')
+tools/test_perimeter_ball.py	1485	main	ap.add_argument('--route-rear-timeout', type=float, default=15.0, help='兼容旧参数，已取消固定总时限')
+tools/test_perimeter_ball.py	1486	main	ap.add_argument('--route-rear-align-distance', type=float, default=.40, help='兼容旧参数，已取消横移纠偏位移上限')
+tools/test_perimeter_ball.py	1502	main	ap.add_argument('--obstacle-timeout', type=float, default=.50)
+tools/test_perimeter_ball.py	1528	main	if not math.isfinite(args.route_scan_start_offset) or not -5 <= args.route_scan_start_offset <= 5:
+tools/test_perimeter_ball.py	1540	main	if not math.isfinite(value) or value <= .02:
+tools/test_perimeter_ball.py	1541	main	raise ValueError('第2次铲球距离须大于0.02米')
+tools/test_perimeter_ball.py	1546	main	raise ValueError('first-pass 是独立篮球流程，不支持其它任务或阶段编号')
+tools/test_perimeter_ball.py	1549	main	if not math.isfinite(value) or value <= .02:
+tools/test_perimeter_ball.py	1550	main	raise ValueError('中线铲球距离须大于0.02米')
+tools/test_perimeter_ball.py	1578	main	if not math.isfinite(value) or value <= .02:
+tools/test_perimeter_ball.py	1579	main	raise ValueError('各区域靠近距离须大于0.02米')
+tools/test_perimeter_ball.py	1584	main	if any(not math.isfinite(v) or v <= 0 for v in (
+tools/test_perimeter_ball.py	1586	main	args.obstacle_side_margin,args.obstacle_timeout,args.obstacle_deceleration)):
+tools/test_perimeter_ball.py	1587	main	ap.error('避障包络、余量、超时和减速度须为正有限数')
+tools/test_perimeter_ball.py	1588	main	if not all(math.isfinite(v) and 0<v<=1 for v in (
+tools/test_perimeter_ball.py	1591	main	if not math.isfinite(args.obstacle_camera_x) or args.obstacle_lidar_cells<1:
+tools/test_perimeter_ball.py	1595	main	if not math.isfinite(args.route_rear_align_speed) or args.route_rear_align_speed <= 0:
+tools/test_perimeter_ball.py	1597	main	if not math.isfinite(args.route_center_tolerance) or not 0 < args.route_center_tolerance < .5:
+tools/test_perimeter_ball.py	1599	main	positive = ("pose_jump_margin", "pose_max_speed", "speed", "pose_timeout", "max_ang", "yaw_tol", "detection_timeout",
+tools/test_perimeter_ball.py	1603	main	"kp", "kp_yaw", "servo_steps", "cw_scan_sec", "lidar_seconds", "search_timeout")
+tools/test_perimeter_ball.py	1608	main	if args.goto_velocity_window >= args.pose_timeout:
+tools/test_perimeter_ball.py	1609	main	ap.error('到点测速窗口须小于定位超时')
+tools/test_perimeter_ball.py	1613	main	if any(not math.isfinite(getattr(args, k)) or getattr(args, k) <= 0 for k in positive):
+tools/test_perimeter_ball.py	1615	main	if not math.isfinite(args.kd_yaw) or args.kd_yaw < 0:
+tools/test_perimeter_ball.py	1621	main	if any(not math.isfinite(v) for v in (args.search_wz, args.cw_wz, args.cam_yaw_offset,
+tools/test_perimeter_ball.py	1624	main	if abs(args.search_wz) > args.max_ang or abs(args.cw_wz) > args.max_ang:
+tools/test_perimeter_ball.py	1625	main	ap.error("搜索转速不得超过 max-ang")
+tools/test_perimeter_ball.py	1639	main	# 不用进程快照拒绝测试；下面持续等待真正的定位/里程计数据。
+tools/test_perimeter_ball.py	1679	main	print("\n[3/5] 等待定位就绪（无启动超时，可点击停止取消）", flush=True)
+tools/test_perimeter_ball.py	1751	main	if not run.goto(tx, ty, timeout=90.0):
+tools/test_perimeter_ball.py	1759	main	det = run.find_ball(timeout=args.search_timeout)
+tools/test_perimeter_ball.py	1769	main	max_move=args.servo_move,
+tools/test_perimeter_ball.py	1770	main	max_turn_deg=args.servo_turn_deg)
+tools/test_perimeter_ball.py	1793	main	ok_turn = run.rotate_to(target_yaw, timeout=45.0)
+tools/test_perimeter_ball.py	1801	main	rear = run.measure_rear_stable(timeout=6.0)
+tools/test_perimeter_ball.py	1802	main	front_after = run.measure_ball_stable(timeout=3.0, n=3)
+tools/test_perimeter_ball.py	1826	main	ok_back = run.backup_along(-abs(args.backup), timeout=30.0) \
+tools/test_perimeter_ball.py	1827	main	if args.turn_deg >= 90 else run.backup_along(abs(args.backup), timeout=30.0)
+tools/test_perimeter_ball.py	1831	main	after_rear = run.measure_rear_stable(timeout=5.0, n=3)
+tools/test_pillar_localization.py	26	merge_stripe_boxes	ix=max(0,min(g[2],box[2])-max(g[0],box[0]))
+tools/test_pillar_localization.py	27	merge_stripe_boxes	iy=max(0,min(g[3],box[3])-max(g[1],box[1]))
+tools/test_pillar_localization.py	28	merge_stripe_boxes	if (ix>.6*min(g[2]-g[0],box[2]-box[0])
+tools/test_pillar_localization.py	29	merge_stripe_boxes	and iy>.1*min(g[3]-g[1],box[3]-box[1])):
+tools/test_pillar_localization.py	30	merge_stripe_boxes	box=[min(g[0],box[0]),min(g[1],box[1]),max(g[2],box[2]),max(g[3],box[3])]
+tools/test_pillar_localization.py	40	select_pair	if not -.05<=now-cs<=cfg['max_age_s']:continue
+tools/test_pillar_localization.py	42	select_pair	om=min(odoms,key=lambda m:abs(stamp(m)-cs))
+tools/test_pillar_localization.py	43	select_pair	pm=min(poses,key=lambda m:abs(stamp(m)-cs))
+tools/test_pillar_localization.py	45	select_pair	if (max(stamps)-min(stamps)<=cfg['max_sync_gap_s']
+tools/test_pillar_localization.py	46	select_pair	and all(-.05<=now-t<=cfg['max_age_s'] for t in stamps)):
+tools/test_pillar_localization.py	59	Collector.__init__	self.images=deque(maxlen=6);self.stripe=None;self.camera_cfg=None;self.camera_error=None
+tools/test_pillar_localization.py	70	Collector.__init__	self.cloud=None;self.clouds=deque(maxlen=20);self.det_frames=deque(maxlen=10);self.odoms=deque(maxlen=100);self.poses=deque(maxlen=100);self.dets=[]
+tools/test_pillar_localization.py	92	Collector.sample	expired=now-stamp(self.cloud)>self.cfg['max_age_s']
+tools/test_pillar_localization.py	106	Collector.sample	frame=min(self.det_frames,key=lambda m:abs(stamp(m)-cs))
+tools/test_pillar_localization.py	109	Collector.sample	fresh_pillars=[d for d in detections if d.label=='pillar' and d.source=='camera' and d.confidence>=self.cfg['confidence'] and abs((d.stamp.sec+d.stamp.nanosec*1e-9)-cs)<=self.cfg['max_sync_gap_s']]
+tools/test_pillar_localization.py	111	Collector.sample	image=min(self.images,key=lambda m:abs(stamp(m)-cs))
+tools/test_pillar_localization.py	112	Collector.sample	if abs(stamp(image)-cs)<=self.cfg['max_sync_gap_s']:
+tools/test_pillar_localization.py	193	sensor_session	try:proc.wait(timeout=8)
+tools/test_pillar_localization.py	196	sensor_session	try:proc.wait(timeout=3)
+tools/test_pillar_localization.py	207	main	if not math.isfinite(args.seconds) or not 0<args.seconds<=60:ap.error('seconds must be 0..60')
+tools/test_pillar_localization.py	213	main	deadline=time.monotonic()+args.seconds;last=None;best=None;last_print=0.;last_surface=None
+tools/test_pillar_localization.py	215	main	while rclpy.ok() and time.monotonic()<deadline:
+tools/test_pillar_localization.py	216	main	rclpy.spin_once(node,timeout_sec=.1)
+tools/test_vision_model.py	63	View.serve.Handler.do_GET	<style>body{background:#111;color:#ddd;font:16px sans-serif;margin:24px}img{max-width:100%}pre{white-space:pre-wrap}</style>
+tools/test_vision_model.py	123	ros_frames	rclpy.spin_once(node, timeout_sec=.1)
+tools/test_vision_model.py	152	main	if not 0 < args.confidence <= 1 or not np.isfinite(args.seconds) or args.seconds < 0:
+tools/test_vision_model.py	171	main	'fps': round(frames/max(.001, time.monotonic()-started), 1),
+tools/tune_camera.py	135	main	print(f"  {f:<26} ({n}) = {get_ctrl(dev, n)}  范围 {ctrls[n].get('min')}..{ctrls[n].get('max')}")
+tools/tune_camera.py	175	main	lo = int(ctrls[name].get("min", 0))
+tools/tune_camera.py	176	main	hi = int(ctrls[name].get("max", 255))
+tools/tune_camera.py	180	main	cur = max(lo, min(hi, cur))
+tools/tune_camera.py	206	main	bal = "中性" if max(abs(r - g), abs(g - b), abs(r - b)) < 18 else (
+tools/tune_camera.py	207	main	"偏红" if r > max(g, b) else "偏蓝" if b > max(g, r) else "偏绿")
+tools/tune_camera.py	232	main	want = max(lo, min(hi, int(want)))
+tools/verify_launcher_protocol.py	9	配置或模块级	STOP 语义、串口不在时的拒绝行为。**完全不碰真实机构。**
+tools/verify_launcher_protocol.py	90	main.call	rclpy.spin_once(node, timeout_sec=0.02)
+tools/verify_launcher_protocol.py	117	main	if not cli.wait_for_service(timeout_sec=8):
+tools/verify_launcher_protocol.py	169	main	proc.wait(timeout=5)
+tools/view_camera.py	140	CameraViewer.stop	self._exec.shutdown(timeout_sec=1.0)
+tools/view_camera.py	144	CameraViewer.stop	self._thread.join(timeout=2.0)
+tools/view_camera.py	163	draw	cv2.putText(vis, text, (x0, max(16, y0 - 6)),
+tools/visual_target_alignment.py	13	pillar_candidate	gate = math.radians(cfg['max_turn_deg'])
+tools/visual_target_alignment.py	21	pillar_candidate	if (not all(math.isfinite(v) for v in values)
+tools/visual_target_alignment.py	34	align_pillar	deadline = time.monotonic() + cfg['timeout_s']
+tools/visual_target_alignment.py	40	align_pillar	while time.monotonic() < deadline:
+tools/visual_target_alignment.py	42	align_pillar	if abs(wrap(runner.pose[2] - origin_yaw)) > math.radians(cfg['max_turn_deg']):
+tools/visual_target_alignment.py	63	align_pillar	tw.angular.z = max(-cfg['max_ang_rad_s'], min(cfg['max_ang_rad_s'], cfg['kp'] * error))
+tools/visual_target_alignment.py	66	align_pillar	return False

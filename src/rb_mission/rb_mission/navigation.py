@@ -9,6 +9,29 @@ def fresh(now, stamp, timeout):
     return stamp is not None and 0.0 <= now - stamp <= timeout
 
 
+class ProgressWatchdog:
+    """Allow arbitrarily slow completion while measured goal error decreases."""
+    def __init__(self, now, timeout=10., epsilon=.005):
+        if (not all(math.isfinite(v) for v in (now, timeout, epsilon))
+                or timeout <= 0 or epsilon <= 0):
+            raise ValueError('无进展观察时间和改善阈值须为有限正数')
+        self.timeout, self.epsilon = timeout, epsilon
+        self.reset(now)
+
+    def reset(self, now):
+        self.best = None
+        self.last_progress = now
+
+    def stalled(self, now, error):
+        if not math.isfinite(now) or not math.isfinite(error):
+            return True
+        if now < self.last_progress:
+            self.reset(now)
+        if self.best is None or error <= self.best-self.epsilon:
+            self.best, self.last_progress = error, now
+        return now-self.last_progress >= self.timeout
+
+
 class PoseFeedback:
     """Estimate measured speed from distinct source-stamped poses, not commands."""
     def __init__(self):
@@ -83,7 +106,8 @@ class ArrivalGate:
         if self.confirming and distance > cfg.position_tolerance + cfg.exit_margin_m:
             self.confirming = False
             self.stable_since = None
-        if self.started is not None and now - self.started >= cfg.settle_timeout_s:
+        if (cfg.settle_timeout_s > 0 and self.started is not None
+                and now - self.started >= cfg.settle_timeout_s):
             return 'timeout'
         if not self.confirming:
             return 'approach'

@@ -1,0 +1,23 @@
+{
+  "return_point": [
+    0.0,
+    4.8
+  ],
+  "second_scan_end": [
+    0.0,
+    0.0
+  ],
+  "second_scan_heading_deg": 0.0,
+  "second_scoop_m": 0.7,
+  "first_release": "none",
+  "target_reference": "lidar",
+  "lidar_in_base_m": [
+    0.3,
+    0.0
+  ],
+  "coordinate_frame": "field_center_y_basket",
+  "pass_point": [
+    -1.9,
+    3.45
+  ]
+}

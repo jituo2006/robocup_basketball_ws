@@ -303,7 +303,7 @@ class CameraNode(Node):
         # 采集线程共享状态
         self._lock = threading.Lock()
         self._latest: Any = None
-        self._latest_stamp: float = 0.0
+        self._latest_stamp = None
         self._seq = 0
         self._running = True
         self._ok = False
@@ -656,6 +656,7 @@ class CameraNode(Node):
                     self._sleep(0.01)
                 continue
 
+            read_stamp = self.get_clock().now().to_msg()
             self._read_failures = 0
             if self.flip == 1:
                 frame = cv2.flip(frame, 1)
@@ -667,10 +668,9 @@ class CameraNode(Node):
             if self.ae_enabled:
                 self._auto_exposure(frame)
 
-            now = time.time()
             with self._lock:
                 self._latest = frame
-                self._latest_stamp = now
+                self._latest_stamp = read_stamp
                 self._seq += 1
             self._frames_read += 1
             self._ok = True
@@ -754,6 +754,7 @@ class CameraNode(Node):
         with self._lock:
             frame = None if self._latest is None else self._latest
             seq = self._seq
+            stamp = self._latest_stamp
         if frame is None:
             return
         # ⚠️ 没有新帧就【不要】重复发布！
@@ -765,7 +766,6 @@ class CameraNode(Node):
         if seq == self._last_pub_seq:
             return
         self._last_pub_seq = seq
-        stamp = self.get_clock().now().to_msg()
         try:
             msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
         except Exception as exc:  # noqa: BLE001

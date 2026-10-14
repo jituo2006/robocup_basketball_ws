@@ -32,7 +32,8 @@ public:
 
   void put_packet(Message::FrameControl cmd, uint16_t speed, uint16_t angle);
   bool send_command() override;
-  void send_string(const std::string& data);
+  bool connected();
+  bool send_string(const std::string& data);
 };
 
 #endif /* SERIAL_PORT_DRIBBLE_H */

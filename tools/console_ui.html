@@ -103,6 +103,16 @@
   #proghead{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);
             margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--line)}
   table{width:100%;border-collapse:collapse;font-size:12px}
+  #firstPassCard label{display:block;font-size:12px;margin:7px 0}
+  #firstPassCard input[type=number]{width:85px;background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:5px;padding:4px}
+  #matchRoundCard .row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  #matchRoundCard label{display:block;font-size:12px;margin:6px 0}
+  #matchRoundCard select,#matchRoundCard input[type=number]{width:100%;min-width:0;
+    background:var(--panel2);color:var(--tx);border:1px solid var(--line);
+    border-radius:5px;padding:6px;font-size:12px}
+  #matchRoundCard h3{font-size:13px;margin:14px 0 6px;color:var(--tx)}
+  #matchRoundCard .step-buttons{display:grid;grid-template-columns:1fr;gap:6px}
+  #matchRoundCard .step-buttons button{font-size:12px;padding:8px;margin:0}
   td,th{padding:3px 6px;border-bottom:1px solid #262c37;text-align:left}
   th{color:var(--dim);font-weight:500}
 </style>
@@ -123,76 +133,151 @@
 <main>
   <!-- 左列：任务按钮 -->
   <div>
-    <div class="card" style="border-color:#2a3a55">
-      <h2>系统（上电后先点这个）</h2>
-      <button data-guard="CHECK_READY" class="primary" onclick="flowRun()">⚡ 一键启动流程</button>
-      <div class="flowbox" id="flowbox" style="display:none"></div>
+    <div class="card">
+      <h2>固定路线实验</h2>
+      <button class="danger" onclick="act('PANIC')">🛑 急停</button>
+      <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
       <div class="row">
-        <button onclick="act('CHECK_READY')">✓ 就绪检查</button>
-        <button data-guard="STACK_START" onclick="act('CAN_RECOVER')">🔌 CAN 恢复</button>
+        <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.021" step="0.01" value="0.70"></label>
+        <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
       </div>
-      <div class="row" style="margin-top:8px">
-        <button onclick="act('STACK_START')">▶ 只启动整套</button>
-        <button class="danger" onclick="if(confirm('停止整套软件？（会走优雅退出、先发零速）'))act('STACK_STOP')">⏹ 停止整套</button>
-      </div>
-
-      <div style="border-top:1px solid var(--line);margin:10px 0 8px"></div>
-      <button data-guard="CHASSIS_STOP" class="orange" onclick="chassisEnable()">🔌 CAN + 电机使能</button>
-      <div class="flowbox" id="chbox" style="display:none"></div>
+      <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 自动铲球：靠近完成后抬起，等1秒放下（取消勾选可跳过）</label>
+      <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
+      <div class="hint" id="toolstate">未运行</div>
+      <div class="hint" id="missionstate">—</div>
+      <details><summary>任务节点管理</summary><div class="row">
+        <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
+        <button data-guard="TOOL_STOP" onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
+      </div></details>
+      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 向规则图右端横移（途中识球） → 无球再向图左端找 → 识球即停 → 转180° → 后摄横移对正 → 低速后退0.70米 → 自动铲球 → 等1秒放下。<br>中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
+    </div>
+    <div class="card" id="firstPassCard">
+      <h2>第一阶段自动行驶</h2>
+      <div class="hint" id="firstPassHint" hidden></div>
+      <div class="hint" id="firstPassStatus">待启动</div>
+      <label>第1次靠近距离（米） <input id="firstPassDistance1" type="number" min="0.021" step="0.01" value="0.70"></label>
+      <label>第2次靠近距离（米） <input id="firstPassDistance2" type="number" min="0.021" step="0.01" value="0.70"></label>
+      <label>靠近速度（米/秒） <input id="firstPassSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+      <label><input id="firstPassIntake" type="checkbox" checked> 执行铲球机构动作</label>
       <div class="row">
-        <button onclick="act('CHASSIS_STOP')">⏹ 停底盘节点</button>
-        <button data-guard="PASS" onclick="act('CAN_RECOVER')">🔌 只恢复 CAN</button>
-      </div>
-      <div class="hint">
-        <b>🔌 CAN + 电机使能</b> = 查 PCAN 适配器 → 不行就恢复 can0 →
-        单起 rb_chassis（真下发 CAN）→ 等「底盘已使能 4 个电机」。<br>
-        只调底盘时用这个，不用起雷达/相机那一整套。
-      </div>
-      <div class="hint">
-        <b>⚡ 一键启动流程</b> = 跑 boot.sh → 等「底盘已使能 + mission 就绪」→ 自动做就绪检查。<br>
-        更细的手动排查用右边那两个按钮。
+        <button id="firstPassStart" data-guard="TEST_FIRST_PASS" class="primary" onclick="firstPassRun()" disabled>启动自动行驶</button>
+        <button class="danger" onclick="act('TOOL_STOP')">停止行驶</button>
       </div>
     </div>
-
+    <div class="card" id="matchRoundCard">
+      <h2>比赛回合全自动流程</h2>
+      <div class="hint" id="roundStartHint">每轮开始前把车放回 A 出发区，面向篮筐（+Y），垂直中线。启动后静止5秒。</div>
+        <label>比赛环节<select id="roundTask" onchange="roundReleaseState();loadRoundSteps()">
+          <option value="pass">传球：找篮球</option><option value="shoot">投篮：找排球</option>
+        </select></label>
+      <label>出球模式<select id="roundReleaseKind" onchange="roundReleaseState()">
+        <option value="match">比赛出球（机构开启后需配置发射）</option>
+        <option value="drop">放球联调：dji_move 1 0 5</option>
+      </select></label>
+      <label><input id="roundIntake" type="checkbox" onchange="roundReleaseState()" style="width:auto"> 开启机构：吸球、传球/投篮、放球（当前关闭）</label>
+      <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。开启机构时，靠近完成后自动铲球，等1秒放下，再去动作点。</div>
+      <label>第1回合首球方式<select id="roundFirstBall" onchange="loadRoundSteps()">
+        <option value="preloaded">首球预装（赛事规则）</option>
+        <option value="search">场上取首球（仅放球联调）</option>
+      </select></label>
+      <button id="wholeRound1" class="primary" onclick="wholeRoundRun(1)">▶ 第1轮全自动（比赛流程）</button>
+      <div class="hint">首球预装 → 传球区出球 → 中线横移遇到第二球即停 → 转身对正、靠近取球 → 传球区再次出球 → 回出发区。机构关闭时跳过机构动作，路线继续。</div>
+      <div class="hint" id="round1Progress"></div>
+      <button id="wholeRound2" class="primary" onclick="wholeRoundRun(2)">▶ 第2轮完整测试</button>
+      <div class="hint" id="round2PathHint">中线向右端横移途中也识球，无球再向左找；没找到补扫三分弧；两次取球、放球后回位。</div>
+      <div class="hint" id="round2Progress"></div>
+      <button id="wholeRound3" class="orange" onclick="wholeRoundRun(3)">▶ 第3轮完整测试</button>
+      <div class="hint">跳过中线，经上侧通道去三分区；传球先找弧线，投篮先找内侧线。两次取球、放球后回位。</div>
+      <div class="hint" id="round3Progress"></div>
+      <details id="roundStageDetails"><summary>分阶段排错 / 空场路线</summary>
+        <div class="hint">每轮仍保留3个阶段用于排错，阶段结束停车。阶段2、3沿用本轮起点；整轮按钮始终从当前位置重新开本轮。</div>
+        <h3>第1轮</h3><div class="step-buttons" id="round1Steps">阶段读取中</div>
+        <div class="hint" id="round1PathHint">中线先向图右端横移，遇球即停；无球再向左寻找。</div>
+        <h3>第2轮</h3><div class="step-buttons" id="round2Steps">阶段读取中</div>
+        <h3>第3轮</h3><div class="step-buttons" id="round3Steps">阶段读取中</div>
+        <label>辅助实验范围<select id="roundMode">
+          <option value="collect">取一球 → 动作点停车</option>
+          <option value="drive">空场走路线 → 回起点</option>
+        </select></label>
+        <button onclick="roundRun(1)">第1轮辅助实验</button>
+        <button onclick="roundRun(2)">第2轮辅助实验</button>
+        <button onclick="roundRun(3)">第3轮辅助实验</button>
+      </details>
+      <details><summary>靠近吸球参数</summary>
+        <div class="row">
+          <label>中线后退（米）<input id="roundMiddleScoop" type="number" min="0.021" step="0.01" value="0.70"></label>
+          <label>弧线后退（米）<input id="roundArcScoop" type="number" min="0.021" step="0.05" value="0.25"></label>
+        </div>
+        <div class="row">
+          <label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.021" step="0.05" value="0.15"></label>
+          <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+        </div>
+        <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
+      </details>
+      <button class="danger" onclick="act('TOOL_STOP')">■ 停止回合实验</button>
+      <div class="hint" id="roundSensorHint">前摄：篮球、排球、定位柱；后摄：取球横移对正；雷达：行驶距离、转角、回位。</div>
+      <div class="hint" id="roundReleaseState">放球联调已可用；正式传球/投篮需要配置发射指令和瞄准点。</div>
+      <div class="hint">当前避障仍关闭。三轮实验共享上方运行状态和日志。</div>
+    </div>
     <div class="card">
-      <h2>起任务（一局）</h2>
+      <h2>吸球机构单独测试</h2>
+      <button class="primary" onclick="act('INTAKE_START')">▶ 单独测试吸球</button>
+      <button class="danger" onclick="act('INTAKE_STOP')">■ 停止吸球</button>
+      <div class="hint" id="intakeStatus">机构连接状态读取中</div>
+      <div class="hint">仅控制机构，车不移动。<br>吸球：dji_stop → dji_zero → dji_move 1 90 5。<br>停止吸球：dji_move 1 0 5。</div>
+    </div>
+    <div class="card">
+      <h2>系统控制</h2>
+      <div class="hint">已通过终端启动且定位有效时，直接运行寻球。</div>
+      <details><summary>底盘维护</summary>
+        <button onclick="act('CAN_RECOVER')">恢复 CAN</button>
+        <button class="orange" onclick="chassisEnable()">使能底盘</button>
+        <button onclick="act('CHASSIS_STOP')">停止底盘节点</button>
+        <div class="flowbox" id="chbox"></div>
+      </details>
+    </div>
+
+    <div class="card"><details>
+      <summary>传球 / 投篮任务</summary>
       <button data-guard="IDLE" class="primary" onclick="act('PASS')">🔵 传球 PASS</button>
       <button class="orange" onclick="act('SHOOT')">🟠 投篮 SHOOT</button>
       <button onclick="act('IDLE')">⏹ 停止任务（IDLE）</button>
       <button data-guard="LAUNCH_TEXT" class="danger" onclick="if(confirm('确认急停？'))act('PANIC')">🛑 急停</button>
       <div class="hint">急停 = 下发 estop + 零速。<b>永远优先按车上电源开关。</b></div>
-    </div>
+    </details></div>
 
 
-    <div class="card" id="cardSerialText">
-      <h2>机构文本指令（这台机构的真实协议）</h2>
+    <div class="card" id="cardSerialText"><details>
+      <summary>机构文本控制</summary>
       <div class="row">
-        <button data-guard="LAUNCH_GRAB" class="danger" onclick="act('LAUNCH_TEXT',{command:'STOP'})">■ STOP</button>
-        <button data-guard="LAUNCH_PLACE" class="orange" onclick="act('LAUNCH_INIT')">⟲ STOP + ZERO 初始化</button>
+        <button data-guard="LAUNCH_GRAB" class="danger" onclick="act('LAUNCH_TEXT',{command:'dji_stop'})">■ dji_stop</button>
+        <button data-guard="LAUNCH_PLACE" class="orange" onclick="act('LAUNCH_INIT')">⟲ dji_stop + dji_zero 初始化</button>
       </div>
       <div class="row">
-        <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 抓取 MOVE 1 90 5</button>
-        <button data-guard="LAUNCH_TEXT" onclick="act('LAUNCH_PLACE')">👐 放下 MOVE 1 0 5</button>
+        <button class="primary" onclick="act('LAUNCH_GRAB')">🤲 铲起（完整序列）</button>
+        <button data-guard="LAUNCH_TEXT" onclick="act('LAUNCH_PLACE')">👐 放下 dji_move 1 0 5</button>
       </div>
+      <button class="primary" onclick="act('LAUNCH_PASS')">🏀 传球 vesc_shoot 3</button>
+      <div class="hint">传球：vesc_status → vesc_home → vesc_shoot 3。</div>
       <label style="margin-top:6px">自由输入（不含换行，节点会补）
-        <input type="text" id="stCmd" placeholder="例如 MOVE 1 90 5">
+        <input type="text" id="stCmd" placeholder="例如 dji_move 1 90 5">
       </label>
       <div class="row">
         <button data-guard="LAUNCH" onclick="act('LAUNCH_TEXT',{command:($('stCmd')||{}).value})">▶ 发送</button>
       </div>
       <div class="hint">
-        <b>协议</b>：<code>STOP</code> 停 · <code>ZERO</code> 初始化 ·
-        <code>MOVE 1 90 5</code> 抓取 · <code>MOVE 1 0 5</code> 放下。<br>
-        <b>开机顺序</b>：先 STOP，再 ZERO 初始化，然后 MOVE（点上面那个「STOP + ZERO 初始化」）。<br>
+        <b>协议</b>：<code>dji_stop</code> 停 · <code>dji_zero</code> 初始化 ·
+        <code>dji_move 1 90 5</code> 抓取 · <code>dji_move 1 0 5</code> 放下。<br>
+        <b>开机顺序</b>：先 dji_stop，再 dji_zero 初始化，然后 MOVE（点上面那个「dji_stop + dji_zero 初始化」）。<br>
         ⚠️ 走的是服务 <code>/rb_launcher/text</code>，和上面那排二进制帧按钮
         （Launch.srv）是<b>两套协议</b> —— 这台机构只认文本。<br>
         行尾默认 <code>\n</code>；固件若要 <code>\r\n</code>，
         改 launcher.yaml 的 <code>line_ending</code>。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>机构（拿球 / 发球）</h2>
+    <div class="card"><details>
+      <summary>机构动作调试</summary>
       <div class="row">
         <button data-guard="LAUNCH" onclick="act('LAUNCH',{action:0})">🚀 发射</button>
         <button data-guard="LAUNCH" onclick="act('LAUNCH',{action:1})">⚡ 快发</button>
@@ -207,17 +292,17 @@
         <button onclick="act('LAUNCH',{action:7})">停</button>
       </div>
       <div class="hint">服务 /rb_launcher/launch；0=SHOOT 1=FAST 2=DRIBBLE 3=DBL 4=爪 5=滑道 7=STOP</div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>导航（仅 IDLE 下可用）</h2>
+    <div class="card"><details>
+      <summary>导航</summary>
       <button onclick="gotoNamed('pass_zone_target')">🎯 去传球点</button>
       <button onclick="gotoNamed('shoot_zone_target')">🎯 去投篮点</button>
       <button onclick="gotoNamed('home_return','home')">🏠 回出发点（场内）</button>
-    </div>
+    </details></div>
 
-    <div class="card" id="cardLidarBall">
-      <h2>雷达找球（粗）+ 相机精定位（细）</h2>
+    <div class="card" id="cardLidarBall"><details>
+      <summary>雷达找球参数</summary>
       <div class="row" style="margin-bottom:6px">
         <label style="flex:0 0 auto">
           <input type="checkbox" id="lbEnabled" onchange="lbSet()" style="width:auto;margin-right:6px">
@@ -250,25 +335,12 @@
         <b>调参顺序</b>：先看 z_min/z_max 能不能框住地面 → 再调球半径 → 最后调配对阈值。
         参数只作用于控制台这份，不写回 yaml；调好再手动填进 perception.yaml。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>调试测试（整车脚本）</h2>
-      <button class="ghost" onclick="toolRun('TEST_BALL')">🔍 寻球 → 走到球前 → 转身背对球</button>
-      <button data-guard="MISSION_RESTART" class="ghost" onclick="toolRun('TEST_PERIMETER')">🏟 绕场一圈 → 寻球 → 转身</button>
-      <button class="ghost" onclick="toolRun('TEST_CHASSIS_DRY')">🛞 底盘干跑自检（不下发 CAN）</button>
-      <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
-      <div class="hint" id="toolstate">未运行</div>
-      <div class="hint" id="missionstate">—</div>
-      <div class="row">
-        <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
-        <button data-guard="TOOL_STOP" onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
-      </div>
-      <div class="hint">⚠️ 寻球/绕场脚本会 <b>接管 /cmd_vel</b> —— 做法是 <b>SIGTERM 掉任务节点</b>，所以跑完之后「回出发点 / 去投篮点 / 起任务」都会报"服务不可用" ✗。<b>跑完记得点「🔄 重启任务节点」</b>。<br>点之前确认车周围清空、手在电源开关上。日志看右下「实时日志」。</div>
-    </div>
 
-    <div class="card" id="cardGrabPlace">
-      <h2>抓球并放下（机构序列调试）</h2>
+
+    <div class="card" id="cardGrabPlace"><details>
+      <summary>机构序列调试</summary>
       <label>预设序列
         <select id="gpPreset" onchange="gpPreview()">
           <option value="grab_place">抓球 → 保持 → 放下（默认）</option>
@@ -299,10 +371,10 @@
         ⚠️ <b>会真动机构</b>：点之前确认机械周围没人、球在位、随时能断电。
         不确定就先点「🧪 干跑」把步骤表打印出来看看。
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>点动（按住即走，自动停）</h2>
+    <div class="card"><details>
+      <summary>手动点动（每次0.4秒）</summary>
       <div class="row3">
         <span></span><button onclick="jog(0.12,0,0)">↑</button><span></span>
       </div>
@@ -316,7 +388,7 @@
         <button onclick="jog(0,0,-0.5)">↻ 右转</button>
       </div>
       <div class="hint">每次 0.4 秒后自动归零；底盘 200ms 超时是第二道保险。</div>
-    </div>
+    </details></div>
   </div>
 
   <!-- 中列：画面 -->
@@ -378,9 +450,9 @@
       <img id="lidar" src="/api/lidar.mjpg?view=field&mirror=0&mirror_y=0" alt="雷达">
       <div class="hint" id="lidarRelativeHint" hidden>局部相对坐标：启动时车体中心为 (0,0)，初始车头方向为 +x，左侧为 +y。当前采用车头朝上视图，不叠加场地图；场地导航尚未标定。</div>
       <div class="hint" id="lidarFieldHint">
-        <b>官方图</b>（默认）= 与官方场地图方向一致：出发区 A 在左上、篮筐在右中。
+        <b>场地坐标图</b>（默认）= +Y 指向篮筐、+X 向右；x=0 为纵向基准线，中场线为 y=5.75。
         （依赖下面的 x/y 方向开关）<br>
-        <b>ROS标准</b> = x→右、y→上（RViz 俯视）。<br>
+        <b>ROS标准</b> = x→右、y→上（篮筐方向）；旧 ROS 定位坐标经过转换后显示。<br>
         <b>车头朝上</b> = 以车为中心、车头永远朝上（看"球在我哪一侧"方便）。<br>
         <b>x/y 方向开关</b> = 单独翻某个轴；现场对着实物核对不准时用这个微调。<br>
         画的东西：场地边框+中线 · <span style="color:#96c8ff">三分线</span> ·
@@ -393,20 +465,16 @@
 
   <!-- 右列：状态 + 日志 -->
   <div>
-    <div class="card" id="rdycard">
-      <h2>就绪状态（开车前必须全绿）</h2>
-      <div id="rdyverdict" style="color:var(--dim)">还没检查 —— 点左边「✓ 就绪检查」或「⚡ 一键启动流程」</div>
-      <div id="rdylist"></div>
-    </div>
 
-    <div class="card">
-      <h2>本轮进度（实时）</h2>
+
+    <div class="card"><details>
+      <summary>任务进度</summary>
       <div id="proghead">—</div>
       <div id="progress"><div class="hint">还没起任务</div></div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>小车情况（/mission/state）</h2>
+    <div class="card"><details>
+      <summary>任务详情</summary>
       <div class="big" id="phase">—</div>
       <div class="hint" id="detail"></div>
       <div style="margin-top:8px">
@@ -418,15 +486,15 @@
         <div class="kv"><span>在投篮线外</span><span id="in_shoot_out">—</span></div>
         <div class="kv"><span>急停</span><span id="estop">—</span></div>
       </div>
-    </div>
+    </details></div>
 
-    <div class="card">
-      <h2>子系统</h2>
+    <div class="card"><details>
+      <summary>机构与视觉状态</summary>
       <div class="kv"><span>场地定位 localization_ok</span><span id="loc_ok">—</span></div>
       <div class="kv"><span>机构 launcher_ok</span><span id="launcher_ok">—</span></div>
       <div class="kv"><span>视觉 perception_ok</span><span id="perception_ok">—</span></div>
       <div class="kv"><span>机构串口状态</span><span id="launcher_status">—</span></div>
-    </div>
+    </details></div>
 
     <div class="card">
       <h2>位姿与数据链</h2>
@@ -438,19 +506,19 @@
       <div class="kv"><span>点云帧率</span><span id="cloud_fps">—</span></div>
     </div>
 
-    <div class="card">
-      <h2>硬件链路</h2>
+    <div class="card"><details>
+      <summary>硬件诊断</summary>
       <div class="kv"><span>CAN can0</span><span id="hw_can">—</span></div>
       <div class="kv"><span>雷达网卡链路</span><span id="hw_link">—</span></div>
       <div class="kv"><span>雷达 ping</span><span id="hw_ping">—</span></div>
-      <div class="kv"><span>相机 /dev/video0</span><span id="hw_cam">—</span></div>
+      <div class="kv"><span>相机设备</span><span id="hw_cam">—</span></div>
       <div class="kv"><span>串口设备</span><span id="hw_serial">—</span></div>
       <div class="kv"><span>/dev/R1_usb2ttl</span><span id="hw_r1">—</span></div>
       <div class="kv"><span>关键节点数（应各 1）</span><span id="hw_nodes">—</span></div>
       <div class="kv"><span>PCAN 适配器 (0c72:000c)</span><span id="hw_pcan">—</span></div>
       <div class="kv"><span>底盘节点 / 电机使能</span><span id="hw_chassis">—</span></div>
       <div class="hint">机构配置要 /dev/R1_usb2ttl，但 udev 只生成 /dev/usb2ttl —— 若这里显示 ✗ 就需要补 udev 规则或改配置。</div>
-    </div>
+    </details></div>
 
     <div class="card">
       <h2>检测到的目标</h2>
@@ -463,8 +531,8 @@
       <div class="hint"><label><input type="checkbox" id="onlyWarn"> 只看 WARN/ERROR</label></div>
     </div>
 
-    <div class="card">
-      <h2>比赛轮次（2026 修订版）</h2>
+    <div class="card"><details>
+      <summary>比赛信息</summary>
       <details open><summary>每轮得分位置不同</summary>
         <table>
           <tr><th>轮</th><th>PASS（线/半场/三分）</th><th>SHOOT</th></tr>
@@ -481,7 +549,7 @@
           未满 2 次动作则回 SEEK_BALL → 满则 RETURN_HOME 回位 → DONE
         </div>
       </details>
-    </div>
+    </details></div>
   </div>
 </main>
 
@@ -521,7 +589,8 @@ async function act(name, args){
       body: JSON.stringify({name, args: args || {}})});
     const j = await r.json();
     toast(`${name}: ${j.msg || (j.ok ? '已发送' : '失败')}`, j.ok ? 'ok' : 'bad');
-  }catch(e){ toast(`${name} 请求失败: ${e}`, 'bad'); }
+    if(name==='TEST_FIRST_PASS' && !j.ok) $('firstPassStatus').textContent = j.msg || '启动失败';
+  }catch(e){ toast(`${name} 请求失败: ${e}`, 'bad'); if(name==='TEST_FIRST_PASS') $('firstPassStatus').textContent = '启动请求失败'; }
   finally{ _inflight.delete(name); renderGuard(); }
 }
 
@@ -570,17 +639,17 @@ function renderGuard(){
 
 const jog = (vx,vy,wz) => act('JOG', {vx,vy,wz,seconds:0.4});
 
-let LIDAR_VIEW   = localStorage.getItem('lidarView')   || 'field';
-let LIDAR_MIRROR = localStorage.getItem('lidarMirror') || '0';  // x 方向：0=右
-let LIDAR_MIRY   = localStorage.getItem('lidarMirY')   || '0';  // y 方向：0=上（A 在 y=7.0）
+let LIDAR_VIEW   = localStorage.getItem('lidarViewCenteredYBasket')   || 'field';
+let LIDAR_MIRROR = localStorage.getItem('lidarMirrorCenteredYBasket') || '0';  // x 方向：0=右
+let LIDAR_MIRY   = localStorage.getItem('lidarMirYCenteredYBasket')   || '0';  // y 方向：0=上（A 在 y=7.0）
 let RELATIVE_VIEW = false;
 function setView(v, mx, my){
   LIDAR_VIEW   = v;
   if(mx !== undefined) LIDAR_MIRROR = mx;
   if(my !== undefined) LIDAR_MIRY   = my;
-  localStorage.setItem('lidarView', LIDAR_VIEW);
-  localStorage.setItem('lidarMirror', LIDAR_MIRROR);
-  localStorage.setItem('lidarMirY', LIDAR_MIRY);
+  localStorage.setItem('lidarViewCenteredYBasket', LIDAR_VIEW);
+  localStorage.setItem('lidarMirrorCenteredYBasket', LIDAR_MIRROR);
+  localStorage.setItem('lidarMirYCenteredYBasket', LIDAR_MIRY);
   const img = $('lidar');
   // ⚠️ 直接改 src 浏览器不会马上丢掉旧 MJPEG 流（会把缓冲放完，还可能命中缓存），
   //    现场表现就是"点了切换好几秒才变"。先置空断开旧流，下一帧再设新 URL。
@@ -625,31 +694,6 @@ function renderChassis(s){
       box.style.display = 'block';
       box.innerHTML = `<span style="color:var(--dim)">PCAN ${c.pcan_present?'✓':'✗'} · ` +
         `can0 ${c.can0_up?'UP':'未UP'} · USB掉线 ${c.usb_disconnects??'?'} 次</span>`;
-    }
-  }
-  // 顶部状态条：点云是否已变换到场地系（决定"雷达跟不跟箭头"）
-  const pl = $('pills');
-  if(pl){
-    const tfOk = !!s.odom_tf_ok;
-    const old = pl.querySelector('[data-k="tf"]');
-    const html = `<span class="pill ${tfOk?'ok':'bad'}" data-k="tf" title="点云需经 field←camera_init 变换才能和箭头对齐">` +
-                 `点云系 ${tfOk?'已对齐':'缺TF·会错位'}</span>`;
-    if(!old) pl.insertAdjacentHTML('beforeend', html);
-    else old.outerHTML = html;
-  }
-
-  // 顶部状态条加两个 pill
-  const p = $('pills');
-  if(p){
-    const has = [...p.children].some(el => el.dataset.k === 'chassis');
-    const html = `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>` +
-                 `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
-    if(!has) p.insertAdjacentHTML('beforeend', html);
-    else {
-      p.querySelector('[data-k="chassis"]').outerHTML =
-        `<span class="pill ${c.running?'ok':'warn'}" data-k="chassis">底盘 ${c.running?'运行中':'未起'}</span>`;
-      p.querySelector('[data-k="motor"]').outerHTML =
-        `<span class="pill ${c.enabled_line?'ok':'bad'}" data-k="motor">电机 ${c.enabled_line?'已使能':'未使能'}</span>`;
     }
   }
 }
@@ -735,13 +779,13 @@ function renderLidarBall(s){
   }
 }
 const GP_PRESETS = {
-  grab_place: [['DRIBBLE 运球', 1.5, '抓球'], ['STOP 停', 0.5, ''],
-               ['PAWL 夹爪翻转', 0.8, '抓/放取决于固件当前态'], ['STOP 停', 0.5, '']],
-  grab_hold:  [['DRIBBLE 运球', 2.0, '抓球'], ['PAWL 夹爪翻转', 3.0, '保持 3s，看夹住没']],
-  place_only: [['PAWL 夹爪翻转', 0.8, '释放'], ['STOP 停', 0.5, '']],
-  slow_walk:  [['DRIBBLE 运球', 2.0, ''], ['STOP 停', 1.5, ''],
-               ['PAWL 夹爪翻转', 2.0, ''], ['STOP 停', 1.5, ''],
-               ['SLIDEWAY 滑轨翻转', 2.0, ''], ['STOP 停', 1.5, '']]
+  grab_place: [['dji_stop', .3, '先停'], ['dji_zero', .8, '回零'],
+               ['dji_move 1 90 5', 1.2, '铲起']],
+  grab_hold: [['dji_stop', .3, '先停'], ['dji_zero', .8, '回零'],
+              ['dji_move 1 90 5', 3., '铲起并保持']],
+  place_only: [['dji_move 1 0 5', 1., '放下']],
+  slow_walk: [['dji_stop', 1., '先停'], ['dji_zero', 1.5, '回零'],
+              ['dji_move 1 90 5', 2., '铲起'], ['dji_move 1 0 5', 2., '放下']]
 };
 function gpPreview(){
   const box = $('gpPreview');
@@ -768,62 +812,126 @@ function gpRun(dry){
   }
   act('GRAB_PLACE', body);
 }
-function flowRun(){
-  if(!confirm('一键启动流程：\n  1) 跑 tools/boot.sh（会先清残留进程再起整套）\n  2) 等「底盘已使能 + mission 就绪」\n  3) 自动做就绪检查\n\n继续？')) return;
-  act('STARTUP_FLOW');
-}
-
-const FLOW_TXT = {
-  running:  ['●', '进行中', 'var(--blue)'],
-  done:     ['✅', '可以开车了', 'var(--ok)'],
-  notready: ['⚠️', '没全就绪', 'var(--warn)'],
-  failed:   ['✗', '失败', 'var(--bad)']
-};
-
-function renderChecks(s){
-  // 流程状态框
-  const fb = $('flowbox');
-  if(s.flow && s.flow !== 'idle'){
-    const [mk, txt, col] = FLOW_TXT[s.flow] || ['·', s.flow, 'var(--dim)'];
-    fb.style.display = 'block';
-    fb.innerHTML = `<span style="color:${col}">${mk} ${txt}</span>` +
-                   (s.flow_step ? `　<span style="color:var(--dim)">${s.flow_step}</span>` : '');
-  } else { fb.style.display = 'none'; }
-
-  // 就绪面板
-  const r = s.readiness;
-  const v = $('rdyverdict'), list = $('rdylist'), card = $('rdycard');
-  if(!r){
-    if(s.checks_running){ v.textContent = '检查中…'; v.style.color = 'var(--blue)'; }
-    list.innerHTML = '';
-    card.style.borderColor = 'var(--line)';
-    return;
-  }
-  const nBad = (r.failed || []).length;
-  v.innerHTML = r.ok
-    ? '<span style="color:var(--ok)">✅ 全部就绪，可以开车</span>'
-    : `<span style="color:var(--bad)">⚠️ ${nBad} 项没就绪</span>`;
-  card.style.borderColor = r.ok ? '#245c3a' : '#5c2424';
-  const when = r.checked_at ? new Date(r.checked_at*1000).toTimeString().slice(0,8) : '';
-  list.innerHTML = `<div class="hint" style="margin-bottom:5px">检查于 ${when}</div>` +
-    (r.items || []).map(i =>
-      `<div class="rdy ${i.ok?'ok':'bad'}"><span class="m">${i.ok?'✓':'✗'}</span>` +
-      `<span class="t">${i.text.replace(/</g,'&lt;')}</span></div>`).join('');
-}
-
 const TOOL_LABEL = {
-  TEST_BALL:        '寻球+转身测试',
+  TEST_FIRST_PASS: '第一阶段两次铲球转运',
+  TEST_ROUND1:      '第1回合比赛流程',
+  TEST_ROUND2:      '第2回合路线实验',
+  TEST_ROUND3:      '第3回合路线实验',
+  TEST_BALL:        '固定路线铲球测试',
   TEST_PERIMETER:   '绕场+寻球测试',
   TEST_CHASSIS_DRY: '底盘干跑自检'
 };
+function roundReleaseState(){
+  const drop = $('roundReleaseKind').value === 'drop';
+  const mechanism = $('roundIntake').checked;
+  const ready = !mechanism || drop || !!(window._roundConfig && window._roundConfig.release_ready[$('roundTask').value]);
+  [1,2,3].forEach(n => $('wholeRound'+n).disabled = !ready || !!(window._st && window._st.tool_running));
+  if(!drop && $('roundFirstBall').value !== 'preloaded') $('wholeRound1').disabled = true;
+  $('roundReleaseState').textContent = !mechanism
+    ? '机构关闭：跳过全部机构指令及发射瞄准，完整路线自动运行。真实吸球、出球尚不执行。'
+    : drop
+    ? '当前整轮按放球联调运行：dji_move 1 0 5。传球指令已配置；投篮指令仍待配置。'
+    : ready ? '已配置正式出球指令；仍需实物确认入仓和出球。'
+    : '出球指令或瞄准点未配置：可先测路线或取1球到动作点停车。';
+}
+async function loadFirstPassConfig(){
+  try{
+    const cfg = await (await fetch('/api/first-pass-config')).json();
+    if(!cfg.ok) throw new Error(cfg.msg);
+    $('firstPassDistance1').value = cfg.first_scoop_m;
+    $('firstPassDistance2').value = cfg.second_scoop_m;
+    $('firstPassSpeed').value = cfg.scoop_speed;
+    window._firstPassReady = true;
+    $('firstPassHint').hidden = true;
+    $('firstPassStart').disabled = !window._firstPassReady || !!(window._st && window._st.tool_running);
+  }catch(e){ window._firstPassReady = false; $('firstPassStart').disabled = true; $('firstPassHint').hidden = false; $('firstPassHint').textContent = '参数读取失败：'+e.message; }
+}
+function firstPassRun(){
+  window._firstPassStatusSince = Date.now()/1000;
+  $('firstPassStatus').textContent = '正在启动…';
+  act('TEST_FIRST_PASS', {first_scoop:Number($('firstPassDistance1').value),
+    second_scoop:Number($('firstPassDistance2').value),
+    scoop_speed:Number($('firstPassSpeed').value), start_intake:$('firstPassIntake').checked});
+}
+async function loadRoundConfig(){
+  try{
+    const cfg = await (await fetch('/api/round-config')).json();
+    if(!cfg.ok){ $('roundReleaseState').textContent = cfg.msg; return; }
+    window._roundConfig = cfg;
+    const pillar = cfg.pillar_alignment;
+    $('roundSensorHint').textContent = `模型：${cfg.vision_classes.join('、')}。雷达控制行驶/回位，前摄找球和定位柱，后摄只横移对球。出球柱对准：${pillar.enabled ? '已启用' : '已关闭'}，容差${pillar.tolerance_deg}°，最多等待${pillar.timeout_s}秒。`;
+    $('roundStartHint').textContent = `每轮开始前把车放回 A 出发区，面向篮筐（+Y），垂直中线。启动后静止${cfg.start_delay_s}秒。`;
+    const m = cfg.middle_scan;
+    const scan = cfg.middle_scan_public;
+    const sweep = `预移${m.preposition_m.toFixed(2)}米到观察段端点（${scan.start.join('，')}）（车体左移），途中识球即停，无球再向另一端（${scan.end.join('，')}）找球（车体右移，最多${m.distance_m.toFixed(2)}米）`;
+    $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 识球即停 → 转180° → 后摄横移对正 → 按上方距离低速后退。中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求YOLO。机构关闭时照常靠近。`;
+    $('round1PathHint').textContent = `中线搜索：${sweep}；对正后靠近吸球，到动作点放球。`;
+    $('round2PathHint').textContent = `中线向右端横移途中也识球，无球再向左找；没找到补扫三分弧；两次取球、放球后回位。`;
+    $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
+    ['middle','arc','inner'].forEach(area => {
+      $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
+    });
+    roundReleaseState();
+  }catch(e){ $('roundReleaseState').textContent = '路线配置读取失败：'+e.message; }
+}
+function roundArgs(){
+  return {
+    task: $('roundTask').value,
+    first_ball: $('roundFirstBall').value,
+    mode: $('roundMode').value,
+    release_kind: $('roundReleaseKind').value,
+    middle_scoop: Number($('roundMiddleScoop').value),
+    arc_scoop: Number($('roundArcScoop').value),
+    inner_scoop: Number($('roundInnerScoop').value),
+    scoop_speed: Number($('roundScoopSpeed').value),
+    start_intake: $('roundIntake').checked
+  };
+}
+function roundRun(round){ act('TEST_ROUND'+round, roundArgs()); }
+function wholeRoundRun(round){ act('TEST_ROUND'+round, {...roundArgs(), mode:'cycle', whole_round:true}); }
+async function roundReset(round){
+  const data = await (await fetch('/api/round-reset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({round, task:$('roundTask').value})})).json();
+  toast(data.msg, data.ok?'ok':'bad'); await loadRoundSteps();
+}
+function roundStep(round, step){
+  act('TEST_ROUND'+round, {...roundArgs(), mode:'collect', step});
+}
+async function loadRoundSteps(){
+  try{
+    const data = await (await fetch('/api/round-state?task='+$('roundTask').value+'&first_ball='+$('roundFirstBall').value)).json();
+    if(!data.ok){ $('roundReleaseState').textContent=data.msg; return; }
+    roundReleaseState();
+    data.rounds.forEach(r => {
+      const running = !!(window._st && window._st.tool_running);
+      const current = running && window._st.tool_name === 'TEST_ROUND'+r.round;
+      const actions = {entry:'入场', search:'寻球', align:'后摄对正', approach:'靠近吸球', carry:'带球到动作点', action:'到动作点', release:'放球', home:'回位'};
+      $('round'+r.round+'Steps').innerHTML = r.steps.map(s => {
+        const enabled = !running && (s.index === 1 || s.index === r.next_step);
+        const cls = s.index === r.next_step ? 'primary' : 'ghost';
+        const mark = s.done ? '✓ ' : '';
+        return `<button class="${cls}" ${enabled?'':'disabled'} onclick="roundStep(${r.round},${s.index})">${mark}${s.index}. ${s.label}</button>`;
+      }).join('') + `<button class="ghost" ${running?'disabled':''} onclick="roundReset(${r.round})">重开本轮（先摆回起点）</button>`;
+      $('round'+r.round+'Progress').textContent = r.finished
+        ? '本轮完成。重新测试先摆回起点，再点整轮按钮。'
+        : r.started ? `已完成${r.next_step-1}/3阶段，${current?'正在执行':'下一阶段'}：第${r.next_step}阶段${current && r.active_action ? ' · '+(actions[r.active_action] || r.active_action) : ''}。`
+        : '尚未开始：摆好车，点击本轮完整测试。';
+      if(r.last_error) $('round'+r.round+'Progress').textContent += ' 上次失败：'+r.last_error+'；排除后重试本阶段。';
+    });
+  }catch(e){}
+}
 function toolRun(key){
   const warn = {
-    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：找球 → 走到球前 50cm → 转身背对球。\n\n确认车周围清空、急停就绪？',
-    TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 走到球前 → 转身。\n\n确认车周围清空、急停就绪？',
+    TEST_BALL:      '会接管 /cmd_vel（任务节点会被停掉），车会真的动：右转90° → 前进到中线附近 → 向规则图右端横移并识球（车体左移） → 无球再向图左端找篮球（车体右移） → 停车 → 转180° → 低速后退铲球。\n\n确认车周围清空、急停就绪？',
+    TEST_PERIMETER: '会接管 /cmd_vel，车会真的动：绕场地一圈 → 找球 → 对准停车。\n\n确认车周围清空、急停就绪？',
     TEST_CHASSIS_DRY: '只做软件解算、不下发 CAN，绝对安全。继续？'
   }[key] || '确认运行？';
   if(!confirm(warn)) return;
-  act(key);
+  const args = key === 'TEST_BALL' ? {
+    scoop_distance: Number($('scoopDistance').value),
+    scoop_speed: Number($('scoopSpeed').value),
+    start_intake: $('routeIntake').checked
+  } : undefined;
+  act(key, args);
 }
 
 function gotoNamed(key, fallback){
@@ -835,8 +943,8 @@ function gotoNamed(key, fallback){
   if(!p){ toast('配置里没有 ' + key, 'bad'); return; }
   if(f.home_return){
     // 前端也夹一次，避免后端没起来时手滑
-    const L = f.length_m || 14, W = f.width_m || 7.5, m = 0.25;
-    p.x = Math.min(Math.max(p.x, m), L - m);
+    const L = f.x_extent_m || f.length_m || 7.5, W = f.y_extent_m || f.width_m || 14, m = 0.25;
+    p.x = Math.min(Math.max(p.x, (f.x_min_m ?? 0) + m), (f.x_max_m ?? L) - m);
     p.y = Math.min(Math.max(p.y, m), W - m);
   }
   act('GOTO', {x:p.x, y:p.y, yaw:0, align:false});
@@ -942,8 +1050,6 @@ function render(s){
   renderExposure(s);
   renderMissionNode(s);
   renderLidarBall(s);
-  renderChassis(s);
-  renderChecks(s);
   renderProgress(s);
   const p = [];
   p.push(`<span class="pill ${s.estop?'bad':'ok'}">急停 ${s.estop?'触发':'正常'}</span>`);
@@ -952,11 +1058,11 @@ function render(s){
   p.push(`<span class="pill ${cls(s.perception_ok)}">视觉 ${s.perception_ok?'OK':'异常'}</span>`);
   p.push(`<span class="pill ${cls(s.hw.can_up)}">CAN ${s.hw.can_up?'UP':'DOWN'}</span>`);
   p.push(`<span class="pill ${cls(s.cloud_fresh)}">雷达 ${s.cloud_fresh?'数据正常':s.hw.lidar_link?'链路OK·无点云':'断开'}</span>`);
-  p.push(`<span class="pill ${s.stack_running?'ok':'warn'}">整套 ${s.stack_running?'运行中':'未由本页启动'}</span>`);
   const dup = s.hw.node_dup || {};
   const dupN = Object.keys(dup).length;
   if(dupN) p.push(`<span class="pill bad">⚠ 重复节点 ${Object.entries(dup).map(([k,v])=>k+'×'+v).join(' ')}</span>`);
   $('pills').innerHTML = p.join('');
+  renderChassis(s);
 
   $('phase').textContent = s.phase || '—';
   $('detail').textContent = s.detail || '';
@@ -972,6 +1078,7 @@ function render(s){
   $('launcher_ok').textContent = yn(s.launcher_ok);
   $('perception_ok').textContent = yn(s.perception_ok);
   $('launcher_status').textContent = s.launcher_status || '—';
+  $('intakeStatus').textContent = s.launcher_ok ? '机构串口已连接' : '机构未连接：请检查串口或启动机构节点';
 
   if(s.pose){
     $('pos').textContent = `(${fmt(s.pose[0])}, ${fmt(s.pose[1])})${s.localization_mode==='relative'?' · 局部坐标':''}`;
@@ -1012,6 +1119,15 @@ function render(s){
 
   const ts = $('toolstate');
   if(ts){
+    $('firstPassStart').disabled = !window._firstPassReady || !!s.tool_running;
+    const firstLogs = (s.logs||[]).filter(l => l.src==='TEST_FIRST_PASS' && l.t >= (window._firstPassStatusSince || 0));
+    const cleaned = firstLogs.map(l => (l.msg||'').replace(/\x1b\[[0-9;]*m/g,'').trim()).filter(Boolean);
+    if(cleaned.length){
+      const last = cleaned[cleaned.length-1];
+      const phase = [...cleaned].reverse().find(m => /^\d{2}:\d{2}:\d{2}\s+/.test(m));
+      const detail = (phase||last).replace(/^\d{2}:\d{2}:\d{2}\s+\S+\s*/, '');
+      $('firstPassStatus').textContent = /结束，退出码 [1-9]/.test(last) ? '已停止：'+detail : /结束，退出码 0/.test(last) ? '已完成' : detail;
+    }
     ts.innerHTML = s.tool_running
       ? `<b style="color:var(--blue)">● 运行中：${TOOL_LABEL[s.tool_name]||s.tool_name}</b>`
       : '<span style="color:var(--dim)">未运行</span>';
@@ -1039,9 +1155,11 @@ function render(s){
 }
 
 async function tick(){
-  try{ render(await (await fetch('/api/state')).json()); }catch(e){}
+  try{ render(await (await fetch('/api/state')).json()); await loadRoundSteps(); }catch(e){}
 }
 setView(LIDAR_VIEW, LIDAR_MIRROR, LIDAR_MIRY);
+loadFirstPassConfig();
+loadRoundConfig();
 tick();
 setInterval(tick, 1000);
 </script>

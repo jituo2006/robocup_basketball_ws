@@ -1,0 +1,13 @@
+[Unit]
+Description=RoboCup MID360 hardware PTP master on %i
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/robocup/run_ptp4l.sh %i
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

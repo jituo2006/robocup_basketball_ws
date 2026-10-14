@@ -12,6 +12,10 @@ constexpr uint16_t kVelocityConfig = 3;
 constexpr uint16_t kVelocityControl = 7;
 constexpr uint16_t kReadInfo = 11;
 
+// The v2 controller uses IDs 1..3. ID 0 would put these custom packets
+// at 0x200, where native C620 ESCs expect four big-endian current values.
+inline bool validBoardId(int board) { return board >= 1 && board <= 3; }
+
 inline std::array<uint8_t, 8> command(uint16_t motor, uint16_t opcode,
                                       int32_t value = 0) {
   const uint32_t bits = static_cast<uint32_t>(value);

@@ -78,6 +78,7 @@ class MissionNode(Node):
 
         lim = self.cfg.get("limits", {}) or {}
         nav = self.cfg.get("navigation", {}) or {}
+        self.face_travel = bool(lim.get('face_travel', False))
         self._tuning = {}
         for name, default in self._tuning_defaults().items():
             section, key = name.split(".")
@@ -100,8 +101,8 @@ class MissionNode(Node):
         # 导航类阶段（找球/去动作区/回位）要跨越整个场地，距离可能接近 10m，
         # 用同一个 25s 超时必然误触发 —— 实测就踩到过（10m ÷ 0.4m/s ≈ 25s）。
         # 所以给导航阶段一个单独、更宽松的超时。
-        self.nav_timeout_s = float(tm.get("nav_timeout_s", 90.0))
-        self.mission_timeout_s = float(tm.get("mission_timeout_s", 300.0))
+        self.nav_timeout_s = float(tm.get("nav_timeout_s", 0.0))
+        self.mission_timeout_s = float(tm.get("mission_timeout_s", 0.0))
         self.acquire_s = float(tm.get("acquire_seconds", 2.5))
         self.launch_hold_s = float(tm.get("launch_hold_s", 1.5))
 
@@ -197,30 +198,34 @@ class MissionNode(Node):
             "limits.max_linear": 0.4, "limits.max_angular": 0.8,
             "limits.kp_linear": 1.5, "limits.kp_yaw": 2.0,
             "limits.position_tolerance": 0.10, "limits.yaw_tolerance": 0.08,
-            "navigation.pose_timeout_s": 0.5,
-            "navigation.loc_ok_timeout_s": 0.5,
+            "limits.approach_radius_m": 0.40, "limits.approach_speed": 0.12,
+            "navigation.pose_timeout_s": 1.0,
+            "navigation.loc_ok_timeout_s": 1.0,
             "navigation.velocity_window_s": 0.15,
             "navigation.exit_margin_m": 0.02,
             "navigation.linear_speed_tolerance": 0.03,
             "navigation.angular_speed_tolerance": 0.05,
             "navigation.settle_time_s": 0.5,
-            "navigation.settle_timeout_s": 5.0,
+            "navigation.settle_timeout_s": 0.0,
             "navigation.correction_max_linear": 0.08,
         }
 
     @staticmethod
     def _validate_tuning(values):
         for name, value in values.items():
-            if not math.isfinite(value) or value < 0 or (value == 0 and name != "navigation.exit_margin_m"):
-                raise ValueError(f"{name} 必须是有限正数（exit_margin_m 可为 0）")
+            if not math.isfinite(value) or value < 0 or (value == 0 and name not in (
+                    "navigation.exit_margin_m", "navigation.settle_timeout_s")):
+                raise ValueError(f"{name} 必须是有限正数（exit_margin_m/settle_timeout_s 可为 0）")
         if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
             raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
-        if values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]:
+        if (values["navigation.settle_timeout_s"] > 0
+                and values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]):
             raise ValueError("settle_time_s 必须小于 settle_timeout_s")
 
     def _apply_tuning(self, values):
         for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
                           "kp_linear": "kp_lin", "kp_yaw": "kp_yaw",
+                          "approach_radius_m": "approach_radius", "approach_speed": "approach_speed",
                           "position_tolerance": "pos_tol", "yaw_tolerance": "yaw_tol"}.items():
             setattr(self, attr, values["limits." + key])
         for name, value in values.items():
@@ -264,6 +269,11 @@ class MissionNode(Node):
 
     # -- 输入回调 ----------------------------------------------------------
     def on_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        expected_frame = self.cfg.get('topics', {}).get('field_frame', 'field')
+        if msg.header.frame_id != expected_frame:
+            self.has_pose = False
+            self.publish_zero()
+            return
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
         norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
@@ -335,6 +345,10 @@ class MissionNode(Node):
         if self.mission != "IDLE":
             return False, (f"当前任务 {self.mission} 非 IDLE，请先 "
                            "ros2 service call /rb_mission/set_mission ... mission:=IDLE")
+        if self.phase not in (P_IDLE, P_DONE, P_GOTO):
+            return False, "当前状态不允许 GOTO；请先切换 IDLE"
+        if not self._localization_ready():
+            return False, "定位无效或过期，拒绝 GOTO"
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             return False, "目标坐标无效"
         # 场内软限位（宽松，只挡明显越界）
@@ -362,6 +376,11 @@ class MissionNode(Node):
         yaw 取法见 geometry.yaw_from_stamped_pose（别用 hypot(q.x,q.y,q.z) 判断，
         朝向≈0° 时那个判据会把 position.z（高度）当成朝向）。
         """
+        expected_frame = self.cfg.get('topics', {}).get('field_frame', 'field')
+        if msg.header.frame_id != expected_frame:
+            self.get_logger().warn(
+                f'/goal_pose 坐标系 {msg.header.frame_id!r} 与 {expected_frame!r} 不一致，拒绝目标')
+            return
         p = msg.pose.position
         yaw = yaw_from_stamped_pose(msg)
         ok, why = self._accept_goto(float(p.x), float(p.y), yaw, self.goto_align_yaw)
@@ -376,6 +395,7 @@ class MissionNode(Node):
         if phase != self.phase:
             self.get_logger().info(f"[{self.mission}] {self.phase} -> {phase}  {detail}")
         self.arrival.reset()
+        self._progress_goal = None
         self.phase = phase
         self.phase_enter_time = self.get_clock().now()
         self.detail = detail
@@ -429,6 +449,7 @@ class MissionNode(Node):
 
         if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
             self.arrival.reset()
+            self._progress_goal = None
             self.publish_zero()
             if self.phase == P_LAUNCH:
                 self.set_phase(P_FAULT, "发射期间定位失效，已请求停止重复帧，动作未计数")
@@ -440,13 +461,14 @@ class MissionNode(Node):
                 return
             self.detail = "定位无效或过期，已停车；目标保留等待恢复"
             # 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
-            if self.elapsed() > self.nav_timeout_s:
+            if self.elapsed() > float(self.cfg.get('timeouts', {}).get('localization_wait_s', 90.)):
                 self.goto_goal = None
                 self.set_phase(P_FAULT, "定位失效等待超时")
             self.publish_outputs()
             return
 
-        if self.mission != "IDLE" and self.mission_elapsed() > self.mission_timeout_s:
+        if (self.mission != "IDLE" and self.mission_timeout_s > 0
+                and self.mission_elapsed() > self.mission_timeout_s):
             self.set_phase(P_FAULT, f"任务总超时 {self.mission_timeout_s}s")
             self.publish_zero()
             self.publish_outputs()
@@ -456,10 +478,10 @@ class MissionNode(Node):
         if handler is None:
             self.publish_zero()
         else:
-            # 非等待类阶段加通用超时保护（导航类用更宽松的超时）
+            # 正常动作不再用固定时长强制重试；发射确认仍保留独立期限。
             limit = self.nav_timeout_s if self.phase in (P_SEEK_BALL, P_NAV_ZONE, P_RETURN, P_GOTO) \
-                else self.state_timeout_s
-            if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and self.elapsed() > limit:
+                else self.state_timeout_s if self.phase == P_LAUNCH else 0.
+            if limit > 0 and self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and self.elapsed() > limit:
                 self.get_logger().warn(f"阶段 {self.phase} 超时 {limit:.0f}s，重试")
                 self.retry_or_fault()
             else:
@@ -688,6 +710,7 @@ class MissionNode(Node):
     def _navigate_to(self, gx, gy, goal_yaw=None):
         if not self._localization_ready():
             self.arrival.reset()
+            self._progress_goal = None
             self.publish_zero()
             return False
         x, y, yaw = self.last_pose
@@ -698,6 +721,19 @@ class MissionNode(Node):
                             self.settle_time_s, self.settle_timeout_s)
         mode = self.arrival.update(self._now_seconds(), distance, yaw_error,
                                    self.feedback.linear_speed, self.feedback.angular_speed, cfg, self.feedback.stamp)
+        from rb_mission.navigation import ProgressWatchdog
+        progress_goal = (self.phase, gx, gy, goal_yaw)
+        if getattr(self, '_progress_goal', None) != progress_goal:
+            self._progress_goal = progress_goal
+            self._progress_watchdog = ProgressWatchdog(
+                self._now_seconds(), float(self.cfg.get('timeouts', {}).get('motion_stall_s', 10.)))
+        if mode in ('complete', 'settling'):
+            self._progress_watchdog.reset(self._now_seconds())
+        elif self._progress_watchdog.stalled(self._now_seconds(), distance + .1*abs(yaw_error)):
+            self.publish_zero()
+            self.goto_goal = None
+            self.set_phase(P_FAULT, '导航目标误差持续无进展，已停车')
+            return False
         self.detail = (f"导航 {mode} 距离={distance:.3f}m "
                        f"实测v={self.feedback.linear_speed:.3f}m/s "
                        f"w={self.feedback.angular_speed:.3f}rad/s")
@@ -719,7 +755,10 @@ class MissionNode(Node):
         if self.arrival.started is not None:
             max_speed = min(max_speed, self.correction_max_linear)
         vx, vy, wz, _ = goto_command(x, y, yaw, gx, gy, self.kp_lin, self.kp_yaw,
-                                     max_speed, self.max_ang, face_travel=(mode == "approach"))
+                                     max_speed, self.max_ang,
+                                     face_travel=(mode == "approach" and self.face_travel),
+                                     approach_radius=self.approach_radius,
+                                     approach_speed=self.approach_speed)
         self.publish_motion(vx, vy, wz, max_linear=max_speed)
         return False
 

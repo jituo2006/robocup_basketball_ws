@@ -16,7 +16,7 @@ RoboCup 中国赛 **篮球机器人 · 自主机器人项目** 的上位机工�
 | `rb_launcher` | C++ | **移植** | 弹射/运球/夹爪串口帧协议（未改协议本身），加了优雅降级与自动重连 |
 | `rb_camera` | Python | 新建 | UVC 相机驱动：MJPG 协商、采集线程、掉线自愈、JPEG 压缩、锁定曝光/白平衡 |
 | `rb_perception` | Python | 新建 | 视觉：球种 / 篮筐 / 传球架圆环 / 定位柱（含去畸变） |
-| `rb_localization` | Python | 新建 | 2D EKF：里程计 + 绝对位姿 + 视觉定位柱 |
+| `rb_localization` | Python | 新建 | 2D EKF：FAST-LIO 位姿增量预测 + 位姿更新 |
 | `rb_mission` | Python | 新建 | 自主任务状态机（传球/投篮）+ 视觉避障 + `go_to_pose` |
 | `rb_bringup` | - | 新建 | 启动入口与参数 |
 | `rb_tests` | Python | 新建 | **集成/系统测试 + 测试夹具**（见 §7） |
@@ -80,7 +80,7 @@ ros2 topic echo /mission/status
 | `docs/02_感知模块.md` | YOLO 2 类球检测、HSV 兜底、颜色标定 |
 | `docs/03_底盘模块.md` | CAN、全向运动学、键盘遥控、底盘自检、参数标定 |
 | `docs/04_机构模块.md` | 串口、发射/夹爪/滑轨、射程表（待采） |
-| `docs/05_定位模块.md` | EKF、雷达 FAST-LIO、视觉方位角、landmarks |
+| `docs/05_定位模块.md` | EKF、雷达 FAST-LIO、起点与安装坐标转换 |
 | `docs/06_任务模块.md` | 状态机、go-to-pose、避障、场地几何 |
 | `docs/07_整车联调与排查.md` | 上车顺序、急停、排查树 |
 | `docs/08_已知限制与后续.md` | P0/P1/P2 待办、上游库 bug、开发顺序 |

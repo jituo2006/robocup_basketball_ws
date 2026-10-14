@@ -1,0 +1,11 @@
+[global]
+# Ubuntu 22.04 linuxptp 3.1 uses masterOnly (renamed serverOnly in newer versions).
+masterOnly              1
+domainNumber            0
+network_transport       UDPv4
+delay_mechanism         E2E
+time_stamping           hardware
+utc_offset              @UTC_OFFSET@
+logSyncInterval         -3
+logAnnounceInterval     0
+uds_address             /run/robocup-ptp4l

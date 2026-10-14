@@ -29,6 +29,9 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("dry_run", default_value="false"),
             DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
+            DeclareLaunchArgument("perception_config",
+                                  default_value=_share("rb_perception", "config", "perception.yaml"),
+                                  description="寻球测试可指定 perception_seek.yaml"),
             DeclareLaunchArgument("use_compressed", default_value="true",
                                   description="原始大图消息投递只有 ~7fps，默认走 JPEG 压缩图"),
             DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
@@ -53,7 +56,7 @@ def generate_launch_description():
             # 视觉
             Node(package="rb_perception", executable="perception_node", name="rb_perception",
                  output="screen",
-                 parameters=[{"config_file": _share("rb_perception", "config", "perception.yaml"),
+                 parameters=[{"config_file": LaunchConfiguration("perception_config"),
                               "image_topic": image_topic,
                               "use_compressed": use_compressed,
                               "publish_debug_image": True}]),

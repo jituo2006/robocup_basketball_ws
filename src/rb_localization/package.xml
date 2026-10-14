@@ -3,16 +3,16 @@
 <package format="3">
   <name>rb_localization</name>
   <version>0.1.0</version>
-  <description>RoboCup 篮球机器人 · 定位（里程计 + 雷达 + 视觉定位柱 的 2D EKF 融合）</description>
+  <description>RoboCup 篮球机器人 · 定位（FAST-LIO 雷达惯性定位 + 2D EKF）</description>
   <maintainer email="team@bupt.edu.cn">BUPT RobotTeam</maintainer>
   <license>Apache-2.0</license>
   <depend>rclpy</depend>
   <depend>rcl_interfaces</depend>
   <depend>nav_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
   <depend>tf2_ros</depend>
-  <depend>rb_msgs</depend>
   <!-- 测试依赖：colcon test 才会去跑 test/ 下的 pytest -->
   <test_depend>python3-pytest</test_depend>
 

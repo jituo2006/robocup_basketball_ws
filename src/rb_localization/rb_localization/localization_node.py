@@ -1,29 +1,12 @@
 #!/usr/bin/env python3
-"""RoboCup 篮球机器人 · 定位节点。
+"""FAST-LIO 位姿增量预测与 2D EKF 位姿更新；输出场地位姿和可信状态。"""
 
-数据来源与职责
---------------
-  predict : /odom（底盘里程计或全场定位板的 twist 部分）
-  update  : ① 绝对位姿（雷达 FAST-LIO / 全场定位板 的 pose 部分）
-            ② 视觉看到的【定位柱】方位角（bearing-only，规则提供的视觉基准）
-
-输出：
-  /localization/pose   geometry_msgs/PoseWithCovarianceStamped（场地坐标系）
-  /localization/ok     std_msgs/Bool（定位是否可信）
-  TF: field -> base_link
-
-⚠️ 合规提醒
------------
-RoboCup 规则 §2.4 的场地器材清单里**没有"全场定位系统"**。
-若你依赖队里自架的定位板，务必先向技术委员会确认是否允许。
-本节点的设计使得：**断掉绝对位姿输入后，仅靠里程计 + 视觉定位柱仍可运行**
-（只是精度下降），这样即使定位板被判违规也有退路。
-"""
-
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import math
 import os
+import time
 from typing import Any
 
 import rclpy
@@ -31,18 +14,17 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.time import Time
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from tf2_ros import TransformBroadcaster
 
-from rb_msgs.msg import DetectionArray
 
 from .ekf2d import (
     Ekf2D,
     EkfConfig,
-    camera_bearing_to_world,
     sensor_to_base_xy,
     world_vel_to_body,
     wrap_pi,
@@ -79,16 +61,21 @@ class LocalizationNode(Node):
             "odom_topic", str(src.get("odom_topic", "/odom"))).value)
         self.abs_pose_topic = str(self.declare_parameter(
             "abs_pose_topic", str(src.get("abs_pose_topic", ""))).value)
-        self.detections_topic = str(self.declare_parameter(
-            "detections_topic", str(src.get("detections_topic", "/perception/detections"))).value)
         self.source_timeout_s = float(self.declare_parameter(
-            "source_timeout_s", float(src.get("source_timeout_s", 0.5))).value)
+            "source_timeout_s", float(src.get("source_timeout_s", 1.0))).value)
         if not math.isfinite(self.source_timeout_s) or self.source_timeout_s <= 0:
             raise ValueError("source_timeout_s 必须为有限正数")
         self.source_freshness = SourceFreshness()
         self.last_source_stamp = None
+        self.require_lidar_session = bool(self.declare_parameter('require_lidar_session', False).value)
+        self.lidar_session_ready = False
+        self.lidar_session_generation = None
+        self.lidar_session_blocked = None
+        self.lidar_session_received = 0.
+        self.lidar_session_cutoff = 0.
+        if self.require_lidar_session:
+            self.create_subscription(String, '/lidar/session', self.on_lidar_session, 10)
         self.use_odom_pose_as_abs = bool(src.get("use_odom_pose_as_abs", True))
-        self.camera_yaw_offset = float(src.get("camera_yaw_offset_rad", 0.0))
 
         # ---- 雷达里程计 → 场地坐标系 的标定 ----
         #
@@ -120,6 +107,8 @@ class LocalizationNode(Node):
             self.odom_zero_on_first = True
             self.start_pose = (0.0, 0.0, 0.0)
         self.odom_origin: tuple[float, float, float] | None = None
+        self.configured_start_pose = self.start_pose
+        self.experiment_cutoff = 0.0
         self.theta = 0.0          # odom → field 的旋转量，首帧确定
         self.conv_ready = False
 
@@ -143,15 +132,10 @@ class LocalizationNode(Node):
             self.ekf.set_pose(float(start.get("x", 0.0)), float(start.get("y", 0.0)),
                               float(start.get("yaw", 0.0)))
 
-        self.landmarks: list[tuple[float, float]] = []
-        for item in ([] if self.relative_mode else self.cfg.get("landmarks", []) or []):
-            if "x" in item and "y" in item:
-                self.landmarks.append((float(item["x"]), float(item["y"])))
-
         self.create_subscription(Odometry, self.odom_topic, self.on_odom, 20)
         if self.abs_pose_topic:
             self.create_subscription(Odometry, self.abs_pose_topic, self.on_abs_pose, 10)
-        self.create_subscription(DetectionArray, self.detections_topic, self.on_detections, 5)
+        self.create_service(Trigger, '/localization/reset_start', self.reset_experiment_start)
 
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, self.pose_topic, 10)
         self.ok_pub = self.create_publisher(Bool, self.ok_topic, 1)
@@ -163,21 +147,11 @@ class LocalizationNode(Node):
         self.last_odom_time: Time | None = None
         self.odom_count = 0
         self.abs_count = 0
-        self.pillar_updates = 0
         self.add_on_set_parameters_callback(self.on_tuning_parameters)
 
-        self.get_logger().info(
-            f"定位就绪: odom={self.odom_topic} abs={self.abs_pose_topic or '(未启用)'} "
-            f"det={self.detections_topic} 地标数={len(self.landmarks)}"
-        )
-        if not self.landmarks:
-            self.get_logger().warn(
-                "未配置任何定位柱地标位置 → 视觉方位角更新不会生效。"
-                "请在 config/localization.yaml 的 landmarks 里填入本轮定位柱的实际坐标。"
-            )
         if self.odom_conv_enabled:
             self.get_logger().info(
-                f"定位方案: 雷达里程计({self.odom_topic}) + 视觉定位柱"
+                f"定位方案: 雷达里程计({self.odom_topic})"
                 f"{' + 独立绝对位姿(' + self.abs_pose_topic + ')' if self.abs_pose_topic else ''}")
             self.get_logger().info(
                 f"  摆车位=({self.start_pose[0]:.2f}, {self.start_pose[1]:.2f}, "
@@ -185,7 +159,7 @@ class LocalizationNode(Node):
                 f"({self.s2b_x:+.3f}, {self.s2b_y:+.3f}, {math.degrees(self.s2b_yaw):+.1f}°)")
         elif not self.abs_pose_topic:
             self.get_logger().warn(
-                "未启用绝对位姿输入 → 只能靠里程计 + 定位柱，会漂移，仅适合短距离任务。"
+                "未启用绝对位姿输入 → 只能靠里程计，会漂移，仅适合短距离任务。"
             )
 
     def load_config(self) -> None:
@@ -213,7 +187,72 @@ class LocalizationNode(Node):
     def _refresh_tuning(self):
         self.source_timeout_s = float(self.get_parameter("source_timeout_s").value)
 
+    def reset_experiment_start(self, request, response):
+        # The operator places the robot back at A facing the basket before a run.
+        if getattr(self, 'relative_mode', False) or not self.odom_conv_enabled or not self.use_odom_pose_as_abs:
+            response.success = False
+            response.message = '当前定位模式不支持场地起点重置'
+            return response
+        self.experiment_cutoff = self.get_clock().now().nanoseconds * 1e-9
+        self.odom_count = self.abs_count = 0
+        self.start_pose = self.configured_start_pose
+        self.ekf.set_pose(*self.start_pose)
+        self._reset_lidar_session()
+        self.theta = 0.0
+        self.publish_state(None)  # invalidate old health/pose stamps immediately
+        response.success = True
+        response.message = '已清除旧定位基准，等待新雷达帧重新锚定出发区A'
+        self.get_logger().info(response.message)
+        return response
+
+    def _reset_lidar_session(self):
+        # 保留最后接受的位置作为新会话锚点。断电期间人工搬车须重新摆到起点启动。
+        if self.odom_count and all(math.isfinite(v) for v in self.ekf.pose):
+            self.start_pose = tuple(self.ekf.pose)
+            sx, sy, syaw = self.ekf.std
+            self.ekf.set_pose(*self.start_pose, std_xy=max(sx, sy), std_yaw=syaw)
+        self.odom_origin = None
+        self.conv_ready = False
+        self.odom_zero_on_first = True
+        self.last_odom_time = None
+        self.last_odom_field_pose = None
+        self.last_source_stamp = None
+        self.source_freshness = SourceFreshness()
+
+    def on_lidar_session(self, msg):
+        import json
+        try:
+            state = json.loads(msg.data)
+            generation, ready, cutoff = state['generation'], state['ready'], float(state['cutoff'])
+            if (type(generation) is not int or type(ready) is not bool
+                    or not math.isfinite(cutoff) or ready and cutoff <= 0):
+                return
+        except (ValueError, TypeError, KeyError):
+            return
+        if generation != self.lidar_session_generation:
+            self._reset_lidar_session()
+            self.lidar_session_generation = generation
+            self.lidar_session_blocked = None
+            self.lidar_session_ready = False
+        if not ready and self.lidar_session_ready:
+            self._reset_lidar_session()
+        self.lidar_session_ready = ready and generation != self.lidar_session_blocked
+        self.lidar_session_cutoff = cutoff
+        self.lidar_session_received = time.monotonic()
+
+    def _lidar_session_live(self):
+        if not getattr(self, 'require_lidar_session', False):
+            return True
+        live = self.lidar_session_ready and time.monotonic()-self.lidar_session_received <= 1.
+        if not live and self.lidar_session_ready:
+            self._reset_lidar_session()
+            self.lidar_session_ready = False
+            self.lidar_session_blocked = self.lidar_session_generation
+        return live
+
     def _accept_source(self, msg, source):
+        if not self._lidar_session_live():
+            return False
         self._refresh_tuning()
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         tw = msg.twist.twist
@@ -222,6 +261,10 @@ class LocalizationNode(Node):
         if not all(math.isfinite(v) for v in values):
             return False
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if stamp <= getattr(self, 'experiment_cutoff', 0.0):
+            return False
+        if getattr(self, 'require_lidar_session', False) and stamp < self.lidar_session_cutoff:
+            return False  # 重启前的排队消息不能进入新会话。
         now = self.get_clock().now().nanoseconds * 1e-9
         if not self.source_freshness.accept(source, stamp, now, self.source_timeout_s):
             return False
@@ -294,6 +337,14 @@ class LocalizationNode(Node):
 
         if self.use_odom_pose_as_abs:
             current = self.odom_to_field(pos.x, pos.y, yaw)
+            if (getattr(self, 'require_lidar_session', False) and self.last_odom_field_pose is not None
+                    and (dt > self.source_timeout_s
+                         or math.dist(current[:2], self.last_odom_field_pose[:2]) > .25+dt)):
+                # 本节点也检查跳变，避免管理器与定位订阅回调的先后顺序影响结果。
+                self._reset_lidar_session()
+                self.lidar_session_ready = False
+                self.lidar_session_blocked = self.lidar_session_generation
+                return
             # FAST-LIO publish_odometry() fills pose only. Its /Odometry twist
             # remains zero; velocities on the separate IMU-propagated topic
             # cannot be assumed to be present here. Predict from pose changes
@@ -303,7 +354,7 @@ class LocalizationNode(Node):
             self.last_odom_field_pose = current
             self.ekf.update_pose(*current)
             self.abs_count += 1
-        elif 0.0 < dt <= 0.5:
+        elif 0.0 < dt <= self.source_timeout_s:
             # Velocity-only sources retain the existing world-frame convention.
             tw = msg.twist.twist
             byaw = wrap_pi(yaw + self.s2b_yaw)
@@ -324,52 +375,9 @@ class LocalizationNode(Node):
         # 同一坑：不能用 |pos.z|>0 判断（pos.z 是高度）。统一走 _message_yaw。
         self.ekf.update_pose(pos.x, pos.y, self._message_yaw(msg))
 
-    # -- 视觉定位柱：方位角更新 --------------------------------------------
-    def on_detections(self, msg: DetectionArray) -> None:
-        if not self.landmarks:
-            return
-        used = 0
-        for det in msg.detections:
-            if det.label != "pillar":
-                continue
-            if det.bearing_rad != det.bearing_rad:  # NaN
-                continue
-            if det.distance_m == det.distance_m and det.distance_m > 0.0:
-                # 有距离估计时：直接按"距离+方位"反算地标位置做数据关联
-                pass
-            # 观测到的世界方位角（场地坐标系）
-            # ⚠️ 符号易错：det.bearing_rad 是"右正左负"（相机约定），而场地坐标系是
-            #    y 朝左、逆时针为正（ROS 约定），两者相反 —— 转换细节见
-            #    ekf2d.camera_bearing_to_world（有单测锁住）。
-            bearing_world = camera_bearing_to_world(
-                self.ekf.pose[2], self.camera_yaw_offset, det.bearing_rad)
-
-            # 数据关联：选预测方位角最接近的那个地标
-            best = None
-            best_err = float("inf")
-            for lm in self.landmarks:
-                dx, dy = lm[0] - self.ekf.pose[0], lm[1] - self.ekf.pose[1]
-                d = math.hypot(dx, dy)
-                if d < self.ekf.cfg.bearing_min_dist or d > self.ekf.cfg.bearing_max_dist:
-                    continue
-                err = abs(wrap_pi(bearing_world - math.atan2(dy, dx)))
-                if err < best_err:
-                    best_err, best = err, lm
-            if best is None or best_err > 0.35:  # 关联门限 ~20°
-                continue
-            if self.ekf.update_bearing(best, bearing_world):
-                used += 1
-                # 限频日志：用来确认"视觉方位角更新真的生效了"（否则这项是黑盒，
-                # 只能看到定位变准/没变准，无法区分是没检出、没关联上、还是没更新）
-                self.get_logger().info(
-                    f"定位柱更新: 地标({best[0]:.2f},{best[1]:.2f}) "
-                    f"观测方位={math.degrees(bearing_world):+.1f}° 累计={self.pillar_updates + used}",
-                    throttle_duration_sec=3.0)
-        if used:
-            self.pillar_updates += used
-
     # -- 输出 --------------------------------------------------------------
     def publish_state(self, stamp) -> None:
+        self._lidar_session_live()
         self._refresh_tuning()
         x, y, yaw = self.ekf.pose
         sx, sy, syaw = self.ekf.std

@@ -255,41 +255,12 @@ def test_board_pdf_has_exact_a4_page_size(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# measure_landmark：地标反算的符号（"车当尺子"）
+
 # ---------------------------------------------------------------------------
-def test_landmark_xy_uses_camera_sign_convention():
-    """⭐ 回归测试：反算必须走"右正左负"的相机约定，不能当成 y 朝左。
-
-    场景：车在原点朝场地 +x，定位柱在前方 2m、**偏右** 0.5m。
-    真相机读到的是 right-positive，所以 bearing = +atan2(0.5, 2)；
-    反算回来必须落在 (2.0, −0.5) —— 车体系的"右"对应场地系 y **负**。
-    写反了会得到 (2.0, +0.5)，把柱子标到场地的另一侧。
-    """
-    mod = _load_tool("measure_landmark")
-    bearing = math.atan2(0.5, 2.0)
-    dist = math.hypot(2.0, 0.5)
-    x, y = mod.landmark_xy((0.0, 0.0, 0.0), bearing, dist)
-    assert x == pytest.approx(2.0, abs=1e-9), "前方距离不对"
-    assert y == pytest.approx(-0.5, abs=1e-9), "偏右应落在场地系 y 负"
 
 
-def test_landmark_xy_left_side_is_positive_y():
-    """对称用例：柱子偏左 → 场地系 y 为正。"""
-    mod = _load_tool("measure_landmark")
-    bearing = math.atan2(-0.5, 2.0)
-    dist = math.hypot(2.0, 0.5)
-    x, y = mod.landmark_xy((0.0, 0.0, 0.0), bearing, dist)
-    assert (x, y) == pytest.approx((2.0, 0.5), abs=1e-9)
 
 
-def test_landmark_xy_respects_robot_pose():
-    """车在 (5, 3) 朝 +90°（场地系），柱子正前方 2m → 应落在 (5, 5)。
-
-    车头朝 +y，所以"正前方 2m"= 场地 +y 方向 2m。
-    """
-    mod = _load_tool("measure_landmark")
-    x, y = mod.landmark_xy((5.0, 3.0, math.pi / 2), 0.0, 2.0)
-    assert (x, y) == pytest.approx((5.0, 5.0), abs=1e-9)
 
 
 # ---------------------------------------------------------------------------

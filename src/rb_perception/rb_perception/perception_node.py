@@ -162,6 +162,11 @@ class PerceptionNode(Node):
             self.cfg = {}
 
     def rebuild_detectors(self) -> None:
+        for detector in (self.cfg.get("perception", {}).get("detectors", []) or []):
+            path = detector.get("model_path", "")
+            if detector.get("type") == "onnx" and path and not os.path.isabs(path):
+                detector["model_path"] = os.path.normpath(os.path.join(
+                    os.path.dirname(os.path.abspath(self.config_file)), path))
         self.detectors, self.detector_notes = build_detectors(self.cfg.get("perception", {}))
 
     # -- 主回调 ------------------------------------------------------------
@@ -232,6 +237,8 @@ class PerceptionNode(Node):
                 self.get_logger().warn(f"检测器 {det.label} 异常: {exc}")
                 continue
             for r in results:
+                if getattr(det, "inferred_this_frame", True):
+                    r.observation_stamp = stamp
                 if per_label.get(r.label, 0) >= self.max_per_label:
                     break
                 per_label[r.label] = per_label.get(r.label, 0) + 1
@@ -296,7 +303,7 @@ class PerceptionNode(Node):
 
     def to_msg(self, d, stamp) -> Detection:
         m = Detection()
-        m.stamp = stamp
+        m.stamp = getattr(d, "observation_stamp", stamp)
         m.label = d.label
         m.confidence = float(d.confidence)
         m.x_min, m.y_min, m.x_max, m.y_max = (float(v) for v in d.bbox)
@@ -316,6 +323,9 @@ class PerceptionNode(Node):
         return m
 
     def publish_debug_image(self, frame: np.ndarray, dets: list[Detection], cam: CameraModel) -> None:
+        # 前端自己在 JPEG 上画框；没有调试图订阅者时不复制/绘制/发布大图。
+        if self.debug_pub.get_subscription_count() == 0:
+            return
         vis = frame.copy()
         h, w = vis.shape[:2]
         for d in dets:

@@ -470,6 +470,7 @@ class OnnxDetector(BaseDetector):
       conf_threshold    默认 0.35
       iou_threshold     默认 0.45（NMS）
       input_size        默认自动读模型输入；读不到用 640
+      input_content_scale 默认 1.0；近距离大球可缩小内容并补边，框仍映射回原图
       real_diameter_m   单目测距用的真实直径
       class_real_size   可选 {工程label: 米}，不同类别尺寸不同时用它覆盖
       max_detections    默认 20
@@ -483,6 +484,9 @@ class OnnxDetector(BaseDetector):
         self.model_names: dict[int, str] = {}
         self.input_name = ""
         self.input_size = int(cfg.get("input_size", 0) or 0)
+        self.input_content_scale = float(cfg.get("input_content_scale", 1.0))
+        if not math.isfinite(self.input_content_scale) or not 0 < self.input_content_scale <= 1:
+            raise ValueError("input_content_scale 须在 (0, 1] 内")
         self.conf_thr = float(cfg.get("conf_threshold", 0.35))
         self.iou_thr = float(cfg.get("iou_threshold", 0.45))
         # 跨类别重复抑制：同一颗球被不同类别框住时只留置信度高的。
@@ -500,6 +504,7 @@ class OnnxDetector(BaseDetector):
         self.every_n = max(1, int(cfg.get("every_n_frames", 1) or 1))
         self._frame_i = 0
         self._cached: list[Detection] = []
+        self.inferred_this_frame = False
         # 只保留"映射过的"类别（默认开）。COCO 预训练有 80 类，不筛的话
         # person/chair/cat 会全混进 /perception/detections，而且被套上
         # real_diameter_m（按篮球尺寸）算出荒谬距离 —— 实测 person 报 0.28m。
@@ -577,7 +582,7 @@ class OnnxDetector(BaseDetector):
     def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
         """等比缩放 + 灰边填充到正方形。返回 (张量, 缩放比, 左padding, 上padding)。"""
         h, w = frame.shape[:2]
-        s = min(self.input_size / w, self.input_size / h)
+        s = min(self.input_size / w, self.input_size / h) * self.input_content_scale
         nw, nh = max(1, int(round(w * s))), max(1, int(round(h * s)))
         resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
         canvas = np.full((self.input_size, self.input_size, 3), 114, dtype=np.uint8)
@@ -746,6 +751,7 @@ class OnnxDetector(BaseDetector):
                 cid[keep].astype(int))
 
     def detect(self, frame_bgr: np.ndarray, cam: CameraModel) -> list[Detection]:
+        self.inferred_this_frame = False
         if self.session is None:
             return []
         # 跳帧：非推理帧直接复用上次结果（球在相邻帧间位移很小，够用）
@@ -760,6 +766,7 @@ class OnnxDetector(BaseDetector):
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"ONNX 推理失败: {exc}") from exc
 
+        self.inferred_this_frame = True
         boxes, scores, cids = self._decode(out)
         if boxes.size == 0:
             self._cached = []
@@ -792,7 +799,7 @@ class OnnxDetector(BaseDetector):
                 continue          # 丢弃没映射过的类别（如 person/chair）
             label = self._map_label(cid, cname)
             # 框内颜色分类：把"球候选"细分成篮球/排球
-            if self.color_classify:
+            if self.color_classify and label.startswith('ball'):
                 label = self._classify_by_color(frame_bgr, (x1, y1, x2, y2), label)
                 if self.only_mapped and label in self.color_rules:
                     pass          # 分类结果本身就是要的工程标签，直接放行
@@ -801,7 +808,8 @@ class OnnxDetector(BaseDetector):
             # 去畸变后再算方位角与像素尺寸（与颜色检测器一致）
             uw = cam.measure_size((x1, py), (x2, py))
             uh = cam.measure_size((px, y1), (px, y2))
-            size_px = max(uw, uh)
+            # 定位柱真实尺寸是横向直径，不能用一米高的竖向框套20cm直径测距。
+            size_px = uw if label == 'pillar' else max(uw, uh)
 
             results.append(Detection(
                 label=label,

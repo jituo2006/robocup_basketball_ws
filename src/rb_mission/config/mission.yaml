@@ -94,17 +94,11 @@ field:
     B: {x: 1.5, y: -0.5}    # 下边线以下（另一个半场，暂时不用）
   home: {x: 1.5, y: 8.0}    # = A 区中心（从上边线突出）
 
-  # ── 回位目标（赛场实际用的点）──────────────────────────────────────────
-  # ⚠️ home 是【出发区中心】，按官方场地图它突出在场外（y=8.0 > 上边界 7.5），
-  #    直接开过去会冲出场地。所以回位另用一个【场内】的点。
-  #    现场要求："回初始点时靠近场地一侧一点，不然容易跑出去"。
-  home_return: {x: 1.0, y: 7.0}
-
   # 认为"球已经到吸取距离"的门限
   grab_distance_m: 0.45
 
 limits:
-  max_linear: 0.40          # m/s，比赛先保守
+  max_linear: 0.25          # m/s，通行/导航/回位统一平移上限
   max_angular: 0.80         # rad/s
   kp_linear: 1.5
   kp_yaw: 2.0
@@ -134,12 +128,11 @@ limits:
 
 timeouts:
   start_delay_s: 8.0        # §2.3-7 规则要求 5~15s，且期间不得有任何动作
-  state_timeout_s: 25.0     # 对准/吸取这类"原地"阶段的超时
-  # 导航类阶段（找球/去动作区/回位）要跨越整个场地：
-  #   到动作区最远约 10m，0.4m/s 就要 25s —— 用 25s 超时必然误触发（实测踩到过）。
-  #   场地 14m 对角约 16m，0.4m/s ≈ 40s，留一倍余量到 90s。
-  nav_timeout_s: 90.0
-  mission_timeout_s: 300.0  # 工程保护值，不是规则给出的单回合时限；约10分钟含准备/退场
+  state_timeout_s: 25.0     # 仅保留发射确认看门狗，避免未确认时重复发射
+  nav_timeout_s: 0.0        # 0取消固定导航/搜索总时限；可显式设正值启用
+  mission_timeout_s: 0.0    # 0取消固定任务总时限
+  localization_wait_s: 90.0 # 已停车的定位失效等待，与正常导航时长分开
+  motion_stall_s: 10.0      # 导航有指令但目标误差持续无进展时停车
   acquire_seconds: 2.5      # 没有持球传感器时，按时间假定吸取完成
   launch_hold_s: 1.5        # 一次动作持续多久
 
@@ -216,12 +209,12 @@ control:
 # ROS 参数名为 navigation.<键>，支持 ros2 param set /rb_mission 在线修改。
 # YAML 是启动默认值；在线调参不会自动写回文件。
 navigation:
-  pose_timeout_s: 0.5               # 真实位姿时间戳最大年龄，s
-  loc_ok_timeout_s: 0.5             # 定位有效状态消息最大接收间隔，s
+  pose_timeout_s: 1.0               # 真实位姿时间戳最大年龄，s
+  loc_ok_timeout_s: 1.0             # 定位有效状态消息最大接收间隔，s
   velocity_window_s: 0.15           # 位姿差分估速窗口，s；必须小于 pose_timeout_s
   exit_margin_m: 0.02               # 10cm 进入、12cm 退出确认；完成仍必须在10cm内
   linear_speed_tolerance: 0.03      # 停稳平移速度阈值，m/s
   angular_speed_tolerance: 0.05     # 停稳角速度阈值，rad/s
   settle_time_s: 0.5                # 连续真实测量满足条件的时间，s
-  settle_timeout_s: 5.0             # 首次进入到位范围后的总确认时间，s
+  settle_timeout_s: 0.0             # 0取消总确认时限，仍必须用新鲜反馈确认停稳
   correction_max_linear: 0.08       # 漂出到位范围后的位置修正限速，m/s

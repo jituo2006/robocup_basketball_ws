@@ -97,7 +97,7 @@ perception:
     # ---------- 定位柱（规则提供的视觉基准，蓝绿相间）----------
     - label: pillar
       type: stripe
-      enabled: true
+      enabled: false
       hsv_ranges_a:
         - [100, 80, 60, 130, 255, 255]  # 蓝
       hsv_ranges_b:
@@ -108,26 +108,13 @@ perception:
       x_tolerance_ratio: 0.6
       real_width_m: 0.20
 
-    # ---------- ONNX 目标检测（YOLO）----------
-    # onnxruntime 已装，可直接用。模型用 ultralytics 导出：
-    #     yolo export model=best.pt format=onnx imgsz=640
-    #
-    # ✅ 已换成**自训 2 类模型**（dataset_ball_ms，2026-10-06 导出）：
-    #    元数据 names = {0: '篮球', 1: '排球'}，输出 (1, 6, 8400) = 4框 + 2类。
-    #    ⚠️ 类名是**中文**，所以 name_map 的 key 必须写中文（下面中英文都留了，
-    #       换回英文类名的模型也不用改配置）。
-    #
-    # 类别映射两种写法（name_map 优先于 class_map）：
-    #   name_map:  {模型类别名: 工程label}   ← ultralytics 会把 names 写进 ONNX 元数据，会自动读
-    #   class_map: {类别id:    工程label}
+    # YOLO26n：篮球、排球、定位柱；输入640x640，输出(1,7,8400)。
     - label: yolo
       type: onnx
       enabled: true
-      # 自训 2 类模型：basketball / volleyball
-      #   names: {0: 'basketball', 1: 'volleyball'}   输出 (1, 6, 8400) = 4框+2类
       #   ⚠️ 输入是**固定 640x640**（元数据 imgsz=[640,640]，非动态），
       #      所以 input_size 必须也给 640；填小值会因形状不匹配直接报错。
-      model_path: "/home/user/models/ball.onnx"
+      model_path: "../models/ball_pillar_20261012.onnx"
       conf_threshold: 0.25
       # 跨类别重复抑制：同一颗球被报成 basketball + volleyball 时只留置信度高的那个。
       # 判据是包含度(交集/min面积)，因为同物体两框大小可能差很多，IoU 会偏低漏抑制。
@@ -148,10 +135,12 @@ perception:
       inter_op_threads: 1
       # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
       real_diameter_m: 0.24
-      class_real_size: {ball_basketball: 0.24, ball_volleyball: 0.21}
+      class_real_size: {ball_basketball: 0.24, ball_volleyball: 0.21, pillar: 0.20}
       # 只保留映射过的类别，其余一律丢弃
       only_mapped: true
       name_map:
+        "定位柱": pillar
+        pillar: pillar
         # ⚠️ key 必须与 ONNX 元数据里的 `names` 完全一致（含中文）
         "篮球": ball_basketball
         "排球": ball_volleyball

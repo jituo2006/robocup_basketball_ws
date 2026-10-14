@@ -1,6 +1,8 @@
 #include "serial_port/serial_port_R1.hpp"
 
 #include <cstring>
+#include <cerrno>
+#include <poll.h>
 
 void SerialPortR1::put_packet(Message::FrameControl cmd, uint16_t speed, uint16_t angle) {
   packet_.cmd = static_cast<uint8_t>(cmd);
@@ -40,18 +42,35 @@ bool SerialPortR1::send_command() {
   }
 }
 
-void SerialPortR1::send_string(const std::string& data) {
+bool SerialPortR1::connected() {
+  if (!serial_.is_open()) return false;
+  // USB 拔出时文件描述符还在，但内核会报告挂断；is_open() 无法识别这一点。
+  pollfd descriptor{serial_.native_handle(), 0, 0};
+  const int ready = ::poll(&descriptor, 1, 0);
+  if (ready < 0) return errno == EINTR;
+  return !(descriptor.revents & (POLLERR | POLLHUP | POLLNVAL));
+}
+
+bool SerialPortR1::send_string(const std::string& data) {
   try {
     boost::system::error_code ec;
     size_t bytes_written = boost::asio::write(serial_, boost::asio::buffer(data), ec);
 
     if (ec) {
       std::cerr << "Write error: " << ec.message() << std::endl;
-      return;
+      return false;
     }
-
+    if (bytes_written != data.size()) {
+      std::cerr << "Incomplete text write: " << bytes_written << "/" << data.size() << std::endl;
+      return false;
+    }
     std::cout << "Sent " << bytes_written << " bytes: " << data << std::endl;
+    return true;
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;
+    return false;
+  } catch (...) {
+    std::cerr << "Unknown text serial communication error" << std::endl;
+    return false;
   }
 }

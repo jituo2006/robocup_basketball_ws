@@ -108,6 +108,31 @@ def test_nms_empty():
 # ---------------------------------------------------------------------------
 # letterbox
 # ---------------------------------------------------------------------------
+@pytest.mark.parametrize("scale", [0, -0.5, 1.1, float('nan'), float('inf')])
+def test_invalid_content_scale_is_rejected(scale):
+    with pytest.raises(ValueError, match="input_content_scale"):
+        _det(input_content_scale=scale)
+
+
+def test_shrunken_content_detection_maps_back_to_original_image():
+    from types import SimpleNamespace
+
+    d = _det(input_size=640, input_content_scale=.5,
+             class_map={0: 'ball_basketball'})
+    d.model_names = {0: 'basketball', 1: 'volleyball'}
+    # Original box (300,100)-(600,400), with scale=.5 and padding=(160,200).
+    pred = np.array([[[385], [325], [150], [150], [.9], [.01]]], np.float32)
+    d.session = SimpleNamespace(run=lambda *args: [pred])
+    frame = np.zeros((480, 640, 3), np.uint8)
+    tensor, scale, px, py = d._letterbox(frame)
+    assert (scale, px, py) == (.5, 160, 200)
+    assert tensor[0, 0, 0, 0] == pytest.approx(114/255)
+    result = d.detect(frame, CameraModel.from_config({}, 640, 480))
+    assert len(result) == 1
+    assert result[0].bbox == pytest.approx((300/640, 100/480, 600/640, 400/480))
+    assert result[0].px == pytest.approx(450)
+
+
 def test_letterbox_geometry_and_inverse():
     """16:9 的图放进 640 方框：宽度铺满、上下留灰边，反变换必须能还原。"""
     d = _det(input_size=640)
@@ -320,6 +345,28 @@ def test_cross_class_can_be_disabled():
     r = [_mk_det("ball_basketball", 0.9, (0.40, 0.40, 0.60, 0.60)),
          _mk_det("ball_volleyball", 0.3, (0.405, 0.405, 0.595, 0.595))]
     assert len(S()._suppress_cross_class(r)) == 2, "阈值=0 应关闭抑制"
+
+
+def test_three_class_model_maps_chinese_pillar_and_uses_width_for_distance():
+    d = _det(input_size=640, conf_threshold=.5, real_diameter_m=.24,
+             name_map={'篮球': 'ball_basketball', '排球': 'ball_volleyball', '定位柱': 'pillar'},
+             class_real_size={'pillar': .20})
+    d.model_names = {0: '篮球', 1: '排球', 2: '定位柱'}
+    d.session = _FakeSession(np.array([[[320.], [320.], [40.], [200.], [.01], [.02], [.9]]], np.float32))
+    cam = CameraModel.from_config({}, 640, 640)
+    dets = d.detect(np.zeros((640, 640, 3), np.uint8), cam)
+    assert len(dets) == 1 and dets[0].label == 'pillar'
+    assert dets[0].diameter_m == pytest.approx(.20)
+    assert dets[0].distance_m == pytest.approx(cam.fx * .20 / 40)
+
+
+def test_pillar_is_not_reclassified_as_ball_by_color():
+    d = _det(input_size=640, conf_threshold=.5, color_classify=True,
+             name_map={'定位柱': 'pillar'}, class_real_size={'pillar': .2})
+    d.model_names = {0: '篮球', 1: '排球', 2: '定位柱'}
+    d.session = _FakeSession(np.array([[[320.], [320.], [40.], [200.], [.01], [.02], [.9]]], np.float32))
+    d._classify_by_color = lambda *args: pytest.fail('柱不参与球颜色分类')
+    assert d.detect(np.zeros((640, 640, 3), np.uint8), CameraModel.from_config({}, 640, 640))[0].label == 'pillar'
 
 
 def test_containment_beats_iou_for_different_sizes():

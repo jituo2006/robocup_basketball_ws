@@ -1,200 +1,157 @@
-# 后摄像头（车正后方）的视觉配置。
-#
-# 与 perception.yaml 只差三处：订阅话题、发布话题、内参。
-# ⚠️ 方位角符号：后摄朝车尾、顶朝上 ⇒ 画面右侧 = 车的左侧
-#    ⇒ 世界方位角 = yaw + bearing（前摄是 yaw − bearing，符号相反！）
-#    所以后摄的检测单独发 /perception/detections_rear，下游按话题区分。
-# ⚠️ 内参必须重新标定（另一个型号的摄像头），现在是 0 = 按 hfov 反推。
-# ⚠️ 本文件**不是** ROS 参数文件，而是给节点自己 yaml.safe_load 的配置文件，
-#    因此顶层可以有自定义键。启动时必须通过 config_file 参数传入：
-#        parameters=[{"config_file": "<此文件路径>"}]
-#    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
-# RoboCup 篮球机器人 · 视觉配置
-#
-# ⚠️ 颜色阈值只是**起点**，必须用真实场地/真实用球重新标定！
-#    2026 新规要求识别"各队自带用球的颜色/图案差异"，所以：
-#      1. 绝不能把某队的球颜色写死
-#      2. 赛前用 tools/calibrate_color.py 对自己的球采样，生成新的 hsv_ranges
-#
-# 规则给定的目标物尺寸（用于单目测距）：
-#   迷你篮筐：篮圈直径 35~45cm（现场为准）
-#   传球训练架顶部圆环：直径 55cm
-#   定位柱：直径 20cm、高 1m、蓝绿相间
-#   篮球：7 号（周长 750-760mm → 直径约 24cm）
-#   排球：5 号（周长 650-670mm → 直径约 21cm）
-
+# 后摄未标定，暂用假定视场角；闭环控制使用归一化球框。
 camera:
-  # 相机内参。全部留 0 时，节点按 assumed_hfov_deg 反推 fx 并把主点设在图像中心。
-  # 正式使用前务必用棋盘格标定后填入真实值：
-  #     python3 tools/calibrate_camera.py      # 会同时写回本文件和 camera.yaml
-  fx: 794.16
-  fy: 793.9
-  cx: 577.4
-  cy: 378.38
+  fx: 0.0
+  fy: 0.0
+  cx: 0.0
+  cy: 0.0
   assumed_hfov_deg: 60.0
-  # 畸变系数 [k1, k2, p1, p2, k3]，由标定脚本写入。
-  # 非零时，检测器会先把像素坐标去畸变再算方位角/距离 —— 修掉"边缘目标角度系统性偏移"，
-  # 对瞄准投/传尤其重要（抓球有闭环能修，瞄准是开环按角度对准的）。
-  distortion: [0.018392, -0.525673, 0.015934, 0.004543, 0.808854]
-
+  distortion:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
 perception:
   detectors:
-
-    # ---------- 目标球：篮球 ----------
-    # ⚠️ 已关闭：自训的 2 类 YOLO（label: yolo）现在能直接给出
-    #    ball_basketball / ball_volleyball，而 HSV 会把墙面、地板误判成球
-    #    （实测排球阈值曾命中 71% 画面）。留着只会叠加误检。
-    #    想重新启用作兜底就把 enabled 改回 true，但请务必先跑 calibrate_color.py。
-    - label: ball_basketball
-      type: blob
-      enabled: false
-      hsv_ranges:  # OpenCV H:0-179, S:0-255, V:0-255
-        - [173, 70, 0, 11, 255, 255]
-      min_area_ratio: 0.0006
-      max_area_ratio: 0.20
-      aspect_range: [0.6, 1.7]
-      circularity_min: 0.55
-      real_diameter_m: 0.24
-
-    # ---------- 目标球：排球 ----------
-    - label: ball_volleyball
-      type: blob
-      enabled: false
-      hsv_ranges:
-        - [17, 10, 55, 31, 255, 255]
-        - [104, 46, 0, 121, 255, 255]
-      min_area_ratio: 0.0006
-      max_area_ratio: 0.20
-      aspect_range: [0.6, 1.7]
-      circularity_min: 0.50
-      real_diameter_m: 0.21
-
-    # ---------- 迷你篮筐 ----------
-    - label: hoop
-      type: circle
-      enabled: true
-      hsv_ranges:
-        - [0, 120, 90, 12, 255, 255]     # 篮圈多为红/橙色
-        - [170, 120, 90, 179, 255, 255]
-      dp: 1.2
-      min_dist_ratio: 0.08
-      param1: 120.0
-      param2: 28.0
-      min_radius_ratio: 0.02
-      max_radius_ratio: 0.35
-      real_diameter_m: 0.40
-      require_hollow: true      # 只认空心环，避免把实心球误判成篮筐
-      hollow_max_ratio: 0.75
-
-    # ---------- 传球架顶部圆环（50 分目标，最值钱）----------
-    - label: rack_ring
-      type: circle
-      enabled: true
-      hsv_ranges: []                    # 留空 = 直接在灰度图上找圆（环颜色不定时更稳）
-      dp: 1.2
-      min_dist_ratio: 0.08
-      param1: 120.0
-      param2: 30.0
-      min_radius_ratio: 0.02
-      max_radius_ratio: 0.35
-      real_diameter_m: 0.55
-      require_hollow: true      # 同上；传球架圆环也是空心环
-      hollow_max_ratio: 0.75
-
-    # ---------- 定位柱（规则提供的视觉基准，蓝绿相间）----------
-    - label: pillar
-      type: stripe
-      enabled: true
-      hsv_ranges_a:
-        - [100, 80, 60, 130, 255, 255]  # 蓝
-      hsv_ranges_b:
-        - [40, 60, 60, 85, 255, 255]    # 绿
-      min_total_area_ratio: 0.0008
-      aspect_min: 1.2
-      aspect_max: 12.0
-      x_tolerance_ratio: 0.6
-      real_width_m: 0.20
-
-    # ---------- ONNX 目标检测（YOLO）----------
-    # onnxruntime 已装，可直接用。模型用 ultralytics 导出：
-    #     yolo export model=best.pt format=onnx imgsz=640
-    #
-    # ✅ 已换成**自训 2 类模型**（dataset_ball_ms，2026-10-06 导出）：
-    #    元数据 names = {0: '篮球', 1: '排球'}，输出 (1, 6, 8400) = 4框 + 2类。
-    #    ⚠️ 类名是**中文**，所以 name_map 的 key 必须写中文（下面中英文都留了，
-    #       换回英文类名的模型也不用改配置）。
-    #
-    # 类别映射两种写法（name_map 优先于 class_map）：
-    #   name_map:  {模型类别名: 工程label}   ← ultralytics 会把 names 写进 ONNX 元数据，会自动读
-    #   class_map: {类别id:    工程label}
-    - label: yolo
-      type: onnx
-      enabled: true
-      # 自训 2 类模型：basketball / volleyball
-      #   names: {0: 'basketball', 1: 'volleyball'}   输出 (1, 6, 8400) = 4框+2类
-      #   ⚠️ 输入是**固定 640x640**（元数据 imgsz=[640,640]，非动态），
-      #      所以 input_size 必须也给 640；填小值会因形状不匹配直接报错。
-      model_path: "/home/user/models/ball.onnx"
-      conf_threshold: 0.25
-      # 跨类别重复抑制：同一颗球被报成 basketball + volleyball 时只留置信度高的那个。
-      # 判据是包含度(交集/min面积)，因为同物体两框大小可能差很多，IoU 会偏低漏抑制。
-      # 现场若发现某类明显误检（如"没放排球却检出 volleyball"）先看这里；设 0 关闭。
-      cross_class_overlap: 0.55
-      cross_class_labels: ["ball_basketball", "ball_volleyball"]
-      iou_threshold: 0.45
-      input_size: 640
-      # YOLO 是 CPU 大头（640 输入单次约 28ms）。球在相邻帧间位移很小，
-      # 没必要每帧都推理：2 = 隔帧复用上次结果。
-      every_n_frames: 2
-      # ⚠️⚠️ 必须限制 ONNX Runtime 的线程数（实测踩坑）！
-      #   不设的话它默认吃满**所有核**：实测 perception_node 占 **1139% CPU（11.4 核）**，
-      #   把 FAST-LIO 饿死 → load average 冲到 29（16 核机器）→
-      #   /Odometry 时延从 300ms 恶化到 **2.2 秒** → 地图位置严重滞后 + 导航冲过目标点。
-      #   640 输入用 2 核足够（单次 ~30ms），给 FAST-LIO / 定位 / 底盘留出 CPU。
-      intra_op_threads: 2
-      inter_op_threads: 1
-      # 单目测距按各自真实直径算（篮球 24cm、排球 21cm）
-      real_diameter_m: 0.24
-      class_real_size: {ball_basketball: 0.24, ball_volleyball: 0.21}
-      # 只保留映射过的类别，其余一律丢弃
-      only_mapped: true
-      name_map:
-        # ⚠️ key 必须与 ONNX 元数据里的 `names` 完全一致（含中文）
-        "篮球": ball_basketball
-        "排球": ball_volleyball
-        # 兼容英文类名的模型（旧模型 / 别人导出的）
-        basketball: ball_basketball
-        volleyball: ball_volleyball
-
-
-  # 干扰球不单独建检测器：它就是"非目标球"，
-  # 由 rb_mission 根据当前环节决定哪个 label 是目标、哪个是干扰。
-  #   传球环节：目标=ball_basketball，干扰=ball_volleyball
-  #   投篮环节：目标=ball_volleyball，干扰=ball_basketball
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 雷达找球（粗）+ 相机精定位（细）
-  #
-  # 思路：雷达扫地面球的点簇给"大概位置"，再让相机看过去精确定位。
-  # 好处：雷达不受光照影响、能"看到"画面外的球（相机 FOV 才约 60°）、
-  #       而且给的是直接测距（相机的单目测距靠球径先验，误差更大）。
-  #
-  # ⚠️ 默认 enabled: false —— 连点云都不订阅，行为和以前完全一样。
-  #    现场想试就改成 true，mode 先试 "fuse"（相机为主、雷达补漏，最稳）。
-  # ─────────────────────────────────────────────────────────────────────────────
+  - label: ball_basketball
+    type: blob
+    enabled: false
+    hsv_ranges:
+    - - 173
+      - 70
+      - 0
+      - 11
+      - 255
+      - 255
+    min_area_ratio: 0.0006
+    max_area_ratio: 0.2
+    aspect_range:
+    - 0.6
+    - 1.7
+    circularity_min: 0.55
+    real_diameter_m: 0.24
+  - label: ball_volleyball
+    type: blob
+    enabled: false
+    hsv_ranges:
+    - - 17
+      - 10
+      - 55
+      - 31
+      - 255
+      - 255
+    - - 104
+      - 46
+      - 0
+      - 121
+      - 255
+      - 255
+    min_area_ratio: 0.0006
+    max_area_ratio: 0.2
+    aspect_range:
+    - 0.6
+    - 1.7
+    circularity_min: 0.5
+    real_diameter_m: 0.21
+  - label: hoop
+    type: circle
+    enabled: false
+    hsv_ranges:
+    - - 0
+      - 120
+      - 90
+      - 12
+      - 255
+      - 255
+    - - 170
+      - 120
+      - 90
+      - 179
+      - 255
+      - 255
+    dp: 1.2
+    min_dist_ratio: 0.08
+    param1: 120.0
+    param2: 28.0
+    min_radius_ratio: 0.02
+    max_radius_ratio: 0.35
+    real_diameter_m: 0.4
+    require_hollow: true
+    hollow_max_ratio: 0.75
+  - label: rack_ring
+    type: circle
+    enabled: false
+    hsv_ranges: []
+    dp: 1.2
+    min_dist_ratio: 0.08
+    param1: 120.0
+    param2: 30.0
+    min_radius_ratio: 0.02
+    max_radius_ratio: 0.35
+    real_diameter_m: 0.55
+    require_hollow: true
+    hollow_max_ratio: 0.75
+  - label: pillar
+    type: stripe
+    enabled: false
+    hsv_ranges_a:
+    - - 100
+      - 80
+      - 60
+      - 130
+      - 255
+      - 255
+    hsv_ranges_b:
+    - - 40
+      - 60
+      - 60
+      - 85
+      - 255
+      - 255
+    min_total_area_ratio: 0.0008
+    aspect_min: 1.2
+    aspect_max: 12.0
+    x_tolerance_ratio: 0.6
+    real_width_m: 0.2
+  - label: yolo
+    type: onnx
+    enabled: true
+    model_path: ../models/ball_pillar_20261012.onnx
+    conf_threshold: 0.25
+    cross_class_overlap: 0.55
+    cross_class_labels:
+    - ball_basketball
+    - ball_volleyball
+    iou_threshold: 0.45
+    input_size: 640
+    # 后摄近球占画面很大；缩小补边适配模型，检测框仍还原到原图。
+    input_content_scale: 0.5
+    every_n_frames: 2
+    intra_op_threads: 2
+    inter_op_threads: 1
+    real_diameter_m: 0.24
+    class_real_size:
+      pillar: 0.20
+      ball_basketball: 0.24
+      ball_volleyball: 0.21
+    only_mapped: true
+    name_map:
+      "定位柱": pillar
+      pillar: pillar
+      篮球: ball_basketball
+      排球: ball_volleyball
+      basketball: ball_basketball
+      volleyball: ball_volleyball
   lidar_ball:
-    enabled: false            # ← 总开关。false = 完全保持现有模式
-    mode: "fuse"              # camera | lidar | fuse
-    cloud_topic: "/cloud_registered"
-    odom_topic: "/Odometry"
-
-    # 地面球的高度窗口（【车体系】z：+x 前、+y 左、+z 上；雷达装高约 1.2m）
+    enabled: false
+    mode: fuse
+    cloud_topic: /cloud_registered
+    odom_topic: /Odometry
     z_min: -1.35
-    z_max: -0.75              # 篮球半径 12cm，球心离地约 12cm
-
-    ball_radius_m: 0.12       # 篮球直径约 24cm；排球 21cm 时这里可放宽
+    z_max: -0.75
+    ball_radius_m: 0.12
     radius_tolerance_m: 0.07
     cluster_tolerance_m: 0.09
     min_points: 6
     max_range_m: 6.0
-    match_distance_m: 0.7     # 相机检测与雷达候选多近算同一颗球
+    match_distance_m: 0.7

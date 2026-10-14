@@ -42,6 +42,9 @@ def node():
     n.commands = []
     n.publish_cmd = lambda vx,vy,wz: n.commands.append((vx,vy,wz))
     n.avoid_enabled = False
+    n.face_travel = False
+    n.field = {'length_m': 14., 'width_m': 7.5}
+    n.cfg = {}
     n.publish_zero = lambda: n.publish_cmd(0,0,0)
     n.publish_outputs = lambda: None
     n.last_pose = (0,0,0)
@@ -82,14 +85,14 @@ def test_goto_keeps_target_until_stopped_and_confirmed(node):
 
 def test_stale_pose_or_status_stops_and_keeps_goal(node):
     goal = node.goto_goal
-    node.now = 100.6
+    node.now = 101.1
     node.tick()
     assert node.commands[-1] == (0,0,0) and node.goto_goal == goal
-    measurement(node,100.7,0)
+    measurement(node,101.2,0)
     node.last_loc_ok_time = 100
     node.tick()
     assert node.commands[-1] == (0,0,0)
-    measurement(node,100.8,0)
+    measurement(node,101.3,0)
     node.tick()
     assert node.commands[-1][0] > 0 and node.goto_goal == goal
 
@@ -109,6 +112,7 @@ def test_heading_must_be_correct_and_rotation_stopped(node):
 
 
 def test_confirm_timeout_faults_without_resuming_old_goal(node):
+    node.settle_timeout_s = 5.
     measurement(node,100,.94,speed=.15)
     node._phase_goto()
     measurement(node,105.1,1.14,speed=.15)
@@ -117,8 +121,31 @@ def test_confirm_timeout_faults_without_resuming_old_goal(node):
     assert node.commands[-1] == (0,0,0)
 
 
+def test_default_arrival_wait_has_no_fixed_confirmation_deadline(node):
+    measurement(node,100,.94,speed=.15)
+    node._phase_goto()
+    measurement(node,120,.94,speed=.15)
+    node._phase_goto()
+    assert node.phase == 'GOTO' and node.goto_goal is not None
+    assert node.commands[-1] == (0,0,0)
+    measurement(node,121,.94)
+    node._phase_goto()
+    measurement(node,121.6,.94)
+    node._phase_goto()
+    assert node.phase == 'IDLE' and node.goto_goal is None
+
+
+def test_stalled_navigation_faults_instead_of_driving_forever(node):
+    measurement(node,100,0.)
+    node._phase_goto()
+    measurement(node,111,0.)
+    node._phase_goto()
+    assert node.phase == 'FAULT' and node.goto_goal is None
+    assert node.commands[-1] == (0,0,0)
+
+
 def test_parameters_validate_whole_request_and_take_effect(node):
-    invalid = [NS(name='navigation.velocity_window_s',value=.6)]
+    invalid = [NS(name='navigation.velocity_window_s',value=1.1)]
     assert not node.on_tuning_parameters(invalid).successful
     assert node.velocity_window_s == .15
     assert not node.on_tuning_parameters([NS(name='limits.max_linear',value=float('nan'))]).successful
@@ -150,3 +177,43 @@ def test_nonzero_heading_command_rotates_once(node):
     vx,vy,_ = node.commands[-1]
     assert abs(vx) < 1e-9 and vy == pytest.approx(-.4)
     # The chassis consumes these components directly as body velocities.
+
+
+def test_holonomic_navigation_respects_keep_heading_and_approach_speed(node):
+    node.goto_goal = (.2, 0, 0, False)
+    measurement(node, 100, 0, yaw=math.pi/2)
+    node._phase_goto()
+    vx, vy, wz = node.commands[-1]
+    assert wz == 0
+    assert math.hypot(vx, vy) == pytest.approx(node.approach_speed)
+    node.face_travel = True
+    node._phase_goto()
+    assert node.commands[-1][2] < 0
+
+
+@pytest.mark.parametrize('phase,stale', [('FAULT', False), ('ESTOP', False), ('IDLE', True)])
+def test_goto_refuses_fault_or_stale_localization(node, phase, stale):
+    node.phase = phase
+    node.now += 1.1 if stale else 0
+    original = node.goto_goal
+    ok, why = node._accept_goto(3.6, 4.5, 0., False)
+    assert not ok and why and node.goto_goal == original
+
+
+def test_rviz_goal_in_odometry_frame_is_not_treated_as_field_coordinates(node):
+    messages = []
+    node.get_logger = lambda: NS(warn=messages.append)
+    node.on_goal_pose(NS(header=NS(frame_id='camera_init')))
+    assert messages and node.goto_goal == (1, 0, 0, False)
+
+
+def test_odometry_frame_pose_stops_field_navigation(node):
+    node.on_pose(NS(header=NS(frame_id='camera_init')))
+    assert not node.has_pose and node.commands[-1] == (0, 0, 0)
+    assert not node._localization_ready()
+
+
+def test_healthy_goto_accepts_configured_passing_point(node):
+    accepted, message = node._accept_goto(3.6, 4.5, .5, True)
+    assert accepted and message
+    assert node.goto_goal == (3.6, 4.5, .5, True) and node.phase == 'GOTO'

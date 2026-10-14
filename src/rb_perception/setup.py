@@ -13,6 +13,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
+        (os.path.join("share", package_name, "models"), glob("models/*")),
     ],
     install_requires=["setuptools"],
     # 声明它，colcon test 才会用 pytest 跑 test/ 目录

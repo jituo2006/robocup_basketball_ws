@@ -1,0 +1,16 @@
+[Unit]
+Description=RoboCup system UTC to radar NIC TAI clock on %i
+After=robocup-ptp4l@%i.service
+Requires=robocup-ptp4l@%i.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Only the NIC clock is adjusted. NTP retains ownership of CLOCK_REALTIME.
+# -w reads currentUtcOffset from our ptp4l rather than assuming zero offset.
+ExecStart=/usr/sbin/phc2sys -s CLOCK_REALTIME -c %i -w -z /run/robocup-ptp4l -m -q
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-"""机构【文本协议】的测试：STOP / ZERO / MOVE 1 90 5（抓）/ MOVE 1 0 5（放）。
+"""机构【文本协议】的测试：dji_stop / dji_zero / dji_move 1 90 5（抓）/ dji_move 1 0 5（放）。
 
 ⚠️ 这台机构的真实协议是文本行，不是仓库原来那套 11 字节二进制帧 ——
    "指令没反应"就是因为发的协议不对。测试只做静态检查，绝不真发指令。
@@ -13,7 +13,7 @@ def test_service_definition_exists_and_documents_the_protocol():
     assert srv.is_file(), "缺 rb_msgs/srv/SerialText.srv"
     txt = srv.read_text(encoding="utf-8")
     assert "string command" in txt and "bool success" in txt
-    for cmd in ("STOP", "ZERO", "MOVE 1 90 5", "MOVE 1 0 5"):
+    for cmd in ("dji_stop", "dji_zero", "dji_move 1 90 5", "dji_move 1 0 5"):
         assert cmd in txt, f"服务注释里应写明现场协议，缺 {cmd}"
 
 
@@ -66,6 +66,6 @@ def test_grab_place_presets_use_text_protocol():
             f"预设 {name} 里一条文本指令都没有 —— 是不是又用回二进制动作码了？"
         for s in steps:
             txt = str(s.get("text", "")).strip()
-            if txt.startswith("MOVE"):
+            if txt.startswith("dji_move"):
                 parts = txt.split()
                 assert len(parts) == 4, f"{name} 里 MOVE 参数个数不对: {txt}"

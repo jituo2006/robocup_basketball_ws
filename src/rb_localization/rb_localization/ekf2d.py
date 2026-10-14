@@ -1,18 +1,4 @@
-"""极简 2D EKF（状态 x, y, yaw）。
-
-为什么自己写而不用 robot_localization
--------------------------------------
-robot_localization 只能吃"位姿/速度"类输入，而本项目最关键的观测是
-**视觉看到的定位柱方位角**（bearing-only landmark），
-robot_localization 表达不了。所以这里写一个最小的 3 维 EKF，
-predict 用底盘里程计，update 支持两类观测：
-  1. 绝对位姿（雷达 FAST-LIO 或全场定位板）
-  2. 已知位置的地标方位角（定位柱）
-
-状态约定
---------
-坐标系为**场地坐标系**（右手，x 沿场地长边 14m，y 沿 7.5m，yaw 逆时针为正）。
-"""
+"""2D EKF（x、y、yaw）：运动预测与位姿观测更新，坐标系为场地坐标系。"""
 
 from __future__ import annotations
 
@@ -77,29 +63,6 @@ def sensor_to_base_xy(ox: float, oy: float, oyaw: float,
             byaw)
 
 
-def camera_bearing_to_world(yaw: float, camera_yaw_offset: float, bearing_rad: float) -> float:
-    """把相机的目标方位角转成**场地坐标系**下的方位角（供 EKF 的 bearing 更新用）。
-
-    ⚠️ 这里是全项目最容易写反的一处，单独抽成函数就是为了能被测试锁住。
-
-    两套约定是**相反**的：
-
-    * `bearing_rad`（rb_perception 的检测结果）：**右正左负**，
-      即 atan2(px − cx, fx)，目标在画面右侧为正。
-    * 场地坐标系（EKF / `atan2(dy, dx)`）：**y 朝左、逆时针为正**（ROS 标准）。
-
-    所以要把相机的方位角**取负**再叠加车体朝向：
-
-        bearing_world = yaw + camera_yaw_offset − bearing_rad
-
-    其中 `camera_yaw_offset` 是相机光轴在车体系里的方向角（**逆时针为正**，
-    也就是"相机往左偏了多少"）。
-
-    举例：车头朝场地 +x（yaw=0），相机光轴与车头平行（offset=0），
-    目标在正右方 30° → 相机给 `bearing_rad = +30°`
-    → 场地坐标系下目标方位应是 **−30°**（在右边 = 负角）。
-    """
-    return wrap_pi(yaw + camera_yaw_offset - bearing_rad)
 
 
 @dataclass
@@ -113,9 +76,6 @@ class EkfConfig:
     # 观测噪声
     obs_std_xy: float = 0.15       # 绝对位姿 xy (m)
     obs_std_yaw: float = 0.08      # 绝对位姿 yaw (rad)
-    bearing_std: float = 0.05      # 方位角 (rad)
-    bearing_min_dist: float = 0.3  # 太近的地标方位角不可靠
-    bearing_max_dist: float = 8.0
 
 
 class Ekf2D:
@@ -200,44 +160,6 @@ class Ekf2D:
         R = np.diag([self.cfg.obs_std_xy ** 2, self.cfg.obs_std_xy ** 2, self.cfg.obs_std_yaw ** 2])
         self._kalman_update(residual, H, R)
 
-    # -- 更新：已知地标方位角（bearing-only）-------------------------------
-    def update_bearing(self, landmark_xy: tuple[float, float], bearing_meas_world: float) -> bool:
-        """bearing_meas_world = 机器人观测到的、**已在场地坐标系下**的方位角。
-
-        即：观测到的目标方向角（相对机器人朝向） + 当前 yaw 估计。
-        调用方负责把相机 bearing 通过安装外参转换到车体、再叠加 yaw。
-        """
-        if not self.initialized:
-            return False
-
-        lx, ly = landmark_xy
-        dx = lx - self.x[0]
-        dy = ly - self.x[1]
-        d2 = dx * dx + dy * dy
-        d = math.sqrt(d2)
-        if d < self.cfg.bearing_min_dist or d > self.cfg.bearing_max_dist:
-            return False
-
-        # 残差 = 观测到的世界方位角 − 地标在当前估计下的几何方位角
-        # （原来这里还多写了一句基于 predicted 的 residual，随即被本行覆盖，
-        #   属于死代码；等价形式反而更容易看错，故删除。）
-        geometric = math.atan2(dy, dx)
-        residual = np.array([wrap_pi(bearing_meas_world - geometric)])
-
-        # ⚠️ H 的符号曾经是反的，会让方位角更新**发散**（实测估计跑到 (10,4) )。
-        # 关键在于：卡尔曼更新要的是 H = ∂h_pred/∂x，其中 h_pred 是"给定状态时
-        # 传感器**应该**读到什么"。相机读数是相对车体的：
-        #     b_pred = atan2(ly−y, lx−x) − yaw − 安装偏置
-        # 所以
-        #     ∂b_pred/∂x   = +dy/d²
-        #     ∂b_pred/∂y   = −dx/d²
-        #     ∂b_pred/∂yaw = −1
-        # 而 S = H P Hᵀ + R 对 H 取负不变，符号会原样传到增益上 →
-        # 用 ∂ν/∂x（即上面三个分量取反）会让每次修正都朝背离真值的方向走。
-        H = np.array([[dy / d2, -dx / d2, -1.0]])
-        R = np.array([[self.cfg.bearing_std ** 2]])
-        self._kalman_update(residual, H, R)
-        return True
 
     # -- 卡尔曼更新 --------------------------------------------------------
     def _kalman_update(self, residual: np.ndarray, H: np.ndarray, R: np.ndarray) -> None:

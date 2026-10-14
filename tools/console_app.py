@@ -35,11 +35,18 @@ import json
 import math
 import os
 import signal
+import shlex
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from intake_control import start_intake, stop_intake
+from match_round_route import load_config as load_round_config, validate_mode as validate_round_mode
+from match_round_steps import validate_step as validate_round_step, workflow_state
 
 import numpy as np
 
@@ -55,6 +62,7 @@ WS = Path("/home/user/robocup_basketball_ws")
 BALL_BOX_STYLES = {
     "ball_basketball": ("篮球", (0, 165, 255)),
     "ball_volleyball": ("排球", (255, 190, 0)),
+    "pillar": ("定位柱", (80, 230, 80)),
 }
 
 
@@ -81,7 +89,7 @@ def overlay_options(options=None):
     return result
 
 
-def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
+def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85, center_tolerance=.04):
     """Annotate camera-space boxes only; LiDAR candidates have no image box."""
     import cv2
     boxes = []
@@ -101,13 +109,16 @@ def draw_ball_boxes(jpeg, detections, min_confidence=0.25, quality=85):
             boxes.append((label, confidence, (x1, y1, x2, y2)))
         except (AttributeError, TypeError, ValueError):
             continue
-    if not boxes:
-        return jpeg
     try:
         frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             return jpeg
         height, width = frame.shape[:2]
+        # 与寻球脚本默认中心容差相同：画面宽度的 ±4%。
+        left, right, center = int(width*(.5-center_tolerance)), int(width*(.5+center_tolerance)), int(width*.5)
+        cv2.line(frame, (left, 0), (left, height-1), (0, 220, 0), 1)
+        cv2.line(frame, (right, 0), (right, height-1), (0, 220, 0), 1)
+        cv2.line(frame, (center, 0), (center, height-1), (0, 220, 0), 1)
         text = []
         for label, confidence, coords in boxes:
             x1, y1, x2, y2 = coords
@@ -364,6 +375,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
     cx, cy, cyaw = (pose if pose else (0.0, 0.0, 0.0))
     L = float(field.get("length_m", 14.0))
     W = float(field.get("width_m", 7.5))
+    from field_coordinates import X_ORIGIN_M, MIDFIELD_Y_M
 
     # ── 两套坐标变换 ──────────────────────────────────────────────
     if view == "robot":
@@ -383,8 +395,8 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         # 出发区可能从【任一】边线向外突出（现场是上下边线），
         # 所以四个方向都留出余量，否则突出的方块会被裁掉。
         _ext = float(field.get("start_zone_offset_m", 1.0) or 0.0) + 0.6
-        X0, X1 = -_ext, L + _ext
-        Y0, Y1 = -_ext, W + _ext
+        X0, X1 = -X_ORIGIN_M - _ext, W - X_ORIGIN_M + _ext
+        Y0, Y1 = -_ext, L + _ext
         _fl, _fw = X1 - X0, Y1 - Y0
         scale = min((LIDAR_W - 2 * margin) / max(_fl, 1e-3),
                     (LIDAR_H - 2 * margin) / max(_fw, 1e-3)) * 0.98
@@ -393,7 +405,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
 
         def to_px(wx, wy):
             # 用"场外左下角"当原点，让整个可见区居中
-            px, py = field_to_screen(wx - X0, wy - Y0, 0.0, 0.0, scale, margin,
+            px, py = field_to_screen(W - wy - X_ORIGIN_M - X0, wx - Y0, 0.0, 0.0, scale, margin,
                                      mirror_x=_mir, mirror_y=_miry,
                                      field_l=_fl, field_w=_fw)
             return int(px), int(py)
@@ -415,8 +427,12 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         pts = np.array([to_px(x, y) for x, y in ((0, 0), (L, 0), (L, W), (0, W))], np.int32)
         cv2.polylines(img, [pts], True, (90, 90, 90), 2, cv2.LINE_AA)
         if view != "robot":
-            cv2.line(img, to_px(L / 2, 0), to_px(L / 2, W), (52, 52, 52), 1, cv2.LINE_AA)
-            cv2.line(img, to_px(0, W / 2), to_px(L, W / 2), (52, 52, 52), 1, cv2.LINE_AA)
+            cv2.line(img, to_px(MIDFIELD_Y_M, 0), to_px(MIDFIELD_Y_M, W), (180, 180, 180), 2, cv2.LINE_AA)
+            q = to_px(MIDFIELD_Y_M, W / 2)
+            texts.append((f"中场线 y={MIDFIELD_Y_M:g}", (q[0]+8,q[1]-8), (210,210,210), 12))
+            cv2.line(img, to_px(0, W-X_ORIGIN_M), to_px(L, W-X_ORIGIN_M), (110, 110, 110), 1, cv2.LINE_AA)
+            q = to_px(L, W-X_ORIGIN_M)
+            texts.append(("基准线 x=0", (q[0]+8,q[1]+18), (170,170,170), 12))
 
         # ── 场地各处区域（全部从配置读，现场量完改配置就变）──────────────
         def _poly(world_pts, color, thick=1, close=True, dash=False):
@@ -479,7 +495,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
                 cxp = sum(a for a, _ in poly) / len(poly)
                 cyp = sum(b for _, b in poly) / len(poly)
                 q = to_px(cxp, cyp)
-                texts.append(("传球区", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
+                texts.append(("旧传球区占位（待复核）", (q[0] - 16, q[1] + 4), (190, 160, 90), 13))
             except (TypeError, ValueError):
                 pass
 
@@ -539,7 +555,7 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
             keep_near = ((np.abs(fwd) < LIDAR_RANGE_M * 1.2) &
                          (np.abs(left) < LIDAR_RANGE_M * 1.2))
         else:
-            px_f, py_f = field_to_screen(p[:, 0] - X0, p[:, 1] - Y0, 0.0, 0.0, scale, 30.0,
+            px_f, py_f = field_to_screen(W - p[:, 1] - X_ORIGIN_M - X0, p[:, 0] - Y0, 0.0, 0.0, scale, 30.0,
                                          mirror_x=_mir, mirror_y=_miry,
                                          field_l=_fl, field_w=_fw)
             keep_near = np.ones(len(p), dtype=bool)     # 场地模式不按半径裁
@@ -550,6 +566,22 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         zn = np.clip((z + 0.3) / 2.0, 0, 1)
         cols = np.stack([(60 + 195 * zn), (200 - 120 * zn), (255 - 200 * zn)], axis=1)
         img[py[m], px[m]] = cols.astype(np.uint8)
+
+    if not relative:
+        try:
+            from first_pass_route import load_config as training_config
+            from field_coordinates import to_legacy_point
+            training=training_config()
+            if training.get('coordinate_frame')=='field_center_y_basket':
+                for key,label,color in [('pass_point','传球停车点',(60,190,255)),
+                                        ('return_point','第二段搜索起点',(200,130,230)),
+                                        ('second_scan_end','第二段搜索终点',(255,190,60))]:
+                    x,y=training[key]
+                    q=to_px(*to_legacy_point((x,y),W))
+                    cv2.drawMarker(img,q,color,cv2.MARKER_DIAMOND,12,2)
+                    texts.append((f'{label} ({x:g},{y:g})',(q[0]+9,q[1]-(26 if key=='second_scan_end' else 10)),color,12))
+        except (ValueError,OSError,KeyError):
+            pass
 
     # 机器人（红箭头）
     rx, ry = to_px(cx, cy)
@@ -602,9 +634,12 @@ def render_lidar(cloud_xyz, pose, dets, field, launcher_ok, loc_ok,
         cv2.line(img, (rx, ry), (px, py), col, 1, cv2.LINE_AA)
         texts.append((f"{label} {r:.2f}m", (px + 12, py - 8), col, 13))
 
+    # Left-hand HUD must use the same public coordinates as the map.
+    from field_coordinates import to_public_pose
+    hx,hy,hyaw=to_public_pose((cx,cy,cyaw),W) if not relative else (cx,cy,cyaw)
     # 左上角文字状态
     lines = [
-        ((f"位姿 ({cx:+.2f}, {cy:+.2f})   yaw {math.degrees(cyaw):+.0f}°" if pose is not None
+        ((f"位姿 ({hx:+.2f}, {hy:+.2f})   yaw {math.degrees(hyaw):+.0f}°" if pose is not None
           else "位姿过期或未收到：暂停显示机器人")
          + ("" if view == "robot"
             else f"   [x→{'左' if mirror_x else '右'} y→{'下' if mirror_y else '上'}]"),
@@ -884,6 +919,10 @@ class Bridge:
 
     def _on_raw_image(self, m):
         """未压缩图 → JPEG（只在还没收到 compressed 时用，避免覆盖高质量源）。"""
+        # 压缩画面已经可用时不再把同一帧原图重编码成 JPEG。
+        with self.lock:
+            if self.state["cam"] is not None and time.time()-self.state["cam_stamp"] <= 1.0:
+                return
         try:
             import cv2
             h, w, enc = m.height, m.width, m.encoding
@@ -1043,7 +1082,7 @@ class Bridge:
         return self._call(self.cli_goto, req)
 
     def launcher_text(self, command: str):
-        """发一行文本指令（STOP / ZERO / MOVE 1 90 5）。这台机构的真实协议。"""
+        """发一行文本指令（dji_stop / dji_zero / dji_move 1 90 5）。这台机构的真实协议。"""
         from rb_msgs.srv import SerialText
         req = SerialText.Request()
         req.command = str(command)
@@ -1219,7 +1258,7 @@ class Bridge:
             cached = self._overlay_cache.get(slot)
             if cached and cached[0] == key:
                 return cached[2]
-            output = draw_ball_boxes(image, detections, options["min_confidence"], options["jpeg_quality"])
+            output = draw_ball_boxes(image, detections, options["min_confidence"], options["jpeg_quality"], center_tolerance=.025 if slot == "rear" else .04)
             self._overlay_cache[slot] = (key, image, output)
             return output
 
@@ -1290,11 +1329,13 @@ class ActionGuard:
     CLASSES = {
         # 会驱动底盘的（脚本会接管 /cmd_vel）
         "TEST_BALL": "motion", "TEST_PERIMETER": "motion",
+        "TEST_FIRST_PASS": "motion", "TEST_ROUND1": "motion", "TEST_ROUND2": "motion", "TEST_ROUND3": "motion",
         "TEST_GRAB_PLACE": "motion", "TEST_CHASSIS_DRY": "motion",
         "GRAB_PLACE": "motion", "GOTO": "motion", "JOG": "motion",
         # 机构串口（文本协议必须串行，连发会叠指令）
         "LAUNCH": "mech", "LAUNCH_TEXT": "mech", "LAUNCH_INIT": "mech",
-        "LAUNCH_GRAB": "mech", "LAUNCH_PLACE": "mech",
+        "LAUNCH_GRAB": "mech", "LAUNCH_PLACE": "mech", "LAUNCH_PASS": "mech",
+        "INTAKE_START": "mech", "INTAKE_STOP": "mech",
         # 整栈起停
         "STACK_START": "stack", "STACK_STOP": "stack", "STARTUP_FLOW": "stack",
         # 底盘 CAN
@@ -1327,7 +1368,8 @@ class ActionGuard:
     #    冷却会把 UI 的点动按钮废掉（按一下要等 2 秒）✗。
     #    它们只需要"不许并发"（前端 _inflight + 后端 busy 已经在管）。
     NO_COOLDOWN = {"JOG", "IDLE", "PASS", "SHOOT", "LAUNCH_TEXT",
-                   "LAUNCH_GRAB", "LAUNCH_PLACE", "LAUNCH_INIT"}
+                   "LAUNCH_GRAB", "LAUNCH_PLACE", "LAUNCH_INIT", "LAUNCH_PASS",
+                   "INTAKE_START", "INTAKE_STOP"}
     DEFAULT_COOLDOWN = 2.0
     # 长动作的"在跑"最长挂多久（超时自动释放，别把界面锁死）
     BUSY_TIMEOUT = 180.0
@@ -1865,15 +1907,35 @@ class ChassisManager:
 # 这些脚本会**接管 /cmd_vel**（用 --takeover 让 mission 节点退出），
 # 所以页面上点之前必须确认：任务停了、急停手段就绪。
 DEBUG_TOOLS = {
+    "TEST_FIRST_PASS": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "first-pass", "--takeover", "--yes", "--first-pass-release", "none"],
+        "label": "第一阶段两次铲球转运",
+    },
+    "TEST_ROUND1": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round1", "--takeover", "--yes"],
+        "label": "第1回合：预装球 → 中线取第2球 → 回位",
+    },
+    "TEST_ROUND2": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round2", "--takeover", "--yes"],
+        "label": "第2回合：中线取球 → 动作点（可选双次流程）",
+    },
+    "TEST_ROUND3": {
+        "script": "tools/test_perimeter_ball.py",
+        "args": ["--route", "round3", "--takeover", "--yes"],
+        "label": "第3回合：三分区取球 → 动作点（可选双次流程）",
+    },
     "TEST_BALL": {
         "script": "tools/test_perimeter_ball.py",
-        "args": ["--skip-perimeter", "--takeover", "--yes"],
-        "label": "寻球 → 走到球前 50cm → 转身背对球",
+        "args": ["--route", "fixed", "--takeover", "--yes"],
+        "label": "右转90° → 中线附近 → 图右端 → 向图左端找球 → 转180°后退铲球",
     },
     "TEST_PERIMETER": {
         "script": "tools/test_perimeter_ball.py",
-        "args": ["--takeover", "--yes"],
-        "label": "绕场一圈 → 寻球 → 走到球前 → 转身背对球",
+        "args": ["--route", "legacy", "--takeover", "--yes"],
+        "label": "绕场一圈 → 寻球 → 对准并停车",
     },
     "TEST_GRAB_PLACE": {
         "script": "tools/test_grab_place.py",
@@ -1886,6 +1948,72 @@ DEBUG_TOOLS = {
         "label": "底盘干跑自检（不下发 CAN，安全）",
     },
 }
+
+
+def fixed_seek_tool_args(args):
+    """Front-end adjustments for the final approach only."""
+    distance = float(args.get('scoop_distance', .70))
+    speed = float(args.get('scoop_speed', .08))
+    if not math.isfinite(distance) or distance <= .02:
+        raise ValueError('靠近距离须大于0.02米')
+    if not math.isfinite(speed) or not 0 < speed <= .25:
+        raise ValueError('靠近速度须在0到0.25米/秒之间')
+    use_intake = args.get('start_intake', True)
+    if not isinstance(use_intake, bool):
+        raise ValueError('start_intake 须为布尔值')
+    return ['--route-scoop-distance', str(distance), '--route-scoop-speed', str(speed),
+            '--route-scoop-timeout', str(max(15., distance/speed+5.)),
+            '--route-intake' if use_intake else '--no-route-intake']
+
+
+def first_pass_tool_args(args):
+    from first_pass_route import load_config
+    cfg, base = load_config(), load_round_config()
+    first = float(args.get('first_scoop', base['middle']['scoop_m']))
+    second = float(args.get('second_scoop', cfg['second_scoop_m']))
+    for value in (first, second):
+        if not math.isfinite(value) or value <= .02:
+            raise ValueError('两次铲球距离须大于0.02米')
+    common = fixed_seek_tool_args({'scoop_distance': first,
+        'scoop_speed': args.get('scoop_speed', .08),
+        'start_intake': args.get('start_intake', True)})
+    return ['--round-middle-scoop', str(first), '--first-pass-second-scoop', str(second)] + common
+
+
+def match_round_tool_args(args, round_number=2):
+    task, mode = args.get('task', 'pass'), args.get('mode', 'collect')
+    whole_round = args.get('whole_round', False)
+    if not isinstance(whole_round, bool):
+        raise ValueError('whole_round 须为布尔值')
+    if whole_round:
+        mode = 'cycle'
+    cfg = load_round_config()
+    first_ball = args.get('first_ball', 'search')
+    if first_ball not in ('preloaded', 'search'):
+        raise ValueError('首球方式须为 preloaded/search')
+    cfg['round1_first_ball'] = first_ball
+    release_kind = args.get('release_kind', 'drop')
+    use_mechanism = args.get('start_intake', True)
+    validate_round_mode(cfg, task, mode, release_kind, mechanism_enabled=use_mechanism)
+    step = args.get('step')
+    if whole_round and step is not None:
+        raise ValueError('整轮测试不能指定单个阶段')
+    if step is not None:
+        validate_round_step(round_number, task, step, cfg, release_kind,
+                            mechanism_enabled=use_mechanism)
+    # 复用吸球速度/开关校验，各区域接近距离独立配置。
+    base = fixed_seek_tool_args({'scoop_speed': args.get('scoop_speed', .08),
+                                'start_intake': args.get('start_intake', True)})
+    result = ['--round-task', task, '--round-mode', mode,
+              '--round-release-kind', release_kind, '--round-first-ball', first_ball] + base
+    if step is not None:
+        result += ['--round-step', str(step)]
+    for area in ('middle', 'arc', 'inner'):
+        value = float(args.get(area+'_scoop', cfg[area]['scoop_m']))
+        if not math.isfinite(value) or value <= .02:
+            raise ValueError('各区域靠近距离须大于0.02米')
+        result += ['--round-'+area+'-scoop', str(value)]
+    return result
 
 
 class ToolRunner:
@@ -1908,7 +2036,7 @@ class ToolRunner:
                                  raw.decode("utf-8", "replace").rstrip()))
             except Exception:  # noqa: BLE001
                 pass
-        code = proc.poll()
+        code = proc.wait()
         lvl = "TOOL" if code == 0 else "ERROR"
         self.log.append((time.time(), lvl, name, f"— {name} 结束，退出码 {code} —"))
 
@@ -1924,9 +2052,9 @@ class ToolRunner:
             # 用显式的 env，避免控制台是别的方式起的导致子进程缺 ROS 环境
             cmd = ["bash", "-c",
                    "source /opt/ros/humble/setup.bash && "
-                   f"source {WS}/install/setup.bash && "
-                   f"exec python3 {spec['script']} " +
-                   " ".join(list(spec["args"]) + list(extra_args or []))]
+                   f"source {shlex.quote(str(WS / 'install/setup.bash'))} && "
+                   "exec " + shlex.join(['python3', spec['script']] +
+                                        list(spec["args"]) + list(extra_args or []))]
             self.log.append((time.time(), "TOOL", key, f"=== 启动：{spec['label']} ==="))
             self.proc = subprocess.Popen(
                 cmd, cwd=str(WS), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -2033,6 +2161,64 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
     def index():
         return send_file(str(Path(__file__).with_name("console_ui.html")))
 
+
+    @app.route('/api/first-pass-config')
+    def first_pass_config():
+        try:
+            from first_pass_route import load_config
+            cfg, base = load_config(), load_round_config()
+            return jsonify({'ok': True, **cfg, 'first_release': 'none',
+                            'first_scoop_m': base['middle']['scoop_m'], 'scoop_speed': .08,
+                            'pass_point': cfg.get('pass_point', base['release']['pass']['point'])})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
+    @app.route('/api/round-config')
+    def round_config():
+        try:
+            cfg = load_round_config()
+            from field_coordinates import to_public_point, PUBLIC_FRAME
+            return jsonify({'ok': True, 'coordinate_frame':PUBLIC_FRAME,
+                            'middle_scan_public':{'start':to_public_point([cfg['middle']['right_x'],cfg['middle']['y']]),
+                                                  'end':to_public_point([cfg['middle']['left_x'],cfg['middle']['y']])},
+                            'speed_mps': cfg['speed_mps'],
+                            'start_delay_s': cfg['start_delay_s'],
+                            'forward_m': cfg['start'][1]-cfg['middle']['y'],
+                            'middle_scan': {'start_x': cfg['middle']['right_x'],
+                                            'end_x': cfg['middle']['left_x'],
+                                            'preposition_m': cfg['middle']['right_x']-cfg['start'][0],
+                                            'distance_m': cfg['middle']['right_x']-cfg['middle']['left_x']},
+                            'scoop_m': {area: cfg[area]['scoop_m'] for area in ('middle', 'arc', 'inner')},
+                            'pillar_alignment': cfg.get('pillar_alignment', {}),
+                            'vision_classes': ['篮球', '排球', '定位柱'],
+                            'release_ready': {task: bool(action['commands']) and action['aim'] is not None
+                                              for task, action in cfg['release'].items()}})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
+    @app.route('/api/round-state')
+    def round_state():
+        try:
+            task = request.args.get('task', 'pass')
+            first_ball = request.args.get('first_ball', 'search')
+            if first_ball not in ('search', 'preloaded'):
+                raise ValueError('首球方式无效')
+            return jsonify({'ok': True, 'rounds': [workflow_state(n, task, first_ball) for n in (1, 2, 3)]})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
+    @app.route('/api/round-reset', methods=['POST'])
+    def round_reset():
+        try:
+            if tool.running:
+                raise ValueError('实验正在执行，请先停止再重开')
+            from match_round_steps import clear_session
+            data = request.get_json() or {}
+            clear_session(data.get('round'), data.get('task', 'pass'))
+            return jsonify({'ok': True, 'msg': '本轮已重开，请摆回出发区再运行第1阶段'})
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            return jsonify({'ok': False, 'msg': str(exc)})
+
     # 下发守卫（防重复/防冲突）—— 见 ActionGuard 的注释
     guard = ActionGuard()
 
@@ -2071,7 +2257,13 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             s["flow_step"] = checks.state["flow_step"]
             s["can_result"] = checks.state["can_result"]
         s["stack_enabled"] = stack.enabled
-        s["field"] = field
+        from field_coordinates import public_field,to_public_pose,to_public_point
+        s['coordinate_frame']='field_center_y_basket'
+        if s.get('pose') is not None and s.get('localization_mode')!='relative':
+            s['pose']=to_public_pose(s['pose'],field.get('width_m',7.5))
+        s['lb_cands']=[{**c,'field':to_public_point(c['field'],field.get('width_m',7.5))}
+                       if c.get('field') is not None else c for c in s.get('lb_cands',[])]
+        s["field"] = public_field(field)
         s["now"] = time.time()
         s["logs"] += [{"t": tt, "lvl": lv, "src": src, "msg": ms}
                       for (tt, lv, src, ms) in list(stack.log)[-40:]]
@@ -2179,9 +2371,15 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"),
                                         bridge.launcher_text(
                                             str(src.get("command") or "").strip()))))
+            if name == 'INTAKE_START':
+                ok, msg = start_intake(bridge.launcher_text)
+                return jsonify({'ok': ok, 'msg': f'吸球测试：{msg}'})
+            if name == 'INTAKE_STOP':
+                ok, msg = stop_intake(bridge.launcher_text)
+                return jsonify({'ok': ok, 'msg': f'停止吸球：{msg}'})
             if name == "LAUNCH_INIT":
-                # 现场要的开机顺序：先 STOP，再 ZERO 初始化
-                seq = [("STOP", 0.25), ("ZERO", 0.6)]
+                # 现场要的开机顺序：先 dji_stop，再 dji_zero 初始化
+                seq = [("dji_stop", 0.25), ("dji_zero", 0.6)]
                 out = []
                 allok = True
                 for cmd, wait in seq:
@@ -2193,11 +2391,21 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     time.sleep(wait)
                 return jsonify({"ok": allok, "msg": " / ".join(out)})
             if name == "LAUNCH_GRAB":
-                ok, msg = bridge.launcher_text("MOVE 1 90 5")
-                return jsonify({"ok": ok, "msg": f"抓取 MOVE 1 90 5 → {msg}"})
+                ok, msg = start_intake(bridge.launcher_text)
+                return jsonify({"ok": ok, "msg": f"抓取 dji_move 1 90 5 → {msg}"})
+            if name == "LAUNCH_PASS":
+                action = load_round_config()['release']['pass']
+                replies = []
+                for command in action['commands']:
+                    ok, msg = bridge.launcher_text(command)
+                    replies.append(f'{command}: {msg}')
+                    if not ok:
+                        return jsonify({'ok': False, 'msg': ' / '.join(replies)})
+                    time.sleep(action['wait_s'])
+                return jsonify({'ok': bool(replies), 'msg': ' / '.join(replies)})
             if name == "LAUNCH_PLACE":
-                ok, msg = bridge.launcher_text("MOVE 1 0 5")
-                return jsonify({"ok": ok, "msg": f"放下 MOVE 1 0 5 → {msg}"})
+                ok, msg = bridge.launcher_text("dji_move 1 0 5")
+                return jsonify({"ok": ok, "msg": f"放下 dji_move 1 0 5 → {msg}"})
             if name == "LAUNCH":
                 # ⚠️ 兼容两种请求体：前端发 {"name":..., "args":{...}}，
                 #    手工 curl 常直接发 {"name":..., "action":7}。
@@ -2208,9 +2416,10 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                     int(src.get("action", 0)), int(src.get("speed", 0)),
                     int(src.get("angle", 0))))))
             if name == "GOTO":
-                return jsonify(dict(zip(("ok", "msg"), bridge.goto(
-                    float(args.get("x", 0)), float(args.get("y", 0)),
-                    float(args.get("yaw", 0)), bool(args.get("align", False))))))
+                from field_coordinates import to_legacy_pose
+                x,y,yaw=to_legacy_pose((float(args.get('x',0)),float(args.get('y',0)),
+                                        float(args.get('yaw',0))),field.get('width_m',7.5))
+                return jsonify(dict(zip(('ok','msg'),bridge.goto(x,y,yaw,bool(args.get('align',False))))))
             if name == "JOG":
                 return jsonify(dict(zip(("ok", "msg"), bridge.jog(
                     float(args.get("vx", 0)), float(args.get("vy", 0)),
@@ -2286,7 +2495,12 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             if name == "STARTUP_FLOW":
                 return jsonify(dict(zip(("ok", "msg"), checks.startup_flow(stack))))
             if name in DEBUG_TOOLS:
-                return jsonify(dict(zip(("ok", "msg"), tool.start(name))))
+                extra = fixed_seek_tool_args(args) if name == "TEST_BALL" else []
+                if name == 'TEST_FIRST_PASS':
+                    extra = first_pass_tool_args(args)
+                if name in ('TEST_ROUND1', 'TEST_ROUND2', 'TEST_ROUND3'):
+                    extra = match_round_tool_args(args, int(name[-1]))
+                return jsonify(dict(zip(("ok", "msg"), tool.start(name, extra))))
             return jsonify({"ok": False, "msg": f"未知动作 {name}"})
         except Exception as e:  # noqa: BLE001
             return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"})

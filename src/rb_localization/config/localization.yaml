@@ -4,10 +4,7 @@
 #    不要写成 parameters=["<此文件路径>"]，那样 ROS 会当作 --params-file 解析而报错。
 #
 # ─────────────────────────────────────────────────────────────────────
-# 定位方案：雷达（FAST-LIO）+ 视觉（定位柱）
-#
-# 为什么不用全场定位板：RoboCup 规则 §2.4 的场地器材清单里没有"全场定位系统"，
-#   用队里自架的外部定位有合规风险。雷达 + 规则提供的定位柱是完全车载、合规的方案。
+# 定位方案：FAST-LIO 雷达惯性定位 + 2D EKF
 #
 # 场地：1/4 标准篮球场 长 14m × 宽 7.5m
 # 场地坐标系：原点建议放在某个出发区角点，x 沿 14m 方向，y 沿 7.5m 方向
@@ -70,24 +67,14 @@ odom_frame_conversion:
   odom_frame: "camera_init"
 
 sources:
-  # 雷达 FAST-LIO 的输出。既提供 twist（做预测）也提供 pose（做绝对观测）
+  # FAST-LIO 输出 pose：使用位姿增量预测，再进行位姿观测更新。
   odom_topic: "/Odometry"
   use_odom_pose_as_abs: true
   # 真实位置输入过期即发布 ok=false；ROS 参数 source_timeout_s 支持在线调参。
-  source_timeout_s: 0.5
+  source_timeout_s: 1.0
 
   # 可选：另一路独立的绝对位姿。雷达方案下留空。
   abs_pose_topic: ""
-
-  detections_topic: "/perception/detections"
-
-  # 相机光轴相对车体前进方向的偏置（**单位是弧度**）。相机装歪了就填这里。
-  # ⚠️ 曾误填 30.0 —— 那是 30 **弧度** = 4.77 圈 = 279°，不是 30°。
-  #    如果相机确实偏了 30°，应该填 0.5236（= 30 × π/180）。
-  #    若相机光轴与车头平行，填 0.0。
-  #    标法：把车正对一个已知方位的目标，看 /perception/detections 里它的
-  #          bearing_rad，差多少就填多少（弧度）。
-  camera_yaw_offset_rad: 0.0
 
 output:
   pose_topic: "/localization/pose"
@@ -110,15 +97,3 @@ ekf:
   sigma_w: 0.05
   obs_std_xy: 0.10       # 雷达位姿观测噪声（比定位板小，因为它是车载自测）
   obs_std_yaw: 0.06
-  bearing_std: 0.05      # 定位柱方位角观测噪声
-  bearing_min_dist: 0.5  # 太近的定位柱方位角不可靠
-  bearing_max_dist: 9.0
-
-# 定位柱的实际摆放位置（场地坐标，单位 m）。
-# 规则：定位柱放在"传球目标位/投篮目标位"，直径 20cm、高 1m、蓝绿相间。
-# ⚠️ 每轮抽签后位置可能变 —— **比赛当天必须按实际摆放填入**。
-landmarks: []
-# 例如：
-# landmarks:
-#   - {x: 10.5, y: 3.75}     # 传球目标位的定位柱
-#   - {x: 9.5,  y: 3.75}     # 投篮目标位的定位柱
