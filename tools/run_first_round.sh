@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 第一轮比赛流程：首球预装 → 传球区 → 中线取第二球 → 传球区 → 回A区。
-# 当前默认不连接机构；开启后执行配置的真实传球指令。
+# 默认开启机构，执行配置的铲球与真实传球指令。
 set -euo pipefail
-first_round_mechanism=--no-mechanism
+first_round_mechanism=--mechanism
 first_round_args=()
 for option in "$@"; do
   case "$option" in

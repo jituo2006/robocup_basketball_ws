@@ -159,10 +159,14 @@ def test_startup_shell_dispatches_selected_round_without_ros_or_hardware(tmp_pat
         return first_args[len(first_args)-1-first_args[::-1].index(flag)+1]
     assert last_value('--round-first-ball') == 'preloaded'
     assert last_value('--round-release-kind') == 'match'
-    assert '--no-mechanism' in first_args
+    assert '--mechanism' in first_args and '--no-mechanism' not in first_args
     enabled = subprocess.run(['bash', str(first_script), '--mechanism'], text=True, capture_output=True, check=True)
     enabled_args, _ = json.loads(enabled.stdout.splitlines()[-1])
     assert '--mechanism' in enabled_args and '--no-mechanism' not in enabled_args
+    disabled = subprocess.run(['bash', str(first_script), '--no-mechanism'],
+                              text=True, capture_output=True, check=True)
+    disabled_args, _ = json.loads(disabled.stdout.splitlines()[-1])
+    assert '--no-mechanism' in disabled_args and '--mechanism' not in disabled_args
 
 
 @pytest.mark.parametrize('number', [1, 2, 3])
