@@ -744,7 +744,15 @@ function applies(k) {
 }
 
 /* ── 一个区域按搜索顺序给出它的扫描点 ─────────────────────── */
-function areaPoints(area, r, tk) {
+/* ⚠️ rev 参数：这一阶段车会不会把这条扫描线【倒着扫】。
+   代码里 match_round_route.search_plan() 有
+       if cycle: angles = list(reversed(angles)) / ys = list(reversed(ys))
+   而 cycle = 0 if round_number == 1 else index-1
+   （round_number=轮次，index=第几个阶段，1 或 2）。
+   即：第1轮永远不倒；第2/3轮的【第2阶段】倒着扫。
+   中线（middle）代码里没有这个反转，所以它不吃 rev。
+   编辑器不跟着倒的话，图上箭头画的顺序就和车实际扫的顺序相反。 */
+function areaPoints(area, r, tk, rev) {
   const M = S.match;
   r = (r === undefined) ? round : r;
   tk = tk || task;
@@ -754,7 +762,7 @@ function areaPoints(area, r, tk) {
     const d = (sd && typeof sd === "object") ? (sd[String(r)] || "lr") : (sd || "lr");
     return d === "rl" ? [a, b] : [b, a];
   }
-  if (area === "arc") return arcPoints(tk, r);
+  if (area === "arc") return arcPoints(tk, r, rev);
   if (area === "inner") {
     /* 投篮时扫描线放到三分线内侧（球线 X=9 的右边），更贴投篮点 */
     const x = (tk === "shoot" && M.inner.x_shoot != null)
@@ -762,7 +770,10 @@ function areaPoints(area, r, tk) {
     const a = [x, M.inner.top_y], b = [x, M.inner.bottom_y];
     const d = (tk === "shoot") ? (M.inner.dir_shoot || "tb")
                                : (M.inner.dir_pass || "bt");
-    return d === "bt" ? [b, a] : [a, b];
+    let pts = d === "bt" ? [b, a] : [a, b];
+    /* rev：本阶段车把这条线倒着扫（见下面 rev 的说明）；不要原地反转 */
+    if (rev) pts = pts.slice().reverse();
+    return pts;
   }
   return [];
 }
@@ -815,11 +826,16 @@ function routeSeq(r, tk) {
   if (r === "all") return [];
   const out = [];
   const list = routeList(tk, r);
+  /* 阶段：代码里 cycle = 0 if round_number == 1 else index-1，
+     index 是第几个阶段（1 或 2），而出球点就是两个阶段的分界。
+     ⇒ 第1轮永远不倒；第2/3轮里，第1个出球点【之后】的扫描线是倒着扫的。 */
+  let seenAction = 0;
   for (let ti = 0; ti < list.length; ti++) {
     const tok = list[ti];
     if (isAreaTok(tok)) {
       const area = tok.slice(1);
-      areaPoints(area, r, tk).forEach((p, i) => out.push({
+      const rev = (Number(r) !== 1) && seenAction >= 1;
+      areaPoints(area, r, tk, rev).forEach((p, i) => out.push({
         pt: p, tok, tokIndex: ti, area, kind: "area", sub: i
       }));
     } else if (isWaypoint(tok)) {
@@ -827,6 +843,7 @@ function routeSeq(r, tk) {
     } else {
       const p = tokenPoint(tok);
       if (p) out.push({ pt: p, tok, tokIndex: ti, kind: "node" });
+      if (tok === "passPt" || tok === "shootPt") seenAction++;
     }
   }
   return out;
@@ -941,10 +958,12 @@ function arcRadius(tk) {
   tk = tk || task;
   return (tk === "shoot" && a.radius_shoot != null) ? a.radius_shoot : a.radius;
 }
-function arcPoints(tk, r) {
+function arcPoints(tk, r, rev) {
   const a = S.match.arc;
   const R = arcRadius(tk);
-  return arcAnglesRef(tk, r).map(d => {
+  /* 不能原地 reverse：arcAnglesRef 返回的是拖动句柄在用的那个数组 */
+  const ang = rev ? arcAnglesRef(tk, r).slice().reverse() : arcAnglesRef(tk, r);
+  return ang.map(d => {
     const t = d * Math.PI / 180;
     return [a.center[0] + R * Math.cos(t),
             a.center[1] + R * Math.sin(t)];
