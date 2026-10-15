@@ -230,6 +230,38 @@ def needs_experiment_reset(args):
             or args.route in ('round1', 'round2', 'round3') and args.round_step is None))
 
 
+def sync_start_point_files(side):
+    """把出发点同步到 match_rounds.json 和 localization.yaml。
+
+    只给 --start-point 的话，路线会整份镜像，但定位配置里的 start_pose 还是旧的 ——
+    A/B 两点相隔 8.5 米，车会带着这个偏差跑，而且日志里看不出任何异常。
+
+    tools/set_start_point.sh 会把这两份都改掉（连 install/ 那一份一起改，
+    所以不用重新 colcon build）；定位节点那边的 /localization/reset_start
+    会重读文件里的 start_pose，所以也不用重启节点。两件事按顺序做就行。
+    """
+    if not side:
+        return
+    script = Path(__file__).with_name('set_start_point.sh')
+    if not script.is_file():
+        log('出发点', f'找不到 {script.name}，跳过同步；'
+                      f'定位起点可能还是上一次的值', C_WARN)
+        return
+    try:
+        done = subprocess.run(['bash', str(script), str(side).upper()],
+                              cwd=WS, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace')
+    except OSError as exc:
+        log('出发点', f'同步脚本无法执行：{exc}', C_WARN)
+        return
+    for line in (done.stdout or '').splitlines():
+        if line.strip():
+            log('出发点', line.strip())
+    if done.returncode != 0:
+        log('出发点', f'同步失败（退出码 {done.returncode}）：'
+                      f'{(done.stderr or "").strip()[:200]}', C_BAD)
+
+
 class Runner:
     """管 ROS 连接、位姿/检测缓存、以及三个基本动作（到点 / 转向 / 找球）。"""
 
@@ -1655,6 +1687,9 @@ def main(argv: list[str] | None = None) -> int:
     run = Runner(args)
     try:
         if needs_experiment_reset(args):
+            # 先把出发点同步到配置文件，再让定位重读并归零；
+            # 顺序不能反：反了的话这次归零用的还是上一次的出发点。
+            sync_start_point_files(getattr(args, 'start_point', None))
             run.reset_experiment_start()
         # ── [3/5] 位姿 + 场地 ───────────────────────────────────────────
         print("\n[3/5] 等待定位就绪（无启动超时，可点击停止取消）", flush=True)

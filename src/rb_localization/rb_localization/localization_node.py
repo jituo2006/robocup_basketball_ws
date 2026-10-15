@@ -186,12 +186,40 @@ class LocalizationNode(Node):
     def _refresh_tuning(self):
         self.source_timeout_s = float(self.get_parameter("source_timeout_s").value)
 
+    def _read_start_pose(self):
+        """只重读配置文件里的 start_pose，用于现场切 A/B 出发点。
+
+        节点是开机时把 start_pose 读进内存的。现场用 tools/set_start_point.sh
+        切到 B 时只改了文件（src/ 和 install/ 两份都改），节点内存里还是旧值 ——
+        不重读的话，车摆在 B 却按 A 的坐标归零，整体偏 8.5 米，而且是静默的。
+        读不到就返回 None，调用方沿用开机时的值。
+        """
+        if not self.config_file or not os.path.isfile(self.config_file):
+            return None
+        try:
+            with open(self.config_file, "r", encoding="utf-8") as fh:
+                cfg = yaml.safe_load(fh) or {}
+            sp = ((cfg.get("odom_frame_conversion", {}) or {}).get("start_pose", {}) or {})
+            return (float(sp.get("x", 0.0)), float(sp.get("y", 0.0)),
+                    float(sp.get("yaw", 0.0)))
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warn(f"重读 start_pose 失败，沿用开机时的值：{exc}")
+            return None
+
     def reset_experiment_start(self, request, response):
-        # The operator places the robot back at A facing the basket before a run.
+        # The operator places the robot back at the start before a run.
         if getattr(self, 'relative_mode', False) or not self.odom_conv_enabled or not self.use_odom_pose_as_abs:
             response.success = False
             response.message = '当前定位模式不支持场地起点重置'
             return response
+        # 重读文件里的 start_pose：现场用 tools/set_start_point.sh 切 A/B 时
+        # 只改了文件，这里不重读就会拿开机时的旧出发点归零（偏 8.5 米）。
+        fresh = self._read_start_pose()
+        if fresh is not None:
+            if fresh != self.configured_start_pose:
+                self.get_logger().info(
+                    f"出发点已从文件更新：{self.configured_start_pose} → {fresh}")
+            self.configured_start_pose = fresh
         self.experiment_cutoff = self.get_clock().now().nanoseconds * 1e-9
         self.odom_count = self.abs_count = 0
         self.start_pose = self.configured_start_pose
@@ -200,7 +228,8 @@ class LocalizationNode(Node):
         self.theta = 0.0
         self.publish_state(None)  # invalidate old health/pose stamps immediately
         response.success = True
-        response.message = '已清除旧定位基准，等待新雷达帧重新锚定出发区A'
+        response.message = (f'已清除旧定位基准，等待新雷达帧重新锚定起点 '
+                            f'({self.start_pose[0]:.2f}, {self.start_pose[1]:.2f})')
         self.get_logger().info(response.message)
         return response
 
