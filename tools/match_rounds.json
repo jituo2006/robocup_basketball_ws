@@ -11,33 +11,33 @@
     6.4,
     3.05
   ],
-  "speed_mps": 0.35,
+  "speed_mps": 0.5,
   "speed_profiles": {
     "1": {
-      "travel_mps": 0.62,
-      "carry_mps": 0.45,
+      "travel_mps": 0.85,
+      "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.5,
-      "approach_radius_m": 0.6,
+      "turn_rad_s": 0.85,
+      "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
     "2": {
-      "travel_mps": 0.62,
-      "carry_mps": 0.45,
+      "travel_mps": 0.85,
+      "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.5,
-      "approach_radius_m": 0.6,
+      "turn_rad_s": 0.85,
+      "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
     "3": {
-      "travel_mps": 0.62,
-      "carry_mps": 0.45,
+      "travel_mps": 0.85,
+      "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.5,
-      "approach_radius_m": 0.6,
+      "turn_rad_s": 0.85,
+      "approach_radius_m": 0.25,
       "approach_mps": 0.12
     }
   },
@@ -112,7 +112,13 @@
         "vesc_stop",
         "vesc_reset"
       ],
-      "command_waits_s": [1.0, 1.0, 2.0, 0.0, 0.0],
+      "command_waits_s": [
+        1.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0
+      ],
       "wait_s": 1.0,
       "search_heading_deg": 49.0
     },
@@ -132,7 +138,13 @@
         "vesc_stop",
         "vesc_reset"
       ],
-      "command_waits_s": [1.0, 1.0, 2.0, 0.0, 0.0],
+      "command_waits_s": [
+        1.0,
+        1.0,
+        2.0,
+        0.0,
+        0.0
+      ],
       "wait_s": 1.0
     }
   },
