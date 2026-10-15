@@ -1,8 +1,0 @@
-{
-  "workspace": "/home/user/robocup_basketball_ws",
-  "power_probe_ip": "192.168.1.138",
-  "can_interface": "can0",
-  "poll_seconds": 0.25,
-  "power_off_seconds": 3.0,
-  "state_dir": "/var/lib/robocup-auto-round1"
-}

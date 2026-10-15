@@ -19,17 +19,6 @@ def wrap(a):
     return (a + math.pi) % (2 * math.pi) - math.pi
 
 
-def start_wait_seconds(cfg, args, now=None):
-    """人工启动等完整延时；自动启动从已观测的上电时刻计时，不重复等5秒。"""
-    powered_at = getattr(args, 'power_on_monotonic', None)
-    if powered_at is None:
-        return cfg['start_delay_s']
-    now = time.monotonic() if now is None else now
-    if not math.isfinite(powered_at) or powered_at < 0 or powered_at > now:
-        raise ValueError('上电单调时钟时间无效')
-    return max(0., cfg['start_delay_s']-(now-powered_at))
-
-
 class StartFrame:
     """名义 A 起点朝 +X，对应当前真实位姿；只变换规划，不重置定位。"""
     def __init__(self, pose, start):
@@ -457,7 +446,7 @@ class RoundRoute:
         self.say('假定车已放回 A 区、面向篮筐；当前位姿作为本轮起点')
         self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()
-        self.r.spin(start_wait_seconds(self.cfg, self.r.args))
+        self.r.spin(self.cfg['start_delay_s'])
         if not self.turn(-math.pi/2):
             return False
         preloaded = self.round == 1 and self.cfg.get('round1_first_ball', 'preloaded') == 'preloaded'

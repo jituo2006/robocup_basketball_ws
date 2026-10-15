@@ -43,15 +43,6 @@ say() { [ "$QUIET" -eq 1 ] || echo "$@"; }
 say "🛑 RoboCup 急停 $(date '+%H:%M:%S')"
 say ""
 
-# 先禁止自动发车，避免急停后监视器仍在等上电信号并重新启动。
-if [ -d /var/lib/robocup-auto-round1 ]; then
-  touch /var/lib/robocup-auto-round1/inhibit 2>/dev/null || true
-fi
-if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet robocup-auto-round1.service; then
-  say '  停止第一回合自动启动服务 …'
-  sudo -n systemctl stop robocup-auto-round1.service || true
-fi
-
 # ── ① + ② 通过 ROS 发 estop 与零速 ────────────────────────────────────────
 # 需要 ROS 环境；拿不到就跳过（后面直接杀节点，同样能停）
 if [ -f "$WS/install/setup.bash" ]; then

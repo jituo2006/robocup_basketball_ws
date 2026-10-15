@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from match_round_route import RoundRoute, StartFrame, search_order, validate_mode, TASK_LABELS, wrap, start_wait_seconds
+from match_round_route import RoundRoute, StartFrame, search_order, validate_mode, TASK_LABELS, wrap
 
 STATE_DIR = Path('/tmp/rb_match_rounds')
 
@@ -127,7 +127,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         try:
             if kind == 'entry':
                 # 起步默认先静止5秒，随后右转并进场；等待期间也会处理定位回调。
-                runner.spin(start_wait_seconds(cfg, runner.args))
+                runner.spin(cfg['start_delay_s'])
                 plan.say(f"入场1/2：右转90°，当前定位={runner.pose}，目标朝向={math.degrees(plan.frame.yaw(-math.pi/2)):.1f}°")
                 ok = plan.turn(-math.pi/2)
                 if ok:
