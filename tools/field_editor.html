@@ -336,7 +336,8 @@ const DEFAULTS = {
            到篮筐 2.13 m（>2.0 投篮分 10），到三分圆心 0.97（<3.75 命中分 10）
            队友的 (6.4,4.8) 离篮筐 6.12 m —— 太远。 */
       shoot: { point: [10.45, 4.55], aim: [12.425, 3.75],
-               commands: [], wait_s: 2.0 }
+               commands: ["vesc_stop", "vesc_home", "vesc_shoot 3", "vesc_stop", "vesc_reset"],
+               command_waits_s: [2.0, 2.0, 3.0, 0.0, 0.0], wait_s: 2.0 }
     },
     pillar_alignment: {
       enabled: true, confidence: 0.55, tolerance_deg: 1.5,

@@ -555,13 +555,16 @@ class RoundRoute:
             return False
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         self.r.stop()
-        for command in commands:
+        waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
+        for index, command in enumerate(commands):
             ok, message = self.r.intake_text(command)
             self.say(f'出球指令 {command}: {message}')
             if not ok:
                 self.last_error = f'机构指令 {command} 失败：{message}'
                 return False
-            self.r.spin(action['wait_s'])
+            wait = waits[index] if index < len(waits) else action['wait_s']
+            if wait:
+                self.r.spin(wait)
         self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
                  else '出球指令完成；串口成功不代表球已经投出/命中')
         self.carrying = False
