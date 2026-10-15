@@ -127,12 +127,15 @@ def generate_launch_description():
              parameters=[_share("rb_launcher", "config", "launcher.yaml")]),
         Node(package="rb_mission", executable="mission_node", name="rb_mission",
              output="screen",
+             condition=IfCondition(LaunchConfiguration('start_mission')),
              parameters=[{"config_file": _share("rb_mission", "config", "mission.yaml")}]),
     ]
 
     return LaunchDescription([
         DeclareLaunchArgument("dry_run", default_value="false",
                               description="true = 底盘只解算不下发 CAN"),
+        DeclareLaunchArgument('start_mission', default_value='true',
+                              description='自动路线直接控制底盘时关闭独立mission，避免抢速度话题'),
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("perception_config",
                              default_value=_share("rb_perception", "config", "perception_seek.yaml"),

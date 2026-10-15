@@ -574,6 +574,33 @@ class Runner:
     def observation_pose(self, det):
         return pose_at(self.pose_history, stamp_seconds(det.stamp), self.args.pose_match_gap)
 
+    def wait_autostart_inputs(self):
+        """自动比赛启动前等前后摄检测流和机构服务，不发送机构命令。"""
+        from rb_msgs.srv import SerialText
+        from std_msgs.msg import Bool
+        if not hasattr(self, 'intake_client'):
+            self.intake_client = self.node.create_client(SerialText, '/rb_launcher/text')
+        port = {'ok': False, 'received': float('-inf')}
+        def on_port(msg):
+            port.update(ok=bool(msg.data), received=time.monotonic())
+        subscription = self.node.create_subscription(Bool, '/rb_launcher/ok', on_port, 1)
+        log('自动启动', '等待有效定位、前后摄新数据和机构服务；上电5秒等待同时计时')
+        try:
+            while self.rclpy.ok():
+                self.spin(.05)
+                try:
+                    self.require_fresh_pose()
+                except RuntimeError:
+                    continue
+                if (self.detection_fresh(self.det_stamp) and self.detection_fresh(self.rear_det_stamp)
+                        and port['ok'] and time.monotonic()-port['received'] <= 2.5
+                        and self.node.count_publishers('/cmd_vel') == 1
+                        and self.intake_client.wait_for_service(timeout_sec=.1)):
+                    return
+            raise RuntimeError('ROS 已停止，取消自动启动')
+        finally:
+            self.node.destroy_subscription(subscription)
+
     def publish_command(self, msg):
         # 【速度发送出口】先过下面三个开关，再发布 /cmd_vel。
         # 1. motion_guard：固定/整轮运动开启，可能因源时间戳或定位故障停车。
@@ -1297,6 +1324,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--round-first-ball', choices=['preloaded', 'search'], default='search',
                     help='第1轮首球：search按固定路线取球联调；preloaded按规则首球预装')
     ap.add_argument('--round-config', default=str(Path(__file__).with_name('match_rounds.json')))
+    ap.add_argument('--power-on-monotonic', type=float, default=None,
+                    help='自动启动专用：由监视器传入已检测上电的单调时钟时刻')
     ap.add_argument('--round-middle-scoop', type=float, default=None)
     ap.add_argument('--round-arc-scoop', type=float, default=None)
     ap.add_argument('--round-inner-scoop', type=float, default=None)
@@ -1444,6 +1473,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--obstacle-lidar-cells', type=int, default=3,
                     help='危险区域内不同6cm体素数量阈值')
     args = ap.parse_args(argv)
+    if args.power_on_monotonic is not None:
+        if (args.route != 'round1' or args.round_mode != 'cycle' or args.round_task != 'pass'
+                or args.round_first_ball != 'preloaded' or args.round_release_kind != 'match'
+                or not args.route_intake or args.round_step is not None):
+            ap.error('自动上电入口固定第一回合完整传球、首球预装、机构开启')
+        if not math.isfinite(args.power_on_monotonic) or not 0 <= args.power_on_monotonic <= time.monotonic():
+            ap.error('上电单调时钟时间无效')
     if args.route == 'fixed':
         from match_round_route import load_config
         try:
@@ -1646,6 +1682,8 @@ def main(argv: list[str] | None = None) -> int:
             run.round_start_frame = StartFrame(anchor, round_cfg['start'])
 
         run.wait_motion_ready()
+        if args.power_on_monotonic is not None and not args.dry:
+            run.wait_autostart_inputs()
 
         if args.dry:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
