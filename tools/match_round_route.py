@@ -170,6 +170,12 @@ def load_config(path=CONFIG, start_point=None):
             number(vision[key], lo, hi)
         if not isinstance(vision['stable_frames'], int):
             raise ValueError('定位柱稳定帧数须为整数')
+        tasks = vision.get('tasks')
+        if tasks is not None:
+            if not isinstance(tasks, list) or any(
+                    t not in ('pass', 'shoot') for t in tasks):
+                raise ValueError('pillar_alignment.tasks 须为 pass/shoot 的列表，'
+                                 '空列表表示出球不对柱')
     m, a, i = cfg['middle'], cfg['arc'], cfg['inner']
     number(m['y'], y_offset, 7.5+y_offset)
     number(m['left_x'], 0, 14)
@@ -582,8 +588,18 @@ class RoundRoute:
         return 'empty'
 
     def needs_pillar_alignment(self):
-        return (self.cfg['release'][self.task].get('aim_mode') != 'fixed'
-                and self.cfg.get('pillar_alignment', {}).get('enabled', False))
+        # 出球【只看角度，不看视觉】：车头转到配置角度（fixed）或转向瞄准点
+        # （target）之后就该发，不需要前摄先看到定位柱。
+        # 真要做前摄对柱，把任务名填进 pillar_alignment.tasks，例如 ["pass"]。
+        #   tasks 缺省（None）⇒ 兼容旧配置：非 fixed 模式就对柱
+        #   tasks 为空列表    ⇒ 任何任务都不对柱（当前配置）
+        vision = self.cfg.get('pillar_alignment', {})
+        if not vision.get('enabled', False):
+            return False
+        tasks = vision.get('tasks')
+        if tasks is None:
+            return self.cfg['release'][self.task].get('aim_mode') != 'fixed'
+        return self.task in tasks
 
     def action_point(self, aim=True):
         cfg = self.cfg

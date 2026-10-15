@@ -351,8 +351,10 @@ const DEFAULTS = {
       enabled: true, confidence: 0.55, tolerance_deg: 1.5,
       stable_frames: 3, timeout_s: 6.0, max_turn_deg: 20.0,
       max_ang_rad_s: 0.15, kp: 1.2,
-      camera_yaw_offset_rad: 0.0, launcher_yaw_offset_deg: 0.0
-    },
+      camera_yaw_offset_rad: 0.0, launcher_yaw_offset_deg: 0.0,
+      /* 出球只看角度、不看视觉：这里是【需要前摄对柱】的任务名单。
+         空列表 = 谁都不对柱（当前）；要传球对柱就填 ["pass"]。 */
+      tasks: [] },
     round1_first_ball: "preloaded",
 
     /* ── A/B 出发点（关于场地宽度中线 y=0 对称）──
