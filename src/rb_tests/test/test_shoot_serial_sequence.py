@@ -1,11 +1,11 @@
-"""出球发送与发射后两秒复位时序；全部使用模拟串口。"""
+"""出球发送与发射后至少三秒复位时序；全部使用模拟串口。"""
 import pytest
 from test_match_round_route import fake_runner
 from match_round_route import RoundRoute, load_config
 
 
 @pytest.mark.parametrize('task', ['pass', 'shoot'])
-def test_release_waits_two_seconds_after_send_before_stop_and_reset(task):
+def test_release_dispatches_checked_sequence_with_three_second_shot_minimum(task):
     cfg = load_config()
     r, _ = fake_runner()
     r.args.route_intake = True
@@ -18,10 +18,10 @@ def test_release_waits_two_seconds_after_send_before_stop_and_reset(task):
     plan.heading_ready = True
     for _ in range(2):
         assert plan.release()
-    expected = [(0., 'vesc_stop'), (1., 'vesc_home'), (2., 'vesc_shoot 3'),
-                (4., 'vesc_stop'), (4., 'vesc_reset')]
+    expected = [(0., 'vesc_stop'), (0., 'vesc_home'), (0., 'vesc_shoot 3'),
+                (3., 'vesc_stop'), (3., 'vesc_reset')]
     assert sent[:5] == expected
-    assert sent[5:] == [(time+4., command) for time, command in expected]
+    assert sent[5:] == [(time+3., command) for time, command in expected]
 
 
 def test_drop_does_not_execute_shoot_or_reset_sequence():

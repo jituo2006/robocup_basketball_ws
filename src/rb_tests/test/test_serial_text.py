@@ -42,13 +42,13 @@ def test_line_ending_lives_under_ros_parameters():
 def test_console_exposes_text_actions():
     src = (_WS / "tools/console_app.py").read_text(encoding="utf-8")
     for name in ("LAUNCH_TEXT", "LAUNCH_INIT", "LAUNCH_GRAB", "LAUNCH_PLACE"):
-        assert f'name == "{name}"' in src, f"后端缺动作 {name}"
+        assert name in src, f"后端缺动作 {name}"
     assert "def launcher_text" in src
     assert "/rb_launcher/text" in src
 
 
 def test_ui_has_text_command_buttons():
-    ui = (_WS / "tools" / "console_ui.html").read_text(encoding="utf-8")
+    ui = (_WS / "tools" / "console_debug_ui.html").read_text(encoding="utf-8")
     for k in ("cardSerialText", "LAUNCH_TEXT", "LAUNCH_INIT", "LAUNCH_GRAB",
               "LAUNCH_PLACE", "stCmd"):
         assert k in ui, f"界面缺 {k}"

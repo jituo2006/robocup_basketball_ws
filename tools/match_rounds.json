@@ -113,13 +113,13 @@
         "vesc_reset"
       ],
       "command_waits_s": [
-        1.0,
-        1.0,
-        2.0,
+        0.0,
+        0.0,
+        3.0,
         0.0,
         0.0
       ],
-      "wait_s": 1.0,
+      "wait_s": 0.0,
       "search_heading_deg": 49.0
     },
     "shoot": {
@@ -139,13 +139,13 @@
         "vesc_reset"
       ],
       "command_waits_s": [
-        1.0,
-        1.0,
-        2.0,
+        0.0,
+        0.0,
+        3.0,
         0.0,
         0.0
       ],
-      "wait_s": 1.0
+      "wait_s": 0.0
     }
   },
   "pillar_alignment": {
@@ -235,6 +235,6 @@
     ]
   },
   "start_point": "A",
-  "intake_settle_s": 1.5,
+  "intake_settle_s": 5.0,
   "home_align_at": "entry"
 }

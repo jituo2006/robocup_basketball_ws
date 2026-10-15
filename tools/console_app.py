@@ -775,6 +775,12 @@ class Bridge:
         from rb_msgs.srv import SerialText
         self.cli_text = self.node.create_client(
             SerialText, t.get("launch_text", "/rb_launcher/text"))
+        from mechanism_control import RosMechanismClient
+        self.mechanism_client = RosMechanismClient(
+            self.node, time.sleep, ok=self.rclpy.ok,
+            log=lambda message: self.log_line('INFO', 'mechanism', message))
+        sub1(StringMsg, '/rb_launcher/rx',
+             lambda msg: self.log_line('INFO', 'MCU RX', msg.data), 512)
         self.cli_mission = self.node.create_client(SetMission, t.get("set_mission", "/rb_mission/set_mission"))
         self.cli_goto = self.node.create_client(GotoPose, t.get("goto_service", "/rb_mission/goto_pose"))
         self.cli_launch = self.node.create_client(Launch, t.get("launch_service", "/rb_launcher/launch"))
@@ -2381,44 +2387,20 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                 return jsonify(dict(zip(("ok", "msg"),
                                         bridge.launcher_text(
                                             str(src.get("command") or "").strip()))))
-            if name == 'INTAKE_START':
-                ok, msg = start_intake(bridge.launcher_text)
-                return jsonify({'ok': ok, 'msg': f'吸球测试：{msg}'})
-            if name == 'INTAKE_STOP':
-                ok, msg = stop_intake(bridge.launcher_text)
-                return jsonify({'ok': ok, 'msg': f'停止吸球：{msg}'})
+            if name in ('INTAKE_START', 'LAUNCH_GRAB'):
+                ok, msg = bridge.mechanism_client.controller.release(['dji_move 1 90 5'])
+                return jsonify({'ok': ok, 'msg': '上升到位确认: ' + msg})
+            if name in ('INTAKE_STOP', 'LAUNCH_PLACE'):
+                ok, msg = bridge.mechanism_client.controller.release(['dji_move 1 0 5'])
+                return jsonify({'ok': ok, 'msg': '下降到位确认: ' + msg})
             if name == "LAUNCH_INIT":
-                # 现场要的开机顺序：先 dji_stop，再 dji_zero 初始化
-                seq = [("dji_stop", 0.25), ("dji_zero", 0.6)]
-                out = []
-                allok = True
-                for cmd, wait in seq:
-                    ok, msg = bridge.launcher_text(cmd)
-                    out.append(f"{cmd}: {'✓' if ok else '✗'} {msg}")
-                    allok = allok and ok
-                    if not ok:
-                        break
-                    time.sleep(wait)
-                return jsonify({"ok": allok, "msg": " / ".join(out)})
-            if name == "LAUNCH_GRAB":
-                ok, msg = start_intake(bridge.launcher_text)
-                return jsonify({"ok": ok, "msg": f"抓取 dji_move 1 90 5 → {msg}"})
+                ok, msg = bridge.mechanism_client.controller.initialize_dji()
+                return jsonify({'ok': ok, 'msg': '当前位置设零（需人工确认机械初始位置）: ' + msg})
             if name == "LAUNCH_PASS":
                 action = load_round_config()['release']['pass']
-                replies = []
-                waits = action.get('command_waits_s', [])
-                for index, command in enumerate(action['commands']):
-                    ok, msg = bridge.launcher_text(command)
-                    replies.append(f'{command}: {msg}')
-                    if not ok:
-                        return jsonify({'ok': False, 'msg': ' / '.join(replies)})
-                    wait = waits[index] if index < len(waits) else action['wait_s']
-                    if wait:
-                        time.sleep(wait)
-                return jsonify({'ok': bool(replies), 'msg': ' / '.join(replies)})
-            if name == "LAUNCH_PLACE":
-                ok, msg = bridge.launcher_text("dji_move 1 0 5")
-                return jsonify({"ok": ok, "msg": f"放下 dji_move 1 0 5 → {msg}"})
+                ok, msg = bridge.mechanism_client.controller.release(
+                    action['commands'], action.get('command_waits_s', []), action['wait_s'])
+                return jsonify({'ok': ok, 'msg': msg})
             if name == "LAUNCH":
                 # ⚠️ 兼容两种请求体：前端发 {"name":..., "args":{...}}，
                 #    手工 curl 常直接发 {"name":..., "action":7}。

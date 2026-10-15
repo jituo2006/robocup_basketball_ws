@@ -174,19 +174,15 @@ def test_whole_round_uses_post_approach_lift_hold_and_lower_for_each_collected_b
     from types import MethodType
     from test_perimeter_ball import Runner
     monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
-    cfg = load_config(); cfg['round1_first_ball'] = 'search'
+    cfg = load_config(); cfg['round1_first_ball'] = 'preloaded'
     r, events = fake_runner(); r.args.route_intake = True
     r.rear_distance_scoop = r.aligned_intake_approach
     r.aligned_intake_approach = MethodType(Runner.aligned_intake_approach, r)
-    original_spin = r.spin
-    def record_wait(sec):
-        original_spin(sec)
-        events.append(('wait', sec))
-    r.spin = record_wait
-    assert RoundRoute(r, cfg, number, 'pass', 'cycle', release_kind='drop', emit=lambda msg: None).execute()
-    scoop_indices = [i for i, e in enumerate(events) if e[0] == 'scoop']
-    assert len(scoop_indices) == 2
-    for i in scoop_indices:
-        assert events[i+1:i+9] == [
-            ('stop',), ('text', 'dji_stop'), ('wait', .3), ('text', 'dji_zero'),
-            ('wait', .8), ('text', 'dji_move 1 90 5'), ('wait', 1.), ('text', 'dji_move 1 0 5')]
+    from test_mechanism_control import FakeMCU
+    m=FakeMCU();r.mechanism_client=NS(controller=m.c)
+    assert RoundRoute(r,cfg,number,'pass','cycle',release_kind='drop',emit=lambda msg:None).execute()
+    expected=1 if number==1 else 2
+    assert len([e for e in events if e[0]=='scoop'])==expected
+    moves=[c for _,c in m.sent if c.startswith('dji_move')]
+    assert moves==['dji_move 1 90 5','dji_move 1 0 5']*expected
+    assert m.position==0

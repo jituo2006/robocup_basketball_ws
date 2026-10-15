@@ -34,6 +34,7 @@ public:
   bool send_command() override;
   bool connected();
   bool send_string(const std::string& data);
+  std::string read_available();
 };
 
 #endif /* SERIAL_PORT_DRIBBLE_H */

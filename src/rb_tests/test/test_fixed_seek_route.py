@@ -19,6 +19,7 @@ def make_runner(mod):
     run = mod.Runner.__new__(mod.Runner)
     run.pose = (1.5, 8.0, 0.0)
     run.dets = []
+    run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     run.args = NS(ball_label='ball_basketball', route_forward=3.55,
                   route_scan_start_offset=2.9, route_scan_distance=3.8,
                   route_forward_speed=.12, route_scan_speed=.08, route_scoop_speed=.08,
@@ -290,34 +291,59 @@ def timed_rear_samples(mod, run, monkeypatch, samples, cancel_after=30.):
     run.centered_target_candidates = lambda *a, **kw: next(observations, None)
 
 
-def test_rear_lost_detection_waits_stopped_until_cancel_without_blind_backing(monkeypatch):
+def test_rear_missing_target_rotates_without_backing_or_timeout(monkeypatch):
     mod=load();run=make_runner(mod)
-    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
-    run.args.route_rear_align_speed=.04
-    d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
-    events=[]
+    run.args.route_rear_timeout=.01
+    commands=[]
     timed_rear_samples(mod, run, monkeypatch, [None], cancel_after=.2)
-    run.stop=lambda:events.append('stop')
-    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
-    run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
+    run.stop=lambda:None
+    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
     with pytest.raises(KeyboardInterrupt):
         run.rear_visual_scoop()
-    assert len(events)>=3 and set(events)=={'stop'}
+    assert len(commands)>3
+    assert all(vx==vy==0 and wz>0 for vx,vy,wz in commands)
 
-@pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04))])
-def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected,monkeypatch):
+
+@pytest.mark.parametrize('cx,sign',[(.7,-1),(.3,1)])
+def test_rear_camera_rotates_with_correct_rear_image_sign(cx,sign,monkeypatch):
     mod=load();run=make_runner(mod)
-    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
-    run.args.route_rear_align_speed=.04
-    d=NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
+    d=NS(x_min=cx-.05,x_max=cx+.05,confidence=.9,stamp=NS(sec=10,nanosec=0))
     commands=[]
     timed_rear_samples(mod, run, monkeypatch, [d,None], cancel_after=.2)
     run.stop=lambda:None
-    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
-    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y))
+    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
     with pytest.raises(KeyboardInterrupt):
         run.rear_visual_scoop()
-    assert commands==([] if cx==.5 else [expected])
+    assert commands[0] == pytest.approx((0.,0.,sign*.12))
+    assert all(vx==vy==0 and wz<0 for vx,vy,wz in commands[1:])
+
+
+@pytest.mark.parametrize('start_yaw',[0.,math.radians(175),math.radians(-175)])
+def test_rear_search_turns_left_30_then_right_until_centered(start_yaw):
+    mod=load();run=make_runner(mod)
+    run.pose=(0.,0.,start_yaw)
+    run.args.route_rear_timeout=.001
+    commands=[];travel=[0.];stops=[]
+    run.spin=lambda sec:None
+    run.stop=lambda:stops.append(len(commands))
+    def detect(*args,**kwargs):
+        if any(wz<0 for wz in commands) and travel[0]<-.1:
+            return NS(x_min=.45,x_max=.55,confidence=.9,stamp=NS(sec=10,nanosec=0))
+        return None
+    run.centered_target_candidates=detect
+    def publish(tw):
+        assert tw.linear.x==tw.linear.y==0
+        commands.append(tw.angular.z)
+        travel[0]+=math.copysign(math.radians(5),tw.angular.z)
+        run.pose=(0.,0.,mod.wrap_pi(start_yaw+travel[0]))
+        assert len(commands)<50, 'search must reverse and acquire the simulated ball'
+    run.publish_command=publish
+    run.aligned_intake_approach=lambda:pytest.fail('alignment-only must not collect')
+    assert run.rear_visual_scoop(approach=False)
+    reversal=next(i for i,wz in enumerate(commands) if wz<0)
+    assert math.radians(30)-1e-9 <= reversal*math.radians(5) <= math.radians(35)
+    assert all(wz<0 for wz in commands[reversal:])
+    assert stops==[0,len(commands)]
 
 
 def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(monkeypatch):
@@ -334,7 +360,7 @@ def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(
     commands=[];run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     def publish(tw):
-        commands.append((tw.linear.x,tw.linear.y))
+        commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
         x,y,yaw=run.pose
         run.pose=(x+.03*(tw.linear.x*math.cos(yaw)-tw.linear.y*math.sin(yaw)),
                   y+.03*(tw.linear.x*math.sin(yaw)+tw.linear.y*math.cos(yaw)),yaw)
@@ -346,12 +372,13 @@ def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(
         return original_approach()
     run.rear_distance_scoop=approach
     assert run.rear_visual_scoop()
-    assert sum(vy<0 for vx,vy in commands)==2
-    assert all(vy==0 for vx,vy in commands if vx<0)
+    assert sum(wz>0 for vx,vy,wz in commands)==2
+    assert any(wz<0 for vx,vy,wz in commands)
+    assert all(vy==0 for vx,vy,wz in commands if vx<0)
     assert -run.pose[1] == pytest.approx(.45,abs=run.args.step_tol)
 
 
-def test_rear_missing_frames_wait_then_first_centered_detection_completes(monkeypatch):
+def test_rear_missing_frames_search_then_first_centered_detection_completes(monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=1.;run.args.route_rear_align_speed=.04
     def det(stamp):
@@ -359,6 +386,7 @@ def test_rear_missing_frames_wait_then_first_centered_detection_completes(monkey
     samples=iter([None,None,det(10)])
     timed_rear_samples(mod,run,monkeypatch,samples)
     run.stop=lambda:None
+    run.publish_command=lambda tw:None
     def approach():
         assert next(samples,None) is None, 'first valid centered detection should finish alignment'
         return True
@@ -527,11 +555,19 @@ def intake_runner():
     return run, events
 
 
-def test_automatic_scoop_runs_after_approach_then_lowers_after_exactly_one_second():
+def expected_timed_pickup():
+    return ['chassis_stop', 'dji_stop', ('wait', .3), 'dji_zero', ('wait', .3),
+            'dji_move 1 90 5', 'chassis_stop', ('wait', 5.),
+            'dji_move 1 0 5', ('wait', 5.), 'dji_stop']
+
+
+def test_automatic_pickup_uses_exact_requested_sequence_then_returns_to_route():
     run, events = intake_runner()
+    run.args.route_intake_settle = .01  # 旧保持时间不能改变本次明确指定的两个5秒。
     assert run.aligned_intake_approach()
-    assert events == ['approach', 'chassis_stop', 'dji_stop', ('wait', .3),
-                      'dji_zero', ('wait', .8), 'dji_move 1 90 5', ('wait', 1.), 'dji_move 1 0 5']
+    events.append('next_route_motion')
+    assert events == ['approach'] + expected_timed_pickup() + ['next_route_motion']
+    assert 'dji_status' not in events
 
 
 def test_approach_failure_never_sends_shovel_commands():
@@ -548,43 +584,39 @@ def test_mechanism_switch_off_keeps_approach_but_skips_every_serial_command():
     assert events == ['approach', 'chassis_stop']
 
 
-def test_unplugged_intake_is_reported_after_approach_without_claiming_scoop_success():
+@pytest.mark.parametrize('failed_command',['dji_stop','dji_zero','dji_move 1 90 5','dji_move 1 0 5'])
+def test_write_failure_does_not_continue_pickup_or_route(failed_command):
     run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (False, '串口未打开')
+    run.intake_text = lambda cmd: events.append(cmd) or (cmd != failed_command, 'write result')
     assert not run.aligned_intake_approach()
-    assert events == ['approach', 'chassis_stop', 'dji_stop', 'dji_move 1 0 5']
+    assert events[-1] == failed_command
+    assert 'dji_status' not in events
 
 
-def test_failed_lift_skips_one_second_hold_and_attempts_lowering():
-    run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'dji_move 1 90 5', 'result')
+def test_final_stop_write_failure_does_not_resume_route():
+    run, events = intake_runner(); stops=[0]
+    def send(cmd):
+        events.append(cmd)
+        if cmd == 'dji_stop':stops[0]+=1
+        return stops[0]<2,'write result'
+    run.intake_text=send
     assert not run.aligned_intake_approach()
-    assert ('wait', 1.) not in events
-    assert events[-2:] == ['dji_move 1 90 5', 'dji_move 1 0 5']
+    assert events == ['approach'] + expected_timed_pickup()
 
 
-def test_failed_lowering_does_not_complete_the_pickup_action():
-    run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (cmd != 'dji_move 1 0 5', 'result')
-    assert not run.aligned_intake_approach()
-    assert events[-2:] == [('wait', 1.), 'dji_move 1 0 5']
-
-
-def test_interrupted_hold_still_lowers_without_suppressing_cancellation():
+def test_interrupted_hold_does_not_start_a_new_mechanism_motion():
     run, events = intake_runner()
     def wait(sec):
         events.append(('wait', sec))
-        if sec == 1.:
-            raise KeyboardInterrupt()
-    run.spin = wait
-    with pytest.raises(KeyboardInterrupt):
-        run.aligned_intake_approach()
-    assert events[-1] == 'dji_move 1 0 5'
+        if sec == 5.:raise KeyboardInterrupt()
+    run.spin=wait
+    with pytest.raises(KeyboardInterrupt):run.aligned_intake_approach()
+    assert events[-1] == ('wait',5.)
+    assert 'dji_move 1 0 5' not in events
 
 
-def test_resumed_pickup_already_at_distance_still_scoops_without_driving_again():
+def test_resumed_pickup_already_at_distance_still_runs_full_timed_sequence():
     run, events = intake_runner()
-    run.rear_distance_scoop = lambda: pytest.fail('already approached: no repeat movement')
+    run.rear_distance_scoop=lambda:pytest.fail('do not repeat completed approach')
     assert run.aligned_intake_approach(approach=False)
-    assert events == ['chassis_stop', 'dji_stop', ('wait', .3), 'dji_zero', ('wait', .8),
-                      'dji_move 1 90 5', ('wait', 1.), 'dji_move 1 0 5']
+    assert events == expected_timed_pickup()

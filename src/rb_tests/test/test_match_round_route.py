@@ -55,6 +55,16 @@ def fake_runner():
         events.append(('text', command))
         return True, 'sent'
     r.goto, r.rotate_to, r.rear_visual_scoop, r.intake_text = goto, turn, scoop, send
+    def checked_release(commands, waits=None, default_wait=0.):
+        for index, command in enumerate(commands):
+            ok, message = r.intake_text(command)
+            if not ok:
+                return ok, message
+            delay = waits[index] if waits and index < len(waits) else default_wait
+            if delay:
+                r.spin(delay)
+        return True, 'simulated completed action'
+    r.mechanism_release = checked_release
     r.aligned_intake_approach = scoop
     r.stop = lambda: events.append(('stop',))
     r.spin = lambda seconds: None

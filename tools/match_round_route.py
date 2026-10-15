@@ -225,6 +225,11 @@ def load_config(path=CONFIG, start_point=None):
             if action['aim'] == action['point']:
                 raise ValueError('动作点不能与瞄准目标重合')
         number(action['wait_s'], 0, math.inf)
+        waits = action.get('command_waits_s', [])
+        if not isinstance(waits, list) or len(waits) > len(action['commands']):
+            raise ValueError('逐条等待参数必须为列表且不能多于指令数量')
+        for delay in waits:
+            number(delay, 0, math.inf)
         number(action.get('search_heading_deg', 0), -math.inf, math.inf)
         if not isinstance(action['commands'], list) or any(
                 not isinstance(c, str) or not c.strip() or '\n' in c or '\r' in c
@@ -431,7 +436,7 @@ class RoundRoute:
             # 记下实际停车点，不把尚未到达的右端点加入返程路线。
             self.search_origin = tuple(self.r.pose)
             self.trail.append(self.search_origin[:2])
-            self.say('识别到目标球，停车 → 正对球 → 转180° → 后摄横移对正')
+            self.say('识别到目标球，停车 → 正对球 → 转180° → 后摄旋转寻球对正')
         elif status == 'empty':
             self.trail.append(tuple(target))
         return status
@@ -605,7 +610,7 @@ class RoundRoute:
                     saved_distance, saved_timeout = self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout
                     self.r.args.route_scoop_distance = cfg[area]['scoop_m']
                     if getattr(self.r.args, 'route_intake_settle', None) is None:
-                        self.r.args.route_intake_settle = float(cfg.get('intake_settle_s', 1.5))
+                        self.r.args.route_intake_settle = float(cfg.get('intake_settle_s', 5.))
                     # 距离取本区域 scoop_m：中线默认0.70m，arc/inner另有配置；
                     # 修改通用 route_scoop_distance 不会覆盖此处的区域配置。
                     self.r.args.route_scoop_timeout = max(15., cfg[area]['scoop_m']/self.r.args.route_scoop_speed+5.)
@@ -702,17 +707,13 @@ class RoundRoute:
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         self.r.stop()
         waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
-        for index, command in enumerate(commands):
-            ok, message = self.r.intake_text(command)
-            self.say(f'出球指令 {command}: {message}')
-            if not ok:
-                self.last_error = f'机构指令 {command} 失败：{message}'
-                return False
-            wait = waits[index] if index < len(waits) else action['wait_s']
-            if wait:
-                self.r.spin(wait)
-        self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
-                 else '出球指令完成；串口成功不代表球已经投出/命中')
+        ok, message = self.r.mechanism_release(commands, waits, action['wait_s'])
+        self.say('机构动作确认: ' + message)
+        if not ok:
+            self.last_error = message
+            return False
+        self.say('放球动作到位确认完成，不计正式传球/投篮' if self.release_kind == 'drop'
+                 else '发射及定时复位流程已确认；机械最低点和球是否命中未检测')
         self.carrying = False
         return True
 
@@ -743,7 +744,7 @@ class RoundRoute:
         self.r.args.ball_label = TASK_LABELS[self.task]
         self.r.args.speed = self.cfg['speed_mps']
         if getattr(self.r.args, 'route_intake_settle', None) is None:
-            self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 1.5))
+            self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 5.))
         self.say(f"假定车已放回 {self.cfg.get('start_point', 'A')} 区、面向篮筐；当前位姿作为本轮起点")
         self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()

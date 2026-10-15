@@ -1,4 +1,7 @@
-"""The intake's field-confirmed text protocol, shared by route and console."""
+"""Raw intake command presets used by the automatic timed pickup.
+
+Only serial writes are checked; no DJI status polling or physical-arrival claim.
+"""
 import time
 
 
@@ -17,7 +20,7 @@ def _sequence(send, steps, wait, finish_on_error=False):
 
 
 def start_intake(send, wait=time.sleep):
-    return _sequence(send, [('dji_stop', .3), ('dji_zero', .8), ('dji_move 1 90 5', 0.)], wait)
+    return _sequence(send, [('dji_stop', .3), ('dji_zero', .3), ('dji_move 1 90 5', 0.)], wait)
 
 
 def stop_intake(send, wait=time.sleep):
