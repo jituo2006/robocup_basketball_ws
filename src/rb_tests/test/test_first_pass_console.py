@@ -52,7 +52,7 @@ def test_independent_distances_and_mechanism_reach_cli(mechanism):
 
 
 @pytest.mark.parametrize('args', [{'first_scoop': .02}, {'second_scoop': float('inf')},
-    {'second_scoop': float('nan')}, {'scoop_speed': 0}, {'scoop_speed': .3},
+    {'second_scoop': float('nan')}, {'scoop_speed': 0}, {'scoop_speed': float('nan')},
     {'start_intake': 'false'}])
 def test_invalid_settings_do_not_start(args):
     c, calls, _ = client()

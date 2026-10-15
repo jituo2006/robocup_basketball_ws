@@ -146,7 +146,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                     raise ValueError('缺少前摄停车点，请重新开始本轮')
                 # 【两处关口】and 会短路：转向未成功就不调用后摄对正。
                 # approach=False 只做左右横移，成功后返回；本行不会前后移动。
-                # 后摄仍需默认3个新帧居中，已取消固定总时间和净位移上限。
+                # 后摄有效目标居中即可；没有连续帧数、固定总时间或净位移上限。
                 ok = runner.rotate_to(wrap(plan.search_origin[2]+math.pi), timeout=45.) and runner.rear_visual_scoop(approach=False)
                 if ok:
                     # 保存对正完成的位置/朝向，下一动作从这里计算独立后退距离。

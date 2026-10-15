@@ -77,7 +77,7 @@ def test_wait_pose_can_be_cancelled_without_motion():
     assert not run.wait_pose()
 
 
-def test_motion_readiness_waits_for_late_odometry_and_can_cancel():
+def test_motion_readiness_waits_for_late_pose_and_can_cancel():
     mod = load()
     run = mod.Runner.__new__(mod.Runner)
     clock = NS(elapsed=0.)
@@ -86,7 +86,7 @@ def test_motion_readiness_waits_for_late_odometry_and_can_cancel():
     run.rclpy = NS(ok=lambda:clock.elapsed<40.)
     def require():
         if clock.elapsed<25.:
-            raise RuntimeError('雷达里程计尚未就绪')
+            raise RuntimeError('定位尚未就绪')
     run.require_fresh_pose = require
     run.wait_motion_ready()
     assert clock.elapsed>=25.

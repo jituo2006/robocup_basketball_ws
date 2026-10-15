@@ -502,28 +502,14 @@ class Runner:
         if getattr(self,"motion_fault",None):
             self.stop()
             raise RuntimeError(self.motion_fault)
-        if self.pose is not None and hasattr(self,"field_l"):
-            # 第2/3回合按起点建立规划坐标；传感器位姿可以从(0,0)开始。
-            # Use the route frame's bounds, including the translated public origin.
-            frame = getattr(self, 'round_start_frame', None)
-            fx, fy = frame.nominal(self.pose) if frame else self.pose[:2]
-            from field_coordinates import PUBLIC_FRAME, public_bounds
-            if frame and getattr(self, 'round_coordinate_frame', None) == PUBLIC_FRAME:
-                xmin,xmax,ymin,ymax=public_bounds(self.field_w,self.field_l)
-            else:
-                xmin,xmax,ymin,ymax=0.,self.field_l,0.,self.field_w
-            if not (xmin-2 <= fx <= xmax+2 and ymin-2 <= fy <= ymax+2):
-                self.stop()
-                raise RuntimeError("定位已超出场地及出发区范围，需重新初始化定位")
         if self.pose is None or not all(math.isfinite(v) for v in self.pose):
             self.stop()
             raise RuntimeError("位姿缺失或非有限数，已请求停车")
-        for name, stamp in (("定位", self.pose_stamp), ("雷达里程计", self.odom_stamp)):
-            # 两个源都必须有效且默认不超过 1 秒；只更新其中一个仍会失败。
-            # 不检查 YOLO、不检查 /localization/ok 的布尔值，也不读取协方差。
-            if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now - stamp <= self.args.pose_timeout:
-                self.stop()
-                raise RuntimeError(f"{name}源时间戳过期，已请求停车")
+        # 行驶闭环只使用 localization/pose；原始雷达里程计不再重复卡住路线。
+        stamp = self.pose_stamp
+        if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now-stamp <= self.args.pose_timeout:
+            self.stop()
+            raise RuntimeError('定位源时间戳过期，已请求停车')
 
     def stop(self) -> None:
         # 连发 5 次全零 Twist，请求底盘停止平移和旋转；这里没有机构指令。
@@ -570,7 +556,7 @@ class Runner:
         return self.pose is not None
 
     def wait_motion_ready(self) -> None:
-        # 启动时不因等得久而退出；真正收到可用定位/里程计后才开始路线。
+        # 启动时不因等得久而退出；真正收到可用行驶定位后才开始路线。
         # 只有显式开启 obstacle_guard 才要求前摄流就绪，避障默认关闭。
         while self.rclpy.ok():
             self.spin(0.05)
@@ -664,57 +650,35 @@ class Runner:
 
     # -- 基本动作 -----------------------------------------------------------
     def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
-        """从当前位姿平移到目标，使用新定位帧确认停稳后才返回成功。"""
-        from rb_mission.navigation import ArrivalConfig, ArrivalGate, PoseFeedback
+        """按新鲜定位到目标容差内即停车，不附加测速和停稳确认等待。"""
         tol = self.args.tol if tolerance is None else tolerance
-        cfg = ArrivalConfig(
-            position_tolerance=tol,
-            linear_speed_tolerance=getattr(self.args, 'goto_stop_speed', .03),
-            angular_speed_tolerance=getattr(self.args, 'goto_stop_yaw_rate', .05),
-            settle_time_s=getattr(self.args, 'goto_settle_seconds', .5),
-            settle_timeout_s=0.)
-        window = getattr(self.args, 'goto_velocity_window', .15)
-        correction = getattr(self.args, 'goto_correction_speed', .08)
-        gate, feedback = ArrivalGate(), PoseFeedback()
-        last_log = 0.0
         watchdog = self.progress_watchdog()
+        last_log = 0.0
         try:
-            if (not all(math.isfinite(v) for v in (tx, ty, tol)) or tol <= 0):
+            if not all(math.isfinite(v) for v in (tx, ty, tol)) or tol <= 0:
                 raise ValueError('到点目标和容差必须有效且有限')
             while True:
-                self.spin(0.05)
-                # 到位分支也检查源新鲜度，不能用最后一帧旧位置宣布成功。
+                self.spin(.05)
                 self.require_fresh_pose()
-                now = self.node.get_clock().now().nanoseconds * 1e-9
-                feedback.update(self.pose, self.pose_stamp, now, self.args.pose_timeout, window)
                 x, y, yaw = self.pose
                 dist = math.hypot(tx-x, ty-y)
-                mode = gate.update(now, dist, 0., feedback.linear_speed,
-                                   feedback.angular_speed, cfg,
-                                   sample_time=self.pose_stamp)
-                if mode == 'complete':
-                    log('到点', f'({tx:.2f},{ty:.2f}) 已停稳，剩余 {dist*100:.1f}cm', C_OK)
+                if dist <= tol:
+                    log('到点', f'({tx:.2f},{ty:.2f}) 剩余 {dist*100:.1f}cm', C_OK)
                     return True
-                if mode == 'settling':
-                    watchdog.reset(time.monotonic())
-                elif watchdog.stalled(time.monotonic(), dist):
+                if watchdog.stalled(time.monotonic(), dist):
                     log('运动故障', '到点距离持续无进展，保持停车', C_BAD)
                     return False
-                speed = self.args.speed
-                if gate.started is not None:
-                    speed = min(speed, correction)
                 vx, vy, _, _ = self._goto_command(
                     x, y, yaw, tx, ty, self.args.kp, self.args.kp_yaw,
-                    speed, self.args.max_ang, face_travel=False,
+                    self.args.speed, self.args.max_ang, face_travel=False,
                     approach_radius=self.args.approach_radius,
                     approach_speed=self.args.approach_speed)
                 t = self._Twist()
-                if mode != 'settling':
-                    t.linear.x, t.linear.y = vx, vy
+                t.linear.x, t.linear.y = vx, vy
                 self.publish_command(t)
-                if time.monotonic() - last_log > 1.0:
+                if time.monotonic()-last_log > 1.:
                     last_log = time.monotonic()
-                    log('移动', f'→({tx:.2f},{ty:.2f}) {mode} 剩余 {dist:.2f}m')
+                    log('移动', f'→({tx:.2f},{ty:.2f}) 剩余 {dist:.2f}m')
         finally:
             self.stop()
 
@@ -727,7 +691,6 @@ class Runner:
         # target_yaw 是定位坐标中的绝对朝向（弧度），不是“再转多少度”。
         # 【后续动作的关口】调用者只有收到 True 才进入横移/后退。
         watchdog = self.progress_watchdog(epsilon=.005)
-        stable_since = None
         while True:
             self.spin(0.05)
             if self.pose is None:
@@ -735,20 +698,9 @@ class Runner:
                 return False
             err = wrap_pi(target_yaw - self.pose[2])
             if abs(err) < self.args.yaw_tol:
-                watchdog.reset(time.monotonic())
-                # 默认角度误差 <0.015rad（约0.86°）只是第一条件；还要
-                # 实测转速 <=0.08rad/s 连续保持 0.3 秒，才返回到位。
-                # 位置看起来转好了、但 yaw_rate 不稳定，仍会留在这里等待。
                 self.stop()
-                if abs(self.yaw_rate) <= self.args.settle_yaw_rate:
-                    stable_since = stable_since or time.monotonic()
-                    if time.monotonic() - stable_since >= self.args.settle_seconds:
-                        log("转向到位", f"yaw 误差 {math.degrees(err):+.1f}°，已稳定", C_OK)
-                        return True
-                else:
-                    stable_since = None
-                continue
-            stable_since = None
+                log('转向到位', f'yaw 误差 {math.degrees(err):+.1f}°', C_OK)
+                return True
             if watchdog.stalled(time.monotonic(), abs(err)):
                 self.stop()
                 log('运动故障', '转向误差持续无进展，保持停车', C_WARN)
@@ -1001,17 +953,14 @@ class Runner:
         # 没球框时停车等待；对正不再受固定总时间/净横移40cm限制。
         watchdog = self.progress_watchdog(epsilon=.002)
         waiting_for_target = False
-        centered_frames = 0
-        last_observation_stamp = 0.0
         while True:
             self.spin(.03)
             d = self.centered_target_candidates(getattr(self, 'dets_rear', []), centered=False)
             if d is None:
                 # 没有满足类别/置信度/时间戳条件的后摄框：发零速，继续等。
-                # 短暂漏检不会立即退出，但超过上面的总时间仍返回 False。
+                # 漏检时等待，恢复后继续；没有固定等待总时限。
                 self.stop()
                 watchdog.reset(time.monotonic())
-                centered_frames = 0
                 if not waiting_for_target:
                     log('后摄等待', '暂时没有新鲜球框，停车等待重新识别；恢复后继续对正', C_WARN)
                     waiting_for_target = True
@@ -1019,26 +968,14 @@ class Runner:
             if waiting_for_target:
                 log('后摄恢复', '重新识别到目标球，继续横移对正')
                 waiting_for_target = False
-            stamp = stamp_seconds(d.stamp)
-            # 同一缓存帧可能被循环读取多次，只有源时间戳变大才算新帧。
-            new_frame = stamp > last_observation_stamp
-            last_observation_stamp = max(last_observation_stamp, stamp)
             error = (float(d.x_min)+float(d.x_max))/2 - .5
             trace('rear_align', cx=error+.5,
                   confidence=float(d.confidence), stamp=stamp_seconds(d.stamp))
             if abs(error) <= self.args.route_rear_center_tolerance:
                 watchdog.reset(time.monotonic())
-                # 后摄容差默认画面宽度的 ±2.5%；先停，再确认 3 个连续新帧。
-                # 中间出带或漏检会清零 centered_frames，未达到 3 帧不会后退。
                 self.stop()
-                if new_frame:
-                    centered_frames += 1
-                if centered_frames < self.args.route_rear_center_frames:
-                    continue
-                log('后摄对准', '连续新帧居中，切换定位距离后退；接近期间不再要求YOLO')
-                # approach=False 在这里仅返回 True，实际后退在回合的下一动作中。
+                log('后摄对准', '有效目标已居中，切换定位距离后退；接近期间不再要求YOLO')
                 return self.aligned_intake_approach() if approach else True
-            centered_frames = 0
             if watchdog.stalled(time.monotonic(), abs(error)):
                 self.stop()
                 log('后摄停车', '横移指令下球框误差持续无进展', C_WARN)
@@ -1131,16 +1068,13 @@ class Runner:
                 trace('target_trigger', cx=(getattr(det, 'x_min', .5)+getattr(det, 'x_max', .5))/2,
                       confidence=float(getattr(det, 'confidence', 0.)),
                       stamp=stamp_seconds(det.stamp) if hasattr(det, 'stamp') else 0.)
-                log("路线停车", "识别到目标球，已发零速；停车稳定后转身180°，后摄负责对正")
-                self.spin(getattr(self.args, 'settle_seconds', .3))
+                log("路线停车", "识别到目标球，已发零速；转身180°，后摄负责对正")
                 return 'found', det
             x, y, yaw = self.pose
             dx, dy = tx-x, ty-y
             remaining = math.hypot(dx, dy)
             if remaining <= self.args.step_tol:
                 self.stop()
-                # 线端再处理一小段回调，避免最后一帧尚未到达。
-                self.spin(.3)
                 det = self.centered_target_candidates(self.dets, centered=centered) if detect else None
                 return ('found', det) if det is not None else ('empty', None)
             err = wrap_pi(heading-yaw)
@@ -1377,7 +1311,7 @@ def main(argv: list[str] | None = None) -> int:
                     help='有运动指令但目标误差持续不改善时停车；不是动作总时限')
     # 运动公共参数：源数据1s、位置跳变、到点/朝向容差均会影响后续能否执行。
     ap.add_argument("--pose-timeout", type=float, default=1.0,
-                    help="定位及雷达源时间戳最大年龄 s，过期即停车")
+                    help="行驶定位源时间戳最大年龄 s，过期即停车")
     ap.add_argument('--pose-jump-margin',type=float,default=.25,help='定位跳变基础容差 m')
     ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
     ap.add_argument("--kp", type=float, default=1.5)
@@ -1445,12 +1379,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settle-seconds", type=float, default=0.3)
     ap.add_argument("--settle-yaw-rate", type=float, default=0.08)
     ap.add_argument("--step-tol", type=float, default=0.02)
-    ap.add_argument('--goto-stop-speed', type=float, default=.03, help='到点实测平移速度上限 m/s')
-    ap.add_argument('--goto-stop-yaw-rate', type=float, default=.05, help='到点实测角速度上限 rad/s')
-    ap.add_argument('--goto-settle-seconds', type=float, default=.5, help='到点持续稳定时间 s')
+    ap.add_argument('--goto-stop-speed', type=float, default=.03, help='兼容旧参数，已取消到点速度门槛')
+    ap.add_argument('--goto-stop-yaw-rate', type=float, default=.05, help='兼容旧参数，已取消到点角速度门槛')
+    ap.add_argument('--goto-settle-seconds', type=float, default=.5, help='兼容旧参数，已取消到点稳定等待')
     ap.add_argument('--goto-settle-timeout', type=float, default=5., help='兼容旧参数，已取消到点确认总时限')
-    ap.add_argument('--goto-velocity-window', type=float, default=.15, help='源定位帧测速窗口 s')
-    ap.add_argument('--goto-correction-speed', type=float, default=.08, help='到点后的纠偏速度上限 m/s')
+    ap.add_argument('--goto-velocity-window', type=float, default=.15, help='兼容旧参数，已取消到点测速窗口')
+    ap.add_argument('--goto-correction-speed', type=float, default=.08, help='兼容旧参数，已取消到点后纠偏限速')
     ap.add_argument("--log-file", default="", help="JSONL 日志路径；默认 log/seek_ball_时间.jsonl")
     # 固定/回合取球的参数在下面；上面的 align-dist/backup/servo-* 是旧版
     # legacy 视觉伺服参数，修改它们不会改变这里的固定路线距离后退。
@@ -1465,7 +1399,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-scan-speed", type=float, default=0.25)
     ap.add_argument("--route-scan-timeout", type=float, default=60.0, help='兼容旧参数，已取消固定总时限')
     ap.add_argument("--route-heading-tol", type=float, default=0.10, help="平移时允许的朝向偏差 rad")
-    # 以下 route-ball-* 是遗留参数：目前仅在启动时检查数值范围，
+    # 以下 route-ball-* 是不参与当前固定路线的遗留兼容参数。
     # 固定/整轮的识球停车和距离后退不读取它们，不能用来调整实际铲球距离。
     ap.add_argument("--route-ball-tol-deg", type=float, default=10.0, help="停车后球偏离铲口轴线最大角度")
     ap.add_argument("--route-ball-min-distance", type=float, default=0.45)
@@ -1491,7 +1425,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--route-rear-center-tolerance', type=float, default=.025,
                     help='后摄篮球中心容差，画面宽度比例')
     ap.add_argument('--route-rear-center-frames', type=int, default=3,
-                    help='停车居中确认需要的连续新检测帧数')
+                    help='兼容旧参数，已取消后摄连续帧数门槛')
     ap.add_argument('--obstacle-guard', action=argparse.BooleanOptionalAction, default=False,
                     help='前摄/雷达近障碍停车，默认关闭；--obstacle-guard开启')
     ap.add_argument('--obstacle-stop-gap', type=float, default=.25,
@@ -1525,8 +1459,8 @@ def main(argv: list[str] | None = None) -> int:
             args.route_scan_start_offset = 0.
         if args.route_scan_distance is None:
             args.route_scan_distance = 3.8
-    if not math.isfinite(args.route_scan_start_offset) or not -5 <= args.route_scan_start_offset <= 5:
-        ap.error('起扫点预移须为 -5 到 5 米之间的有限数')
+    if not math.isfinite(args.route_scan_start_offset):
+        ap.error('起扫点预移须为有限数')
     round_cfg = None
     first_pass_cfg = None
     if args.route == 'first-pass':
@@ -1590,39 +1524,40 @@ def main(argv: list[str] | None = None) -> int:
         ap.error('避障置信度、距离系数须在(0,1]')
     if not math.isfinite(args.obstacle_camera_x) or args.obstacle_lidar_cells<1:
         ap.error('相机偏移须有限，雷达体素阈值至少1')
-    if not 0 < args.route_rear_center_tolerance < .5 or args.route_rear_center_frames < 1:
-        ap.error('后摄中心容差须在0和0.5之间，确认帧数须至少1')
+    if not 0 < args.route_rear_center_tolerance < .5:
+        ap.error('后摄中心容差须在0和0.5之间')
     if not math.isfinite(args.route_rear_align_speed) or args.route_rear_align_speed <= 0:
         ap.error('后摄对准速度须为正且有限')
     if not math.isfinite(args.route_center_tolerance) or not 0 < args.route_center_tolerance < .5:
         ap.error("中心容差必须在0和0.5之间")
-    positive = ("pose_jump_margin", "pose_max_speed", "speed", "pose_timeout", "max_ang", "yaw_tol", "detection_timeout",
-                "pose_match_gap", "track_bearing_deg", "track_distance", "scan_step_seconds",
-                "scan_pause_seconds", "settle_seconds", "settle_yaw_rate", "step_tol",
-                "servo_move", "servo_turn_deg", "align_dist", "align_dist_tol", "align_tol_deg",
-                "kp", "kp_yaw", "servo_steps", "cw_scan_sec", "lidar_seconds", "search_timeout")
-    positive += ("route_forward", "route_forward_speed", "route_scan_distance", "route_scan_speed",
-                 "route_heading_tol", "route_scoop_distance", "route_scoop_speed", "route_scoop_min_speed")
-    positive += ('goto_stop_speed', 'goto_stop_yaw_rate', 'goto_settle_seconds',
-                 'goto_velocity_window', 'goto_correction_speed')
-    if args.goto_velocity_window >= args.pose_timeout:
-        ap.error('到点测速窗口须小于定位超时')
-    positive += ('motion_stall_seconds',)
+    positive = ('pose_jump_margin', 'pose_max_speed', 'speed', 'pose_timeout', 'max_ang',
+                'yaw_tol', 'detection_timeout', 'step_tol', 'kp', 'kp_yaw',
+                'route_forward', 'route_forward_speed', 'route_scan_distance', 'route_scan_speed',
+                'route_heading_tol', 'route_scoop_distance', 'route_scoop_speed',
+                'route_scoop_min_speed', 'motion_stall_seconds')
+    # legacy伺服的参数不再拦截固定路线、first-pass和三个回合的启动。
+    if args.route == 'legacy':
+        positive += ('pose_match_gap', 'track_bearing_deg', 'track_distance', 'scan_step_seconds',
+                     'scan_pause_seconds', 'settle_seconds', 'settle_yaw_rate',
+                     'servo_move', 'servo_turn_deg', 'align_dist', 'align_dist_tol', 'align_tol_deg',
+                     'servo_steps', 'cw_scan_sec', 'lidar_seconds', 'search_timeout')
+        if args.stable_frames < 1:
+            ap.error('stable-frames 须为正整数')
+        if args.step_tol >= args.servo_move:
+            ap.error('step-tol 必须小于移动步长')
+        if abs(args.search_wz) > args.max_ang or abs(args.cw_wz) > args.max_ang:
+            ap.error('搜索转速不得超过 max-ang')
     if args.route_scoop_distance <= args.step_tol:
-        ap.error("铲球后退距离须大于到点容差")
+        ap.error('铲球后退距离须大于到点容差')
     if any(not math.isfinite(getattr(args, k)) or getattr(args, k) <= 0 for k in positive):
-        ap.error("控制参数必须为正且有限")
+        ap.error('控制参数必须为正且有限')
     if not math.isfinite(args.kd_yaw) or args.kd_yaw < 0:
-        ap.error("kd-yaw 必须非负且有限")
-    if not 0 < args.ball_confidence <= 1 or args.stable_frames < 3:
-        ap.error("ball-confidence 须在 (0,1]，stable-frames 至少为 3")
-    if args.servo_move > 0.2 or args.step_tol >= args.servo_move:
-        ap.error("servo-move 最大 0.2m，step-tol 必须小于移动步长")
-    if any(not math.isfinite(v) for v in (args.search_wz, args.cw_wz, args.cam_yaw_offset,
-                                        args.into_field, args.turn_deg, args.backup)):
-        ap.error("转速、相机偏置、进场距离、转角及后退距离必须有限")
-    if abs(args.search_wz) > args.max_ang or abs(args.cw_wz) > args.max_ang:
-        ap.error("搜索转速不得超过 max-ang")
+        ap.error('kd-yaw 必须非负且有限')
+    if not 0 < args.ball_confidence <= 1:
+        ap.error('ball-confidence 须在 (0,1]')
+    if args.route == 'legacy' and any(not math.isfinite(v) for v in (
+            args.search_wz, args.cw_wz, args.cam_yaw_offset, args.into_field, args.turn_deg, args.backup)):
+        ap.error('转速、相机偏置、进场距离、转角及后退距离必须有限')
 
 
     os.chdir(WS)

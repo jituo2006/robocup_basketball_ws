@@ -139,7 +139,7 @@
       <button class="primary" onclick="toolRun('TEST_BALL')">🔍 固定路线寻球 → 转身铲球</button>
       <div class="row">
         <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.021" step="0.01" value="0.70"></label>
-        <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+        <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" step="0.01" value="0.08"></label>
       </div>
       <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 自动铲球：靠近完成后抬起，等1秒放下（取消勾选可跳过）</label>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
@@ -157,7 +157,7 @@
       <div class="hint" id="firstPassStatus">待启动</div>
       <label>第1次靠近距离（米） <input id="firstPassDistance1" type="number" min="0.021" step="0.01" value="0.70"></label>
       <label>第2次靠近距离（米） <input id="firstPassDistance2" type="number" min="0.021" step="0.01" value="0.70"></label>
-      <label>靠近速度（米/秒） <input id="firstPassSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+      <label>靠近速度（米/秒） <input id="firstPassSpeed" type="number" min="0.01" step="0.01" value="0.08"></label>
       <label><input id="firstPassIntake" type="checkbox" checked> 执行铲球机构动作</label>
       <div class="row">
         <button id="firstPassStart" data-guard="TEST_FIRST_PASS" class="primary" onclick="firstPassRun()" disabled>启动自动行驶</button>
@@ -210,7 +210,7 @@
         </div>
         <div class="row">
           <label>内侧线后退（米）<input id="roundInnerScoop" type="number" min="0.021" step="0.05" value="0.15"></label>
-          <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" max="0.25" step="0.01" value="0.08"></label>
+          <label>吸球靠近速度（米/秒）<input id="roundScoopSpeed" type="number" min="0.01" step="0.01" value="0.08"></label>
         </div>
         <div class="hint" id="roundCruiseHint">普通行驶/搜索0.25米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。</div>
       </details>

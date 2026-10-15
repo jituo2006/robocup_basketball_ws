@@ -296,7 +296,7 @@ def test_rear_lost_detection_waits_stopped_until_cancel_without_blind_backing(mo
     run.args.route_rear_align_speed=.04
     d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
     events=[]
-    timed_rear_samples(mod, run, monkeypatch, [d,None], cancel_after=.2)
+    timed_rear_samples(mod, run, monkeypatch, [None], cancel_after=.2)
     run.stop=lambda:events.append('stop')
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
@@ -304,7 +304,7 @@ def test_rear_lost_detection_waits_stopped_until_cancel_without_blind_backing(mo
         run.rear_visual_scoop()
     assert len(events)>=3 and set(events)=={'stop'}
 
-@pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04)),(.5,(-.08,0.))])
+@pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04))])
 def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected,monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
@@ -351,34 +351,34 @@ def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(
     assert -run.pose[1] == pytest.approx(.45,abs=run.args.step_tol)
 
 
-def test_rear_missing_frame_resets_center_count_and_cached_frame_cannot_finish_alignment(monkeypatch):
+def test_rear_missing_frames_wait_then_first_centered_detection_completes(monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=1.;run.args.route_rear_align_speed=.04
     def det(stamp):
         return NS(x_min=.45,x_max=.55,confidence=.9,stamp=NS(sec=stamp,nanosec=0))
-    samples=iter([det(10),det(11),None,det(11),det(12),det(13),det(14)])
+    samples=iter([None,None,det(10)])
     timed_rear_samples(mod,run,monkeypatch,samples)
     run.stop=lambda:None
     def approach():
-        assert next(samples,None) is None, 'three distinct centered frames required after drop'
+        assert next(samples,None) is None, 'first valid centered detection should finish alignment'
         return True
     run.aligned_intake_approach=approach
     assert run.rear_visual_scoop()
 
 @pytest.mark.parametrize('height',[.2,.6])
-def test_rear_requires_unique_center_frames_then_approaches_without_more_yolo(height):
+def test_rear_one_centered_frame_approaches_without_more_yolo(height):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=.2;run.args.route_rear_align_speed=.04
     def det(stamp):
         return NS(x_min=.45,x_max=.55,y_min=.2,y_max=.2+height,
                   confidence=.9,stamp=NS(sec=stamp,nanosec=0))
-    samples=iter([det(10),det(10),det(11),det(12)])
+    samples=iter([det(10)])
     events=[];run.spin=lambda sec:None
     run.centered_target_candidates=lambda *a,**kw:next(samples)
     run.stop=lambda:events.append('stop')
     run.rear_distance_scoop=lambda:events.append('distance') or True
     assert run.rear_visual_scoop()
-    assert events==['stop','stop','stop','stop','stop','distance','stop']
+    assert events==['stop','stop','distance','stop']
     assert not run.obstacle_scoop
 
 
@@ -447,7 +447,7 @@ def test_rear_center_confirmation_is_not_blocked_by_former_lateral_cap():
     run.stop = lambda: None
     run.aligned_intake_approach = lambda: True
     assert run.rear_visual_scoop()
-    assert count[0] == 3
+    assert count[0] == 1
 
 
 @pytest.mark.parametrize('heading', [0., math.pi/2, -1.2])

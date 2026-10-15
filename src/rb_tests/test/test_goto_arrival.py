@@ -40,34 +40,31 @@ def sample(r, clock, pose):
     r.pose_stamp = r.odom_stamp = 100.+clock[0]
 
 
-def test_pass_through_needs_fresh_stopped_samples_and_corrects_overshoot(motion):
+def test_goal_tolerance_stops_without_velocity_confirmation_or_dwell(motion):
     r, clock, commands, stops = motion
-    positions = iter([0., .3, .7, .97, 1.12, 1.08] + [1.]*20)
+    positions = iter([0., .3, .7, .97])
     def spin(seconds):
         clock[0] += seconds
-        sample(r, clock, (next(positions, 1.), 0., 0.))
+        sample(r, clock, (next(positions, .97), 0., 0.))
     r.spin = spin
     assert r.goto(1., 0., timeout=.01)
-    assert clock[0] > .8
-    assert any(vx < 0 for vx, vy, wz in commands)
-    assert all(abs(vx) <= .08 for vx, vy, wz in commands if vx < 0)
+    assert clock[0] == pytest.approx(.2)
+    assert all(vx >= 0 for vx, vy, wz in commands)
     assert stops[-1] == clock[0]
 
 
-def test_repeated_pose_cannot_confirm_arrival(motion):
+def test_stale_pose_at_goal_still_stops_instead_of_reporting_arrival(motion):
     r, clock, commands, stops = motion
-    r.pose = (1., 0., 0.)
+    r.pose, r.pose_stamp = (1., 0., 0.), 99.
     with pytest.raises(RuntimeError, match='时间戳过期'):
         r.goto(1., 0., timeout=2.)
-    assert stops and all(c == (0., 0., 0.) for c in commands)
+    assert stops and not commands
 
 
-def test_stale_odometry_at_goal_cannot_report_success(motion):
+def test_independent_raw_odometry_does_not_block_valid_navigation_pose(motion):
     r, clock, commands, stops = motion
-    r.pose = (1., 0., 0.)
-    r.odom_stamp = 99.
-    with pytest.raises(RuntimeError, match='雷达里程计'):
-        r.goto(1., 0., timeout=2.)
+    r.pose = (1., 0., 0.); r.odom_stamp = 99.
+    assert r.goto(1., 0., timeout=2.)
     assert stops and not commands
 
 
@@ -84,17 +81,15 @@ def test_world_velocity_is_rotated_once_and_approach_is_limited(motion):
     assert stops
 
 
-def test_rotation_at_goal_prevents_stable_arrival(motion):
+def test_goal_does_not_wait_for_measured_angular_speed(motion):
     r, clock, commands, stops = motion
     def spin(seconds):
         clock[0] += seconds
-        if clock[0] > 1.5:
-            raise KeyboardInterrupt()
         sample(r, clock, (1., 0., clock[0]))
     r.spin = spin
-    with pytest.raises(KeyboardInterrupt):
-        r.goto(1., 0., timeout=.01)
-    assert stops and all(c == (0., 0., 0.) for c in commands)
+    assert r.goto(1., 0., timeout=.01)
+    assert clock[0] == pytest.approx(.05)
+    assert stops and not commands
 
 
 @pytest.mark.parametrize('target,timeout,tol', [(math.nan, 1., .05), (1., 1., -1.)])

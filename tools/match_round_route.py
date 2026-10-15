@@ -54,7 +54,7 @@ def load_config(path=CONFIG):
     point(cfg['start'], start=True)
     for key in ('entry', 'corridor'):
         point(cfg[key])
-    number(cfg['speed_mps'], .01, .25)
+    number(cfg['speed_mps'], math.nextafter(0., math.inf), math.inf)
     number(cfg['start_delay_s'], 5, 15)
     if cfg.get('round1_first_ball', 'preloaded') not in ('preloaded', 'search'):
         raise ValueError('首球方式须为 preloaded/search')

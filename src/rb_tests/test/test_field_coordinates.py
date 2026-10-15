@@ -73,18 +73,10 @@ def test_route_rejects_points_outside_centered_bounds(tmp_path,point):
     with pytest.raises(ValueError):load_config(path)
 
 
-@pytest.mark.parametrize('point,accepted', [((-4.225,1.5),True),((0.,12.),True),
-                                          ((-5.8,1.5),False),((0.,16.1),False)])
-def test_motion_bounds_use_centered_route_frame(point,accepted):
+@pytest.mark.parametrize('point', [(-4.225,1.5),(0.,12.),(-5.8,1.5),(0.,16.1)])
+def test_motion_has_no_fixed_field_boundary_gate(point):
     from test_perimeter_ball import Runner
-    stops=[]
-    r=NS(pose=(*point,0.),pose_stamp=10.,odom_stamp=10.,field_l=14.,field_w=7.5,
-         round_coordinate_frame='field_center_y_basket',round_start_frame=NS(nominal=lambda p:p[:2]),
-         args=NS(pose_timeout=1.),stop=lambda:stops.append(True),
+    r=NS(pose=(*point,0.),pose_stamp=10.,args=NS(pose_timeout=1.),
+         stop=lambda:pytest.fail('有效定位不因名义场地范围停车'),
          node=NS(get_clock=lambda:NS(now=lambda:NS(nanoseconds=10_000_000_000))))
-    if accepted:
-        Runner.require_fresh_pose(r)
-        assert not stops
-    else:
-        with pytest.raises(RuntimeError,match='超出场地'):Runner.require_fresh_pose(r)
-        assert stops
+    Runner.require_fresh_pose(r)

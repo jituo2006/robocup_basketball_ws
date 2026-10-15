@@ -133,13 +133,14 @@ def test_small_servo_step_uses_tight_tolerance_and_visual_guard():
 
 def test_invalid_cli_parameters_fail_before_process_or_device_actions():
     mod = load()
-    for args in (['--servo-move', '0.5'], ['--stable-frames', '2'], ['--kd-yaw', 'nan']):
+    for args in (['--route', 'legacy', '--servo-move', '-1'],
+                 ['--route', 'legacy', '--stable-frames', '0'], ['--kd-yaw', 'nan']):
         with pytest.raises(SystemExit) as exc:
             mod.main(args)
         assert exc.value.code == 2
 
 
-def test_rotation_requires_low_rate_and_stable_dwell(monkeypatch):
+def test_rotation_finishes_at_angle_without_low_rate_or_dwell_gate(monkeypatch):
     mod = load()
     run, clock = runner(mod)
     run.args.yaw_tol, run.args.max_ang = .015, .3
@@ -158,5 +159,5 @@ def test_rotation_requires_low_rate_and_stable_dwell(monkeypatch):
     run._Twist = lambda: NS(angular=NS(z=0))
     run.publish_command = lambda msg: speeds.append(msg.angular.z)
     assert run.rotate_to(0, timeout=2)
-    assert clock.t >= 100.55  # 高角速度阶段不能计入稳定到位。
+    assert clock.t == pytest.approx(100.1)  # 角度到位即停，不等待低转速和额外稳定时间。
     assert speeds and max(abs(v) for v in speeds) <= .3
