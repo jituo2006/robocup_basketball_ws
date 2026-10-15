@@ -704,6 +704,21 @@ function activeAreasOf(r, tk) {
   }
   return out;
 }
+/* 按【出球点】把 route 切段，每段里的 @区域 就是这一阶段要找的区。
+   阶段1 / 阶段2 各一份，不互相覆盖 —— 你画阶段1找中线、阶段2找弧线，
+   车就不会两个阶段都把整份列表重搜一遍。 */
+function areasByStageOf(r, tk) {
+  const stages = [];
+  let cur = [];
+  const actionToks = ["passPt", "shootPt"];
+  for (const t of routeList(tk || task, r)) {
+    if (actionToks.includes(t)) { stages.push(cur); cur = []; continue; }
+    if (isAreaTok(t)) { const a = t.slice(1); if (!cur.includes(a)) cur.push(a); }
+  }
+  if (cur.length) stages.push(cur);        // 末尾没跟出球点的段（一般不会有）
+  return stages;
+}
+
 function activeAreas() {
   if (round === "all") return ["middle", "arc", "inner"];
   return activeAreasOf(round, task);
@@ -2694,7 +2709,7 @@ function exportMatch() {
   o.search_order = {};
   for (const tk of ["pass", "shoot"]) {
     o.search_order[tk] = {};
-    for (const r of [1, 2, 3]) o.search_order[tk][String(r)] = activeAreasOf(r, tk);
+    for (const r of [1, 2, 3]) o.search_order[tk][String(r)] = areasByStageOf(r, tk);
   }
   o.coordinate_y_offset_m = r2(Y0);
   /* 路线（走法）也一起导出：传球/投篮 × 三轮，元素是节点名或 [x,y] 途经点。

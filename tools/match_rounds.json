@@ -173,28 +173,54 @@
   "search_order": {
     "pass": {
       "1": [
-        "middle"
+        [],
+        [
+          "middle"
+        ]
       ],
       "2": [
-        "middle",
-        "arc"
+        [
+          "middle"
+        ],
+        [
+          "arc"
+        ]
       ],
       "3": [
-        "arc",
-        "inner"
+        [
+          "arc",
+          "inner"
+        ],
+        [
+          "arc",
+          "inner"
+        ]
       ]
     },
     "shoot": {
       "1": [
-        "middle"
+        [],
+        [
+          "middle"
+        ]
       ],
       "2": [
-        "middle",
-        "arc"
+        [
+          "middle"
+        ],
+        [
+          "arc"
+        ]
       ],
       "3": [
-        "arc",
-        "inner"
+        [
+          "arc",
+          "inner"
+        ],
+        [
+          "arc",
+          "inner"
+        ]
       ]
     }
   },

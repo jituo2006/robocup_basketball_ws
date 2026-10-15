@@ -325,14 +325,30 @@ class Runner:
         if self.pose is not None and self.pose_stamp > 0:
             dt = stamp-self.pose_stamp
             jump = math.hypot(pose[0]-self.pose[0],pose[1]-self.pose[1])
-            # 【会阻止继续移动】相邻位置跳变超过 0.25m + 1.0m/s * dt，
-            # 保存 motion_fault；本 Runner 内没有自动清除此故障的分支。
-            # 即使后续定位恢复，require_fresh_pose 仍会报错并终止本次路线。
+            # 相邻位置跳变超过 0.25m + 1.0m/s * dt 就【丢掉这一帧】。
+            # 偶发跳变（FAST-LIO 回环/重定位/点云退化）很常见，丢一帧等下一帧
+            # 就好，不该因此废掉整轮 —— 所以默认【不锁死】。
+            # 只有连续 jump_fault_limit 帧都跳变（说明定位真的坏了）才置
+            # motion_fault 停车；置上以后本 Runner 内没有自动清除的分支。
+            limit = max(1, int(getattr(self.args, "jump_fault_limit", 5)))
             if jump > getattr(self.args,"pose_jump_margin",.25) + getattr(self.args,"pose_max_speed",1.0)*dt:
-                self.motion_fault = f"定位跳变 {jump:.2f}m/{dt:.3f}s，需重新初始化定位"
-                trace("pose_fault", reason=self.motion_fault, previous=list(self.pose), received=list(pose))
+                self.pose_jump_count = getattr(self, "pose_jump_count", 0) + 1
+                first = self.pose_jump_count == 1
+                trace("pose_jump", count=self.pose_jump_count, limit=limit,
+                      jump=round(jump, 3), dt=round(dt, 3),
+                      previous=list(self.pose), received=list(pose))
+                if first:
+                    log('定位告警', f'本帧跳变 {jump:.2f}m/{dt:.3f}s，已丢弃；'
+                                 f'连续跳变 {limit} 帧才停车', C_WARN)
+                if self.pose_jump_count >= limit:
+                    self.motion_fault = (f"连续 {self.pose_jump_count} 帧定位跳变"
+                                         f"（最近 {jump:.2f}m/{dt:.3f}s），需重新初始化定位")
+                    trace("pose_fault", reason=self.motion_fault,
+                          previous=list(self.pose), received=list(pose))
                 return
             self.yaw_rate = wrap_pi(yaw - self.pose[2]) / dt
+        # 收到一帧正常的定位就清掉跳变计数。
+        self.pose_jump_count = 0
         self.pose, self.pose_stamp = pose, stamp
         self.pose_history.append((stamp, pose))
 
@@ -1312,6 +1328,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="行驶定位源时间戳最大年龄 s，过期即停车")
     ap.add_argument('--pose-jump-margin',type=float,default=.25,help='定位跳变基础容差 m')
     ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
+    ap.add_argument("--jump-fault-limit", type=int, default=5,
+                    help="连续多少帧定位跳变才判定定位失效停车；单帧跳变只丢帧继续（默认 5）")
     ap.add_argument("--kp", type=float, default=1.5)
     ap.add_argument("--kp-yaw", type=float, default=2.0)
     ap.add_argument("--kd-yaw", type=float, default=0.25, help="实测角速度阻尼系数")

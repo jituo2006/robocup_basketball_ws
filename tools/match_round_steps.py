@@ -146,7 +146,9 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 if task == 'shoot' and index == 2:
                     if not plan.move(cfg['corridor']):
                         raise RuntimeError('去搜索通道未完成')
-                for area in search_order(round_number, task, cfg):
+                # 按【阶段】取区域：你编辑器里画的是阶段1找哪些、阶段2找哪些，
+                # 不要每个阶段都把整份列表重搜一遍。
+                for area in search_order(round_number, task, cfg, index):
                     result = plan.search_area(area, cycle, search_only=True)
                     if result == 'failed':
                         break

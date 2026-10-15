@@ -251,13 +251,20 @@ def validate_mode(cfg, task, mode, release_kind='match', mechanism_enabled=True)
             raise ValueError('双次流程须配置真实出球 commands；朝向须配置 aim 或使用 fixed 模式的 search_heading_deg')
 
 
-def search_order(round_number, task, cfg=None):
+def search_order(round_number, task, cfg=None, stage=None):
     """本回合去哪些区域找球、按什么顺序。
 
     【真源】tools/match_rounds.json 的 search_order[task][round] ——
     由场地图编辑器从你画的 route 里的 @区域 顺序导出，所以你在编辑器里
     把 @arc 和 @inner 调个位置，车就跟着调。
     cfg 没传或配置里没这一项时，才用下面的内置默认值。
+
+    配置有两种写法：
+      平铺   ["middle", "arc"]                 两个阶段都用这一份
+      分阶段 [["middle"], ["arc"]]             阶段1 找中线、阶段2 找弧线
+    分阶段写法由场地图编辑器从 route 里【按出球点切段】导出 —— 你画什么
+    阶段找哪些区，车就按那个来，不会两个阶段都重搜一遍。
+    stage 传 1 或 2 取对应阶段；不传则把各阶段合起来（兼容旧调用方）。
     """
     if round_number not in (1, 2, 3):
         raise ValueError('只支持第1、2、3回合')
@@ -267,6 +274,17 @@ def search_order(round_number, task, cfg=None):
         if areas is None:
             areas = table.get(round_number)
         if areas:
+            if isinstance(areas[0], (list, tuple)):     # 分阶段写法
+                if stage is not None:
+                    idx = int(stage) - 1
+                    return ([str(a) for a in areas[idx]]
+                            if 0 <= idx < len(areas) else [])
+                out = []
+                for group in areas:
+                    for a in group:
+                        if a not in out:
+                            out.append(a)
+                return [str(a) for a in out]
             return [str(a) for a in areas]
     # ↓ 内置默认（配置里没写时用）
     if round_number == 1:
