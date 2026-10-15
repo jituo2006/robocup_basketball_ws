@@ -124,9 +124,13 @@ def main():
                                            'msg_MID360_launch.py'], start_new_session=True)
             if mapping is None and mono >= next_mapping and health.inputs_stable(wall, mono):
                 health.reset_odom()
-                mapping = subprocess.Popen(['ros2', 'launch', 'fast_lio', 'mapping.launch.py',
-                    'config_path:='+args.lidar_root+'/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config',
-                    'config_file:=mid360.yaml', 'rviz:=false'], start_new_session=True)
+                # 直接向节点传 ROS 参数；上游 mapping.launch.py 不转发任意
+                # launch 参数。保留配准点云及车体系点云，仅关闭稠密输出。
+                mapping = subprocess.Popen(['ros2', 'run', 'fast_lio', 'fastlio_mapping',
+                    '--ros-args', '--params-file',
+                    args.lidar_root+'/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config/mid360.yaml',
+                    '-p', 'use_sim_time:=false',
+                    '-p', 'publish.dense_publish_en:=false'], start_new_session=True)
                 node.get_logger().info('雷达/IMU 已连续稳定，启动全新 FAST-LIO 会话')
             if (mapping is not None and not ready and health.inputs_live(wall, mono)
                     and health.odom_stable(wall, mono)):
