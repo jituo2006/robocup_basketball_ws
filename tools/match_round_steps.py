@@ -3,7 +3,8 @@ import json
 import math
 from pathlib import Path
 
-from match_round_route import RoundRoute, StartFrame, search_order, validate_mode, TASK_LABELS, wrap
+from match_round_route import (RoundRoute, StartFrame, search_order, validate_mode,
+                               TASK_LABELS, wrap, start_wait)
 
 STATE_DIR = Path('/tmp/rb_match_rounds')
 
@@ -107,6 +108,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     runner.round_start_frame = plan.frame
     runner.args.ball_label = TASK_LABELS[task]
     runner.args.speed = cfg['speed_mps']
+    if getattr(runner.args, 'route_intake_settle', None) is None:
+        runner.args.route_intake_settle = float(cfg.get('intake_settle_s', 1.5))
     plan.trail = [tuple(p) for p in state['trail']]
     plan.search_origin = state['search_origin']
     plan.say(f'阶段 {index}：{steps(round_number, state["first_ball"])[index-1][1]}')
@@ -126,8 +129,9 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         ok = False
         try:
             if kind == 'entry':
-                # 起步默认先静止5秒，随后右转并进场；等待期间也会处理定位回调。
-                runner.spin(cfg['start_delay_s'])
+                # 起步先静止 start_delay_s 秒（带每秒倒计时），随后右转并进场；
+                # 等待期间也会处理定位回调，但不发底盘速度。
+                start_wait(runner, cfg['start_delay_s'], emit=plan.say)
                 plan.say(f"入场1/2：右转90°，当前定位={runner.pose}，目标朝向={math.degrees(plan.frame.yaw(-math.pi/2)):.1f}°")
                 ok = plan.turn(-math.pi/2)
                 if ok:

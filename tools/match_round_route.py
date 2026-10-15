@@ -19,6 +19,26 @@ def wrap(a):
     return (a + math.pi) % (2 * math.pi) - math.pi
 
 
+def start_wait(runner, seconds, emit=None):
+    """起步前的静止等待，带【每秒倒计时】。
+
+    原来只是 runner.spin(N) 闷等，日志里看不出还剩几秒，现场不好判断。
+    这里把它拆成每秒一步，每一步都打印剩余时间；等待期间照常处理定位回调，
+    但不发任何底盘速度。整轮入口和分阶段入口都用它。
+    """
+    left = max(0., float(seconds))
+    if left <= 0:
+        return
+    if emit is not None:
+        emit(f'起步准备：{left:.0f} 秒后开始动作（等待期间不发底盘速度）')
+    while left > 1e-6:
+        step = min(1., left)
+        runner.spin(step)
+        left -= step
+        if left > 1e-6 and emit is not None:
+            emit(f'  还有 {math.ceil(left)} 秒')
+
+
 class StartFrame:
     """名义 A 起点朝 +X，对应当前真实位姿；只变换规划，不重置定位。"""
     def __init__(self, pose, start):
@@ -40,9 +60,69 @@ class StartFrame:
                 self.start[1]-math.sin(yaw)*dx+math.cos(yaw)*dy)
 
 
-def load_config(path=CONFIG):
+def mirror_to_b(cfg):
+    """把【以 A 出发写的】路线镜像成 B 出发（关于场地宽度中线 y=0 对称）。
+
+    球场本身关于 y=0 对称：篮筐、三分线圆心、中线置球区圆心都在轴上，
+    半场置球区与三分线内置球区的 y 范围也对称，A 区与 B 区互为镜像。
+    所以 B 出发不必另写一份路线，整份镜像即可 —— 12 条路线 = 6 份 × 镜像。
+
+    变换（镜像完仍走原有范围校验，所以结果必须仍然合法）：
+      所有 y 坐标                y → −y
+      所有规划朝向                h → −h
+      inner.dir_pass/dir_shoot   bt ↔ tb
+      arc.angles_deg/angles_shoot v → −v
+          （弧线点 = 圆心 + R·(cos v, sin v)，v 是场地系逆时针角，故取负；
+            朝向 v+π 取负后与 −v+π 等价）
+      middle.scan_dir            不动 —— 它是沿 x 的左右方向，y 翻转不影响
+      half_court_x_m / 各种 x     不动
+    """
+    o = json.loads(json.dumps(cfg))          # 深拷贝，不改调用方的字典
+
+    def flip_pair(seq):
+        if isinstance(seq, list) and len(seq) >= 2:
+            seq[1] = -seq[1]
+        return seq
+
+    for key in ('start', 'entry', 'corridor'):
+        flip_pair(o.get(key))
+    middle = o.get('middle') or {}
+    if isinstance(middle.get('y'), (int, float)):
+        middle['y'] = -middle['y']
+    inner = o.get('inner') or {}
+    for k in ('top_y', 'bottom_y'):
+        if isinstance(inner.get(k), (int, float)):
+            inner[k] = -inner[k]
+    for k in ('dir_pass', 'dir_shoot'):
+        if inner.get(k) in ('bt', 'tb'):
+            inner[k] = 'tb' if inner[k] == 'bt' else 'bt'
+    arc = o.get('arc') or {}
+    flip_pair(arc.get('center'))
+    if isinstance(arc.get('angles_deg'), list):
+        arc['angles_deg'] = [-v for v in arc['angles_deg']]
+    if isinstance(arc.get('angles_shoot'), dict):
+        arc['angles_shoot'] = {k: [-v for v in vs]
+                               for k, vs in arc['angles_shoot'].items()}
+    for task in ('pass', 'shoot'):
+        act = (o.get('release') or {}).get(task) or {}
+        flip_pair(act.get('point'))
+        flip_pair(act.get('aim'))
+        if isinstance(act.get('search_heading_deg'), (int, float)):
+            act['search_heading_deg'] = -act['search_heading_deg']
+    o['start_point'] = 'B'
+    return o
+
+
+def load_config(path=CONFIG, start_point=None):
     with open(path, encoding='utf-8') as stream:
         cfg = json.load(stream)
+    # 出发点：A 用文件里那份；B 是把整份路线关于场地中线镜像得到的。
+    chosen = str(start_point if start_point is not None
+                 else cfg.get('start_point', 'A')).strip().upper()
+    if chosen == 'B':
+        cfg = mirror_to_b(cfg)
+    elif chosen != 'A':
+        raise ValueError(f"出发点只能是 A 或 B，收到 {chosen!r}")
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
@@ -53,7 +133,12 @@ def load_config(path=CONFIG):
         if not isinstance(value, list) or len(value) != 2:
             raise ValueError('路线坐标须为 [x,y]')
         number(value[0], 0, 14)
-        number(value[1], y_offset, (8.5 if start else 7.5)+y_offset)
+        # 出发区在场地【外侧】：A 从上面凸出、B 从下面凸出，所以 start 的
+        # y 范围要【上下对称】都放宽 1 m（旧帧 −1.0 ~ 8.5）。
+        # 其余动作点仍在场地内 0 ~ 7.5。原来下界写死 y_offset，B 区(−4.25)
+        # 会被判成越界。
+        number(value[1], (-1.0 if start else 0.0) + y_offset,
+               (8.5 if start else 7.5) + y_offset)
     point(cfg['start'], start=True)
     for key in ('entry', 'corridor'):
         point(cfg[key])
@@ -102,8 +187,12 @@ def load_config(path=CONFIG):
     number(i['x'], 0, 14)
     number(i['top_y'], y_offset, 7.5+y_offset)
     number(i['bottom_y'], y_offset, 7.5+y_offset)
-    if i['bottom_y'] >= i['top_y']:
-        raise ValueError('内侧搜索下端须小于上端')
+    # top_y/bottom_y 是【以 A 帧命名】的两端，只要求不重合 —— 到底先走上端
+    # 还是下端由 dir_pass / dir_shoot 决定（bt=从下端到上端）。
+    # 原来写成 bottom_y >= top_y 报错，是把 A 帧的上下当成绝对方向了：
+    # B 出发整份镜像后 top_y/bottom_y 会互换大小，那个检查会误判。
+    if i['bottom_y'] == i['top_y']:
+        raise ValueError('内侧搜索的上下两端不能重合')
     for area in (m, a, i):
         number(area['scoop_m'], math.nextafter(.02, math.inf), math.inf)
     if not isinstance(cfg['drop_commands'], list) or not cfg['drop_commands'] or any(
@@ -470,6 +559,8 @@ class RoundRoute:
                         return 'failed'
                     saved_distance, saved_timeout = self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout
                     self.r.args.route_scoop_distance = cfg[area]['scoop_m']
+                    if getattr(self.r.args, 'route_intake_settle', None) is None:
+                        self.r.args.route_intake_settle = float(cfg.get('intake_settle_s', 1.5))
                     # 距离取本区域 scoop_m：中线默认0.70m，arc/inner另有配置；
                     # 修改通用 route_scoop_distance 不会覆盖此处的区域配置。
                     self.r.args.route_scoop_timeout = max(15., cfg[area]['scoop_m']/self.r.args.route_scoop_speed+5.)
@@ -571,11 +662,22 @@ class RoundRoute:
         return True
 
     def home(self):
-        if self.task == 'shoot' and not self.move(self.cfg['corridor']):
+        cfg = self.cfg
+        if self.task == 'shoot' and not self.move(cfg['corridor']):
             return False
-        if not self.move(self.cfg['entry']) or not self.move(self.cfg['start']):
+        if not self.move(cfg['entry']):
             return False
-        return self.turn(0.)
+        # 回正放在【进场点】：先把车头转回初始朝向，再直着进出发区。
+        # 旧写法是先到出发点再原地转 —— 原地旋转会让已经到位的终点位置带偏，
+        # 规则要求停稳在出发区内，所以默认改成在进场点回正。
+        # 想回旧行为：home_align_at = "start"
+        if cfg.get('home_align_at', 'entry') == 'start':
+            if not self.move(cfg['start']):
+                return False
+            return self.turn(0.)
+        if not self.turn(0.):
+            return False
+        return self.move(cfg['start'])
 
     def execute(self):
         if self.mode == 'cycle':
@@ -585,10 +687,12 @@ class RoundRoute:
                                  self.release_kind, emit=self.emit)
         self.r.args.ball_label = TASK_LABELS[self.task]
         self.r.args.speed = self.cfg['speed_mps']
+        if getattr(self.r.args, 'route_intake_settle', None) is None:
+            self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 1.5))
         self.say('假定车已放回 A 区、面向篮筐；当前位姿作为本轮起点')
         self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()
-        self.r.spin(self.cfg['start_delay_s'])
+        start_wait(self.r, self.cfg['start_delay_s'], emit=self.say)
         if not self.turn(-math.pi/2):
             return False
         preloaded = self.round == 1 and self.cfg.get('round1_first_ball', 'preloaded') == 'preloaded'

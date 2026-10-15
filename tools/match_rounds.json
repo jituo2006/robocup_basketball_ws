@@ -11,19 +11,37 @@
     6.4,
     3.05
   ],
-  "speed_mps": 0.25,
+  "speed_mps": 0.35,
   "speed_profiles": {
     "1": {
-      "travel_mps": 0.5,
-      "carry_mps": 0.35,
+      "travel_mps": 0.62,
+      "carry_mps": 0.45,
       "scan_mps": 0.25,
-      "pickup_exit_mps": 0.12,
-      "turn_rad_s": 0.4,
+      "pickup_exit_mps": 0.15,
+      "turn_rad_s": 0.5,
+      "approach_radius_m": 0.6,
+      "approach_mps": 0.12
+    },
+    "2": {
+      "travel_mps": 0.62,
+      "carry_mps": 0.45,
+      "scan_mps": 0.25,
+      "pickup_exit_mps": 0.15,
+      "turn_rad_s": 0.5,
+      "approach_radius_m": 0.6,
+      "approach_mps": 0.12
+    },
+    "3": {
+      "travel_mps": 0.62,
+      "carry_mps": 0.45,
+      "scan_mps": 0.25,
+      "pickup_exit_mps": 0.15,
+      "turn_rad_s": 0.5,
       "approach_radius_m": 0.6,
       "approach_mps": 0.12
     }
   },
-  "start_delay_s": 5.0,
+  "start_delay_s": 10.0,
   "drop_commands": [
     "dji_move 1 0 5"
   ],
@@ -31,7 +49,7 @@
     "y": 0.7,
     "left_x": 0.6,
     "right_x": 4.4,
-    "scoop_m": 0.5,
+    "scoop_m": 0.59,
     "scan_dir": {
       "1": "rl",
       "2": "lr",
@@ -51,7 +69,7 @@
       162,
       170
     ],
-    "scoop_m": 0.5,
+    "scoop_m": 0.59,
     "radius_shoot": 3.05,
     "angles_shoot": {
       "2": [
@@ -74,7 +92,7 @@
     "x": 8.3,
     "top_y": 3.15,
     "bottom_y": 0.65,
-    "scoop_m": 0.5,
+    "scoop_m": 0.59,
     "x_shoot": 9.7,
     "dir_pass": "bt",
     "dir_shoot": "tb"
@@ -166,5 +184,18 @@
         "inner"
       ]
     }
-  }
+  },
+  "start_points": {
+    "A": [
+      1.5,
+      4.25
+    ],
+    "B": [
+      1.5,
+      -4.25
+    ]
+  },
+  "start_point": "A",
+  "intake_settle_s": 1.5,
+  "home_align_at": "entry"
 }

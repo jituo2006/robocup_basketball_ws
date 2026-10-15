@@ -954,8 +954,12 @@ class Runner:
                                           wait=lambda delay: self.spin(delay))
             log('自动铲球', message, C_OK if raised else C_BAD)
             if raised:
-                # 从抬起指令成功发送后等待1秒；此时底盘保持停止。
-                self.spin(1.)
+                # 抬起指令发完后等这么久，让球真正被吸进去再继续；
+                # 等待期间底盘保持停止。
+                # 时长优先级：--route-intake-settle > match_rounds.json 的
+                # intake_settle_s > 内置默认 1.5 秒。
+                settle = getattr(self.args, 'route_intake_settle', None)
+                self.spin(1.5 if settle is None else float(settle))
         finally:
             # 放下只发 dji_move 1 0 5，不再追加 dji_stop / dji_zero。
             # 抬起失败或等待被中断时，也尝试放下，异常仍由外层处理。
@@ -1291,6 +1295,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--round-first-ball', choices=['preloaded', 'search'], default='search',
                     help='第1轮首球：search按固定路线取球联调；preloaded按规则首球预装')
     ap.add_argument('--round-config', default=str(Path(__file__).with_name('match_rounds.json')))
+    ap.add_argument('--start-point', choices=['A', 'B'], default=None,
+                    help='出发点：A（默认，路线按 A 帧写）或 B（整份路线关于场地中线 y=0 镜像）')
     ap.add_argument('--round-middle-scoop', type=float, default=None)
     ap.add_argument('--round-arc-scoop', type=float, default=None)
     ap.add_argument('--round-inner-scoop', type=float, default=None)
@@ -1402,6 +1408,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--route-scoop-min-speed", type=float, default=0.05,
                     help="末段最低后退速度 m/s，仍受 route-scoop-speed 上限约束；需实车调试")
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0, help='兼容旧参数，已取消固定总时限')
+    ap.add_argument("--route-intake-settle", type=float, default=None,
+                    help='发出吸球抬起指令后等待多久再继续（秒），让球被吸进去；'
+                         '不传时用 match_rounds.json 的 intake_settle_s（默认 1.5）')
     ap.add_argument('--route-intake', '--mechanism', action=argparse.BooleanOptionalAction, default=True,
                     help='机构总开关：关闭跳过吸球、发射、放球，完整比赛路线继续执行')
     # 命令行默认开机构；--no-route-intake/--no-mechanism 关闭。
@@ -1439,7 +1448,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.route == 'fixed':
         from match_round_route import load_config
         try:
-            middle_cfg = load_config(args.round_config)
+            middle_cfg = load_config(args.round_config, args.start_point)
             if args.route_scan_start_offset is None:
                 args.route_scan_start_offset = middle_cfg['middle']['right_x']-middle_cfg['start'][0]
             if args.route_scan_distance is None:
@@ -1490,7 +1499,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.route in ('round1', 'round2', 'round3'):
         from match_round_route import load_config, validate_mode, TASK_LABELS
         try:
-            round_cfg = load_config(args.round_config)
+            round_cfg = load_config(args.round_config, args.start_point)
             round_cfg['round1_first_ball'] = args.round_first_ball
             validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind,
                           mechanism_enabled=args.route_intake)
