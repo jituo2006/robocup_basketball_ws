@@ -126,7 +126,12 @@ def main():
                 health.reset_odom()
                 mapping = subprocess.Popen(['ros2', 'launch', 'fast_lio', 'mapping.launch.py',
                     'config_path:='+args.lidar_root+'/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config',
-                    'config_file:=mid360.yaml', 'rviz:=false'], start_new_session=True)
+                    'config_file:=mid360.yaml', 'rviz:=false',
+                    # FAST-LIO 的稠密全局点云不是定位或传球流程的输入；开启后会在
+                    # NUC 上形成处理积压，把 /Odometry 延迟推到 1 秒以上，
+                    # 进而让 lidar_session 永远无法 ready。每次启动都强制关闭，
+                    # 不依赖外部 mid360.yaml 是否被恢复成旧版本。
+                    'publish.dense_publish_en:=false'], start_new_session=True)
                 node.get_logger().info('雷达/IMU 已连续稳定，启动全新 FAST-LIO 会话')
             if (mapping is not None and not ready and health.inputs_live(wall, mono)
                     and health.odom_stable(wall, mono)):
