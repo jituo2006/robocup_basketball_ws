@@ -470,10 +470,14 @@ const DEFAULTS = {
     shoot: {
       "1": ["start", "entry", "corridor", "shootPt", "corridor", "cross",
             "@middle", "cross", "corridor", "shootPt", "corridor", "entry", "start"],
+      /* 第2阶段搜索前先回一趟上侧通道 —— match_round_steps.execute_step 里
+         `if task == 'shoot' and index == 2: plan.move(cfg['corridor'])` 那一步。
+         只投篮有，传球没有；三轮投篮都走，所以这里和下面第3轮都要写。
+         以前编辑器里没写，图上就比车实际走的少一段。 */
       "2": ["start", "entry", "@middle", "cross", "corridor", "shootPt",
-            "@arc", "shootPt", "corridor", "entry", "start"],
+            "corridor", "@arc", "shootPt", "corridor", "entry", "start"],
       "3": ["start", "entry", "corridor", "@arc", "@inner", "shootPt",
-            "@arc", "@inner", "shootPt", "corridor", "entry", "start"]
+            "corridor", "@arc", "@inner", "shootPt", "corridor", "entry", "start"]
     }
   }
 };
