@@ -142,7 +142,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 if task == 'shoot' and index == 2:
                     if not plan.move(cfg['corridor']):
                         raise RuntimeError('去搜索通道未完成')
-                for area in search_order(round_number, task):
+                for area in search_order(round_number, task, cfg):
                     result = plan.search_area(area, cycle, search_only=True)
                     if result == 'failed':
                         break

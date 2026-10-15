@@ -43,7 +43,7 @@
       11.0,
       0.0
     ],
-    "radius": 4.65,
+    "radius": 4.45,
     "angles_deg": [
       138,
       146,
@@ -51,8 +51,8 @@
       162,
       170
     ],
-    "scoop_m": 0.25,
-    "radius_shoot": 2.85,
+    "scoop_m": 0.5,
+    "radius_shoot": 3.05,
     "angles_shoot": {
       "2": [
         110,
@@ -71,11 +71,11 @@
     }
   },
   "inner": {
-    "x": 8.2,
+    "x": 8.3,
     "top_y": 3.15,
     "bottom_y": 0.65,
-    "scoop_m": 0.15,
-    "x_shoot": 9.8,
+    "scoop_m": 0.5,
+    "x_shoot": 9.7,
     "dir_pass": "bt",
     "dir_shoot": "tb"
   },
@@ -126,5 +126,35 @@
   "exit_after_pickup": "direct",
   "carry_cross_x_m": 4.8,
   "pass_action_via_middle": false,
-  "scan_centered": true
+  "scan_centered": true,
+  "search_via_entry": false,
+  "half_court_x_m": 5.75,
+  "search_order": {
+    "pass": {
+      "1": [
+        "middle"
+      ],
+      "2": [
+        "middle",
+        "arc"
+      ],
+      "3": [
+        "arc",
+        "inner"
+      ]
+    },
+    "shoot": {
+      "1": [
+        "middle"
+      ],
+      "2": [
+        "middle",
+        "arc"
+      ],
+      "3": [
+        "arc",
+        "inner"
+      ]
+    }
+  }
 }

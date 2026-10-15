@@ -86,9 +86,15 @@ def test_each_round_has_own_start_frame_without_resetting_localization():
 
 
 def test_rule_target_regions_differ_by_round_and_task():
+    # 顺序的真源是 match_rounds.json 的 search_order（由场地图编辑器从 route 导出）；
+    # 不传 cfg 时退回内置默认：第1轮中线、第2轮中线+弧线、第3轮弧线+深场。
     assert search_order(2, 'pass') == search_order(2, 'shoot') == ['middle', 'arc']
     assert search_order(3, 'pass') == ['arc', 'inner']
-    assert search_order(3, 'shoot') == ['inner', 'arc']
+    assert search_order(3, 'shoot') == ['arc', 'inner']
+    # 传 cfg 时以配置为准
+    fake = {'search_order': {'shoot': {'3': ['inner', 'arc']}}}
+    assert search_order(3, 'shoot', fake) == ['inner', 'arc']
+    assert search_order(3, 'pass', fake) == ['arc', 'inner']
 
 
 @pytest.mark.parametrize('cycle', [0, 1])

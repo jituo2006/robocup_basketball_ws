@@ -156,14 +156,29 @@ def validate_mode(cfg, task, mode, release_kind='match', mechanism_enabled=True)
             raise ValueError('双次流程须配置真实出球 commands；朝向须配置 aim 或使用 fixed 模式的 search_heading_deg')
 
 
-def search_order(round_number, task):
+def search_order(round_number, task, cfg=None):
+    """本回合去哪些区域找球、按什么顺序。
+
+    【真源】tools/match_rounds.json 的 search_order[task][round] ——
+    由场地图编辑器从你画的 route 里的 @区域 顺序导出，所以你在编辑器里
+    把 @arc 和 @inner 调个位置，车就跟着调。
+    cfg 没传或配置里没这一项时，才用下面的内置默认值。
+    """
+    if round_number not in (1, 2, 3):
+        raise ValueError('只支持第1、2、3回合')
+    if cfg is not None:
+        table = (cfg.get('search_order') or {}).get(task) or {}
+        areas = table.get(str(round_number))
+        if areas is None:
+            areas = table.get(round_number)
+        if areas:
+            return [str(a) for a in areas]
+    # ↓ 内置默认（配置里没写时用）
     if round_number == 1:
         return ['middle']
     if round_number == 2:
         return ['middle', 'arc']
-    if round_number == 3:
-        return ['arc', 'inner'] if task == 'pass' else ['inner', 'arc']
-    raise ValueError('只支持第1、2、3回合')
+    return ['arc', 'inner']
 
 
 def inner_x(cfg, task):
@@ -273,10 +288,11 @@ class RoundRoute:
         return self.r.rotate_to(self.frame.yaw(heading), timeout=45.)
 
     def scan(self, target, heading, detect=True, centered=False):
-        # centered=False（默认）：球出现在画面【任意位置】就停车，随后由
-        #     face_detected() 把车头转正对着球 —— 即"找到球 → 正对 → 停"。
-        # centered=True：只认画面中心带（0.5±route_center_tolerance）里的球，
-        #     即旧行为（车横移时球要自己扫进中心带才停）。
+        # centered=True（scan_centered=true，当前配置）：只认画面中心带
+        #     （0.5±route_center_tolerance）里的球 —— 球横移到画面中间才停、才转身。
+        # centered=False：球出现在画面【任意位置】就停，随后由 face_detected()
+        #     把车头转正对着球（停得更早，但可能停在球还在侧面的时候）。
+        # 两种模式下都是【一检测到就立刻停车返回】，不会跑完整条寻球线。
         # found=目标触发停车，empty=到线端没找到，failed=运动异常/超时。
         target, heading = self.frame.point(target), self.frame.yaw(heading)
         distance = math.hypot(target[0]-self.r.pose[0], target[1]-self.r.pose[1])
@@ -324,6 +340,39 @@ class RoundRoute:
                  % (math.degrees(bearing), math.degrees(target_yaw)))
         return self.r.rotate_to(target_yaw, timeout=timeout)
 
+    def area_x(self, area):
+        # 各搜索区域在 x 上的代表位置（用来判断要不要跨半场置球线）
+        if area == 'middle':
+            m = self.cfg['middle']
+            return (float(m['left_x']) + float(m['right_x'])) / 2.
+        if area == 'arc':
+            return float(self.cfg['arc']['center'][0])
+        return float(self.cfg['inner']['x'])
+
+    def crossing_via(self, target_x):
+        # 从当前位置去 target_x，需要绕过半场置球线时返回途经点；
+        # 不需要（同侧）返回空列表。规则与场地图编辑器里的画法一致：
+        #   · 同侧        → 不绕
+        #   · 左 → 右     → 先在【左侧】抬到通道高度，再沿通道越过去。
+        #                   从进场点进场地时 y 已经在通道高度上（entry 与 corridor 的 y 相同），
+        #                   这时不加横穿点，直接沿通道走，省一次到点停车。
+        #   · 右 → 左     → 先回通道，再从上面越回来。
+        cfg, corridor = self.cfg, self.cfg.get('corridor')
+        if not corridor:
+            return []
+        if cfg.get('search_via_entry', False):
+            # 回退开关：旧行为 = 每次都先回进场点
+            return [cfg['entry'], corridor]
+        half = float(cfg.get('half_court_x_m', 5.75))
+        cur_x, cur_y = float(self.r.pose[0]), float(self.r.pose[1])
+        if (cur_x - half) * (float(target_x) - half) >= 0:
+            return []                                  # 同侧，直接去
+        cross = [float(cfg.get('carry_cross_x_m', 4.8)), corridor[1]]
+        if cur_x < half:
+            lift = [] if cur_y >= corridor[1] - 0.15 else [cross]
+            return lift + [corridor]
+        return [corridor, cross]
+
     def carry_via(self):
         """取球后【回动作点之前】要经过的点，和场地图编辑器里的路线一致。
 
@@ -337,13 +386,10 @@ class RoundRoute:
         """
         if self.cfg.get('exit_after_pickup', 'direct') == 'unwind':
             return []
-        if getattr(self, 'area', None) not in ('arc', 'inner'):
-            return []
-        corridor = self.cfg.get('corridor')
-        if not corridor:
-            return []
-        cross_x = float(self.cfg.get('carry_cross_x_m', 4.8))
-        return [corridor, [cross_x, corridor[1]]]
+        # 取球点 → 动作点要不要绕半场置球线：传球点在左侧(3.55)、
+        # 投篮点在右侧(10.45)，所以两者的绕行方向正好相反，交给 crossing_via 判断。
+        action_x = float(self.cfg['release'][self.task]['point'][0])
+        return self.crossing_via(action_x)
 
     def unwind(self):
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
@@ -364,12 +410,21 @@ class RoundRoute:
         cfg = self.cfg
         self.say(f'搜索 {area}，目标类别 {TASK_LABELS[self.task]}')
         self.trail = []
-        # 深场搜索统一经 E、T；不在绿色半场线找目标球。
-        transit = [cfg['entry']]
-        if area != 'middle':
-            transit.append(cfg['corridor'])
-            if area == 'inner':
-                transit.append([inner_x(cfg, self.task), cfg['corridor'][1]])
+        # 搜球前的中转。默认【不先回 E】。
+        # ⚠️ 原来写的是 transit = [cfg['entry']]，于是：
+        #    第1轮出完第一颗球后，车会先退回进场点 (1.5, 中线y) 附近再出发搜索，
+        #    看上去像"又回了一下出发位置"；
+        #    第2/3轮从动作点去弧线/深场时，也要先绕回左侧再走通道，多走十几米。
+        # 现在：
+        #    中线      完全不中转（中线就在下方，直接去本回合的起扫点）
+        #    弧线/深场  先在【还处于置球线左侧】时抬到通道高度，再沿通道越过置球线
+        #              —— 就是编辑器路线里的 [4.8, 6.8] → corridor
+        #                 （旧帧 6.8 = 新帧 3.05，正好在半场置球线顶边之上）
+        # 想回到旧行为：search_via_entry = true
+        # 搜球前的中转：要跨过半场置球线才绕，同侧直接去（crossing_via 判断）。
+        transit = self.crossing_via(self.area_x(area))
+        if area == 'inner' and transit:
+            transit.append([inner_x(cfg, self.task), cfg['corridor'][1]])
         for p in transit:
             if not self.move(p, remember=True):
                 return 'failed'
@@ -395,8 +450,9 @@ class RoundRoute:
         for p, yaw in points:
             if not self.turn(yaw):
                 return 'failed'
-            # 球出现在画面任意位置就停；随后 face_detected() 把车头转正对球。
-            # 想回到旧行为（必须自己扫进中心带才停）把 scan_centered 设 true。
+            # 球要进画面中心带（0.5±route_center_tolerance）才停 = scan_centered true。
+            # 一检测到就立刻停车返回，不会跑完整条寻球线。
+            # 设 scan_centered=false 则球出现在画面任意位置就停（更早停）。
             status = self.scan(p, yaw, detect=self.mode != 'drive',
                                centered=bool(cfg.get('scan_centered', False)))
             if status != 'empty':
@@ -443,7 +499,11 @@ class RoundRoute:
         self.heading_ready = False
         # 投篮点在绿线右边，过半场仍走上侧通道；传球点位于左侧传球圆内。
         if self.task == 'shoot':
-            for p in (cfg['entry'], cfg['corridor']):
+            # 投篮动作点在右侧。要不要先绕半场置球线由 crossing_via 判断：
+            #   从进场点进场地(y 已在通道高度) → entry → corridor → shootPt
+            #   从中线取球(y 低)               → [4.8,通道y] → corridor → shootPt
+            #   从弧线/深场(同在右侧)           → 直接去 shootPt
+            for p in self.crossing_via(float(cfg['release']['shoot']['point'][0])):
                 if not self.move(p):
                     return False
         else:
@@ -541,7 +601,7 @@ class RoundRoute:
                 return False
         for cycle in range(1):
             found = False
-            for area in search_order(self.round, self.task):
+            for area in search_order(self.round, self.task, self.cfg):
                 result = self.search_area(area, cycle)
                 if result == 'failed':
                     return False
