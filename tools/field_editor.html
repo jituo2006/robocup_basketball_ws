@@ -307,7 +307,7 @@ const DEFAULTS = {
        穷举过：第2轮 lr 比 rl 省 3.4 m（传球）/ 3.9 m（投篮）。 */
     /* y=4.45 是【旧帧】；导出成新帧就是 0.7（0.7 = 到球线的距离，正好等于 scoop_m），
        面板/悬停里看到的就是 0.7。 */
-    middle: { y: 4.65, left_x: 0.6, right_x: 4.4, scoop_m: 0.59,
+    middle: { y: 4.65, left_x: 0.6, right_x: 4.4, scoop_m: 0.44,
               scan_dir: { "1": "rl", "2": "lr", "3": "lr" } },
     /* 三分弧。传球走【外侧】R=4.65（扫完往左回传球点）；
        投篮走【内侧】R=2.85（2026 规则允许进三分线取球；内侧离投篮点近得多）。
@@ -316,7 +316,7 @@ const DEFAULTS = {
        angles_shoot 按轮次给：第2轮弧线在投篮点【之后】⇒ 先扫近端；
                               第3轮弧线在投篮点【之前】⇒ 先扫远端收在近端。 */
     arc: { center: [11.0, 3.75], radius: 4.65,
-           angles_deg: [138, 146, 154, 162, 170], scoop_m: 0.59,
+           angles_deg: [138, 146, 154, 162, 170], scoop_m: 0.44,
            radius_shoot: 2.85,
            angles_shoot: { "2": [110, 124, 138, 152, 165],
                            "3": [165, 152, 138, 124, 110] } },
@@ -326,7 +326,7 @@ const DEFAULTS = {
        bottom_y 4.4 = 整车不出中线的极限（队友的 1.3 在对方半场深处）。
        dir_pass=bt 从下到上（弧线扫完停在低处，接得上、不折返）；
        dir_shoot=tb 从上到下（扫完停在低处，直接进投篮点）。 */
-    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.9, bottom_y: 4.4, scoop_m: 0.59,
+    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.9, bottom_y: 4.4, scoop_m: 0.44,
              dir_pass: "bt", dir_shoot: "tb" },
     release: {
       /* 传球点 = 【传球柱 ↔ 传球区圆心】连线与传球区边界的交点附近
