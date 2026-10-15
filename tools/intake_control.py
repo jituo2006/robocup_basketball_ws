@@ -1,4 +1,8 @@
-"""The intake's field-confirmed text protocol, shared by route and console."""
+"""Legacy raw manual presets; automatic routes use mechanism_control.
+
+These helpers only write commands. They do not prove acceptance or completion.
+Do not use start_intake to re-zero an automatic pickup on every ball.
+"""
 import time
 
 

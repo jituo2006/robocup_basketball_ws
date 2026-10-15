@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
-# 在 NUC 当前桌面用户下安装，不需要 sudo，不启动运动脚本。
+# 在 NUC 当前桌面用户下安装；共用总电源上电后自动启动整车，不自动运行路线。
 set -euo pipefail
 pass_console_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pass_console_config="${XDG_CONFIG_HOME:-$HOME/.config}"
 mkdir -p "$pass_console_config/systemd/user" "$pass_console_config/autostart"
+cat > "$pass_console_config/systemd/user/robocup-pass-stack.service" <<EOF
+[Unit]
+Description=RoboCup stack started after shared hardware power on
+
+[Service]
+Type=simple
+WorkingDirectory=$pass_console_root
+ExecStart=/usr/bin/python3 "$pass_console_root/tools/pass_boot_watch.py" --run-stack
+KillSignal=SIGINT
+TimeoutStopSec=30
+EOF
 cat > "$pass_console_config/systemd/user/robocup-pass-console.service" <<EOF
 [Unit]
 Description=RoboCup six-button passing console

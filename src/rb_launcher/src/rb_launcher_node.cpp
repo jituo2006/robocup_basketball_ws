@@ -15,6 +15,10 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <sstream>
+#include <cstdint>
+#include <algorithm>
+#include <cctype>
 #include <string>
 
 #include <sys/stat.h>
@@ -121,6 +125,9 @@ public:
 
     ok_pub_ = create_publisher<std_msgs::msg::Bool>("/rb_launcher/ok", 1);
     status_pub_ = create_publisher<std_msgs::msg::String>("/rb_launcher/status", 10);
+    rx_pub_ = create_publisher<std_msgs::msg::String>("/rb_launcher/rx", 512);
+    rx_event_pub_ = create_publisher<std_msgs::msg::String>("/rb_launcher/rx_event", 512);
+    epoch_ = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
 
     srv_ = create_service<rb_msgs::srv::Launch>(
         "~/launch", std::bind(&RbLauncherNode::onLaunch, this, std::placeholders::_1, std::placeholders::_2));
@@ -131,6 +138,16 @@ public:
                             std::placeholders::_2));
 
     openPort();
+    rx_timer_ = create_wall_timer(std::chrono::milliseconds(5), [this]() {
+      std::lock_guard<std::mutex> lock(mtx_);
+      if (!serial_ || !port_ok_) return;
+      try {
+        if (!serial_->connected()) throw std::runtime_error("serial disconnected");
+        readText();
+      } catch (const std::exception &ex) {
+        serialFault(ex.what());
+      }
+    });
 
     const auto period = std::chrono::duration<double>(1.0 / std::max(send_rate_hz_, 1.0));
     timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::milliseconds>(period),
@@ -153,6 +170,7 @@ public:
         port_ok_ = false;
         active_ = false;
         serial_.reset();
+        publishEvent("disconnect", "serial disconnected");
         publishStatus("SERIAL", false, "机构USB/串口已断开，等待重连");
       }
       publishOk();
@@ -177,6 +195,8 @@ private:
       const std::string actual = pickPort(port_, fallback_ports_);
       serial_ = std::make_unique<SerialPortR1>(*ioc_, actual, baud_);
       port_ok_ = true;
+      rx_partial_.clear();
+      publishEvent("connect", actual);
       publishOk();
       if (actual == normalizeDev(port_)) {
         RCLCPP_INFO(get_logger(), "机构串口已打开: %s @ %u", actual.c_str(), baud_);
@@ -262,6 +282,8 @@ private:
       return;
     }
 
+    ++tx_id_;
+    publishEvent("tx", "LEGACY_BINARY");
     serial_->put_packet(cmd_, speed_, angle_);
     const bool sent = serial_->send_command();
     // Toggle commands are edges; repeating them toggles the mechanism again.
@@ -296,20 +318,88 @@ private:
       publishStatus("TEXT", false, cmd + "：串口未打开");
       return;
     }
+    if (cmd.find_first_of("\r\n") != std::string::npos || cmd.size() > 95) {
+      res->success = false;
+      res->message = "命令必须是至多95字节的单行文本";
+      return;
+    }
     try {
+      // Publish old RX before the new TX boundary. Never mix legacy repeated frames
+      // with a text transaction on the same wire.
+      readText();
+      std::string normalized = cmd;
+      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      const bool stop_request = normalized == "dji_stop" || normalized == "vesc_stop";
+      // A partial/unhealthy reply must never prevent a stop from reaching the MCU.
+      if (!rx_partial_.empty() && !stop_request) {
+        res->success = false;
+        res->message = "主板回复尚未收完整，请等待后重试";
+        return;
+      }
+      active_ = false;
+      ++tx_id_;
+      publishEvent("tx", cmd);
+      const auto boundary = event_seq_;
       res->success = serial_->send_string(cmd + line_ending_);
-      res->message = res->success ? "已发送 " + cmd : "串口写入失败，设备可能已断开";
+      res->message = res->success ? "已发送 " + cmd + " EPOCH=" + epoch_ +
+          " TX_ID=" + std::to_string(tx_id_) + " SEQ=" + std::to_string(boundary) :
+          "串口写入失败，设备可能已断开";
     } catch (const std::exception &ex) {
       res->success = false;
       res->message = std::string("发送失败: ") + ex.what();
     }
     if (!res->success) {
+      publishEvent("disconnect", res->message);
       active_ = false;
       port_ok_ = false;
       serial_.reset();
       publishOk();
     }
     publishStatus("TEXT", res->success, res->message);
+  }
+
+
+  static std::string jsonString(const std::string &value) {
+    std::ostringstream out;
+    out << '\"';
+    const char *hex = "0123456789abcdef";
+    for (const unsigned char c : value) {
+      if (c == '\"' || c == '\\') { out << '\\' << static_cast<char>(c); }
+      else if (c < 0x20 || c >= 0x7f) {
+        out << "\\u00" << hex[c >> 4] << hex[c & 15];
+      } else out << static_cast<char>(c);
+    }
+    out << '\"';
+    return out.str();
+  }
+  void publishEvent(const std::string &kind, const std::string &line) {
+    std_msgs::msg::String msg;
+    msg.data = "{\"kind\":" + jsonString(kind) + ",\"epoch\":" + jsonString(epoch_) +
+        ",\"seq\":" + std::to_string(++event_seq_) + ",\"tx_id\":" + std::to_string(tx_id_) +
+        ",\"monotonic_ns\":" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+        ",\"line\":" + jsonString(line) + "}";
+    rx_event_pub_->publish(msg);
+  }
+  void serialFault(const std::string &reason) {
+    publishEvent("disconnect", reason);
+    active_ = false; port_ok_ = false; serial_.reset(); rx_partial_.clear();
+    publishOk(); publishStatus("SERIAL", false, reason);
+  }
+  void readText() {
+    rx_partial_ += serial_->read_available();
+    size_t newline;
+    while ((newline = rx_partial_.find('\n')) != std::string::npos) {
+      std::string line = rx_partial_.substr(0, newline);
+      rx_partial_.erase(0, newline + 1);
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.empty()) continue;
+      if (line.size() > 4096) throw std::runtime_error("MCU reply line overflow");
+      std_msgs::msg::String msg; msg.data = line; rx_pub_->publish(msg);
+      publishEvent("rx", line);
+      RCLCPP_INFO(get_logger(), "MCU RX: %s", line.c_str());
+    }
+    if (rx_partial_.size() > 4096) throw std::runtime_error("MCU partial reply overflow");
   }
 
   void publishStatus(const std::string &action, bool success, const std::string &msg) {
@@ -347,6 +437,10 @@ private:
   std::unique_ptr<SerialPortR1> serial_;
   bool port_ok_ = false;
 
+  std::string epoch_, rx_partial_;
+  uint64_t tx_id_ = 0, event_seq_ = 0;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr rx_pub_, rx_event_pub_;
+  rclcpp::TimerBase::SharedPtr rx_timer_;
   bool active_ = false;
   Message::FrameControl cmd_ = Message::FrameControl::SHOOT;
   uint16_t speed_ = 0;

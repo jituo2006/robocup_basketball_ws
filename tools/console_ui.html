@@ -35,7 +35,11 @@ button{display:flex;align-items:center;justify-content:space-between;width:100%;
 const statusEl=document.getElementById('status'), logs=document.getElementById('logs'), connection=document.getElementById('connection');
 let selected=null,cursor=0,polling=false;
 function render(data){
-  if(data.status==='idle')return;
+  if(data.status==='idle'){
+    if(data.boot){statusEl.dataset.state='idle';statusEl.textContent=data.boot.message;
+      logs.textContent=data.boot.lines.join('\n')||'请选择场地与回合。';}
+    return;
+  }
   if(data.id!==selected){selected=data.id;cursor=0;logs.textContent='';}
   const nearBottom=logs.scrollHeight-logs.scrollTop-logs.clientHeight<60;
   const clean=data.lines.map(line=>line.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g,''));

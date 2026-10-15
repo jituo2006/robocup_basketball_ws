@@ -109,7 +109,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     runner.args.ball_label = TASK_LABELS[task]
     runner.args.speed = cfg['speed_mps']
     if getattr(runner.args, 'route_intake_settle', None) is None:
-        runner.args.route_intake_settle = float(cfg.get('intake_settle_s', 1.5))
+        runner.args.route_intake_settle = float(cfg.get('intake_settle_s', 5.))
     plan.trail = [tuple(p) for p in state['trail']]
     plan.search_origin = state['search_origin']
     plan.say(f'阶段 {index}：{steps(round_number, state["first_ball"])[index-1][1]}')
@@ -181,12 +181,12 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 # 总距离来自本区域 scoop_m，中线默认0.70m，容差默认2cm。
                 remaining = cfg[state['area']]['scoop_m']-travelled
                 if remaining <= runner.args.step_tol:
-                    # 已靠近到位，不重复行驶；仍补做本动作的铲球→等1秒→放下。
+                    # 已靠近到位，不重复行驶；仍执行带到位确认的铲球和放下。
                     ok = runner.aligned_intake_approach(approach=False)
                 else:
                     runner.args.route_scoop_distance = remaining
                     runner.args.route_scoop_timeout = max(15., remaining/runner.args.route_scoop_speed+5.)
-                    # 先按距离后退，完成后才发铲球序列，等1秒再放下。
+                    # 先按距离后退，完成后才执行铲球；上升到位后保持，再等待下降到位。
                     # 机构关闭则只靠近；实际负vx见 rear_distance_scoop。
                     ok = runner.aligned_intake_approach()
             elif kind == 'carry':
@@ -223,7 +223,8 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             # 【失败不自动跨过去】保存重试位置后返回 False；因此 align 失败
             # 会表现为“转身以后不靠近”，不能据此认定 approach 已执行。
             state['trail'] = [list(p) for p in plan.trail]
-            state['last_error'] = plan.last_error or f'{kind} 未完成；请查看路线日志'
+            mechanism_error = getattr(runner, 'mechanism_last_error', '') if kind == 'approach' else ''
+            state['last_error'] = plan.last_error or mechanism_error or f'{kind} 未完成；请查看路线日志'
             save_session(state)
             plan.say(f'{kind} 未完成，本阶段停车；重试会沿用本轮起点和已完成动作')
             return False

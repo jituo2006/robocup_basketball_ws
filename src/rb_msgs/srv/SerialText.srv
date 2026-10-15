@@ -2,7 +2,7 @@
 #
 # 现场协议（这台机构的固件）：
 #   dji_stop           停
-#   dji_zero           初始化（回零）
+#   dji_zero           将当前位置设零（不是机械回零）
 #   dji_move 1 90 5    抓取
 #   dji_move 1 0 5     放下
 #   vesc_status / vesc_home / vesc_shoot 3  传球序列
@@ -13,3 +13,5 @@ string command      # 不含换行；节点会按 line_ending 参数自动补
 ---
 bool success
 string message
+
+# success仅表示写入成功；动作确认由/rb_launcher/rx_event和新状态完成。

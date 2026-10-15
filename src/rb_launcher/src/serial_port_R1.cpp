@@ -3,6 +3,10 @@
 #include <cstring>
 #include <cerrno>
 #include <poll.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <stdexcept>
+#include <algorithm>
 
 void SerialPortR1::put_packet(Message::FrameControl cmd, uint16_t speed, uint16_t angle) {
   packet_.cmd = static_cast<uint8_t>(cmd);
@@ -73,4 +77,21 @@ bool SerialPortR1::send_string(const std::string& data) {
     std::cerr << "Unknown text serial communication error" << std::endl;
     return false;
   }
+}
+
+// Only this node reads the serial FD. FIONREAD prevents blocking the ROS executor.
+std::string SerialPortR1::read_available() {
+  int count = 0;
+  if (::ioctl(serial_.native_handle(), FIONREAD, &count) < 0)
+    throw std::runtime_error("serial FIONREAD failed");
+  if (count <= 0) return {};
+  std::string bytes(static_cast<size_t>(std::min(count, 16384)), '\0');
+  const ssize_t n = ::read(serial_.native_handle(), bytes.data(), bytes.size());
+  if (n < 0) {
+    if (errno == EINTR || errno == EAGAIN) return {};
+    throw std::runtime_error("serial read failed");
+  }
+  if (n == 0) throw std::runtime_error("serial EOF");
+  bytes.resize(static_cast<size_t>(n));
+  return bytes;
 }

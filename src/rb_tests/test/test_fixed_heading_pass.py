@@ -43,7 +43,7 @@ def test_formal_pass_two_releases_use_configured_start_relative_heading_and_retu
     commands = [e[1] for e in events if e[0] == 'text']
     assert commands == cfg['release']['pass']['commands']*2
     for offset in (0, 5):
-        assert [sent_at[i+1]-sent_at[i] for i in range(offset, offset+4)] == pytest.approx([1., 1., 2., 0.])
+        assert [sent_at[i+1]-sent_at[i] for i in range(offset, offset+4)] == pytest.approx([0., 0., 3., 0.])
     assert len([e for e in events if e[0] == 'scoop']) == (1 if number == 1 else 2)
     assert r.pose == pytest.approx(origin)
     assert stages.workflow_state(number, 'pass')['finished']

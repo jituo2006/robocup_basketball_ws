@@ -75,7 +75,7 @@ class PassRuns:
                         lines=run['lines'][after:], cursor=len(run['lines']))
 
 
-def make_app(runs=None):
+def make_app(runs=None, boot_watch=None):
     from flask import Flask, jsonify, request, send_file
     app = Flask(__name__)
     runs = runs if runs is not None else PassRuns()
@@ -101,9 +101,16 @@ def make_app(runs=None):
     def state():
         try:
             after = max(0, int(request.args.get('after', 0)))
-            return jsonify(runs.snapshot(request.args.get('id'), after))
+            result = runs.snapshot(request.args.get('id'), after)
+            if boot_watch is not None:
+                result['boot'] = boot_watch.snapshot()
+            return jsonify(result)
         except (KeyError, ValueError):
             return jsonify(error='执行记录不存在或游标无效'), 404
+
+    @app.get('/api/boot/state')
+    def boot_state():
+        return jsonify(boot_watch.snapshot() if boot_watch is not None else {'status': 'disabled'})
 
     return app
 
@@ -114,7 +121,10 @@ def main(argv=None):
     parser.add_argument('--port', type=int, default=8090)
     args = parser.parse_args(argv)
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
-    make_app().run(host=args.host, port=args.port, threaded=True, use_reloader=False)
+    from pass_boot_watch import BootWatch
+    boot_watch = BootWatch()
+    boot_watch.start()
+    make_app(boot_watch=boot_watch).run(host=args.host, port=args.port, threaded=True, use_reloader=False)
 
 
 if __name__ == '__main__':

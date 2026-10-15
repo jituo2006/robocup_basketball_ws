@@ -368,8 +368,8 @@ const DEFAULTS = {
        底盘在等待期间保持停止。
        用在 tools/test_perimeter_ball.py 的 Runner.aligned_intake_approach()，
        就在 start_intake() 之后那一次 spin。
-       优先级：--route-intake-settle > 这个值 > 内置 1.5 秒。 */
-    intake_settle_s: 1.5,
+       优先级：--route-intake-settle > 这个值 > 内置 5 秒。 */
+    intake_settle_s: 5.0,
     /* 回位时在哪回正：entry（默认）在进场点先转正再直着进出发区；
        start 是旧行为（先到出发点、再原地转，会把终点位置带偏）。 */
     home_align_at: "entry",
@@ -2097,7 +2097,7 @@ const ROWS = [
      不需要在这里配。这里只配【发完抬起指令后等多久】，让球真正被吸进去再走。
      对应 Runner.aligned_intake_approach() 里那一次等待。 */
   ["grp", "吸球机构（串口序列在 intake_control.py）", "base"],
-  ["n",  "intake_settle_s", "吸球后等待 s", "base",
+  ["n",  "intake_settle_s", "上升到位后保持 s", "base",
     () => S.match.intake_settle_s, v => S.match.intake_settle_s = v],
 
   ["grp", "中线（红）", "middle"],

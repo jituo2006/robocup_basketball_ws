@@ -43,7 +43,7 @@ import time
 WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
-from intake_control import start_intake, stop_intake
+from mechanism_control import RosMechanismClient
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
@@ -251,6 +251,9 @@ class Runner:
         self._Twist = Twist
         rclpy.init()
         self.node = rclpy.create_node("perimeter_ball_test")
+        self.mechanism_client = RosMechanismClient(
+            self.node, lambda seconds: self.rclpy.spin_once(self.node, timeout_sec=seconds),
+            ok=self.rclpy.ok, log=lambda message: log('机构确认', message))
         # /cmd_vel 是车体坐标速度：linear.x 正=向车头，负=向车尾；
         # linear.y 正=车体左移，负=右移；angular.z 正=逆时针，单位 rad/s。
         # 本脚本只发速度，电机/CAN 的实际执行在 rb_chassis_node.cpp 中。
@@ -927,7 +930,7 @@ class Runner:
 
     def rear_visual_scoop(self, approach=True):
         # approach=True：对正后立即调用距离后退（固定路线用这个）。
-        # approach=False：只横移对正并返回；整轮随后单独执行 approach 动作。
+        # approach=False：只旋转对正并返回；整轮随后单独执行 approach 动作。
         # obstacle_scoop 只绕过避障，不会绕过定位/里程计检查。
         self.obstacle_scoop = True
         try:
@@ -936,25 +939,15 @@ class Runner:
             self.obstacle_scoop = False
 
     def intake_text(self, command):
-        from rb_msgs.srv import SerialText
-        if not hasattr(self, 'intake_client'):
-            self.intake_client = self.node.create_client(SerialText, '/rb_launcher/text')
-        while not self.intake_client.wait_for_service(timeout_sec=.2):
-            if not self.rclpy.ok():
-                raise KeyboardInterrupt
-            self.rclpy.spin_once(self.node, timeout_sec=.03)
-        req = SerialText.Request()
-        req.command = command
-        future = self.intake_client.call_async(req)
-        while self.rclpy.ok() and not future.done():
-            self.rclpy.spin_once(self.node, timeout_sec=.03)
-        if not future.done():
-            raise KeyboardInterrupt
-        response = future.result()
-        return bool(response.success), response.message
+        """Raw manual/query transport; automatic actions use mechanism_release/pickup."""
+        return self.mechanism_client.raw_send(command)
+
+    def mechanism_release(self, commands, waits=None, default_wait=0.):
+        return self.mechanism_client.controller.release(commands, waits, default_wait)
 
     def aligned_intake_approach(self, *, approach=True):
-        # 已完成180°转身和后摄横移对正；先按距离向球后退，再动作机构。
+        self.mechanism_last_error = ''
+        # 已完成180°转身和后摄旋转对正；先按距离向球后退，再动作机构。
         # 分阶段续跑若已走够距离，用 approach=False 只完成尚未执行的铲球。
         if approach and not self.rear_distance_scoop():
             self.stop()
@@ -969,61 +962,62 @@ class Runner:
             log('吸球跳过', '机构开关关闭（--no-route-intake / 控制台未勾选），'
                           '本次只完成底盘靠近，不发任何串口指令', C_WARN)
             return True
-        raised = False
-        try:
-            # 靠近到位后：dji_stop → 等0.3s → dji_zero → 等0.8s → dji_move 1 90 5。
-            raised, message = start_intake(self.intake_text,
-                                          wait=lambda delay: self.spin(delay))
-            log('自动铲球', message, C_OK if raised else C_BAD)
-            if raised:
-                # 抬起指令发完后等这么久，让球真正被吸进去再继续；
-                # 等待期间底盘保持停止。
-                # 时长优先级：--route-intake-settle > match_rounds.json 的
-                # intake_settle_s > 内置默认 1.5 秒。
-                settle = getattr(self.args, 'route_intake_settle', None)
-                self.spin(1.5 if settle is None else float(settle))
-        finally:
-            # 放下只发 dji_move 1 0 5，不再追加 dji_stop / dji_zero。
-            # 抬起失败或等待被中断时，也尝试放下，异常仍由外层处理。
-            lowered, message = stop_intake(self.intake_text)
-            log('铲球后放下', message, C_OK if lowered else C_BAD)
-        return raised and lowered
+        settle = getattr(self.args, 'route_intake_settle', None)
+        hold_s = 5. if settle is None else float(settle)
+        ok, message = self.mechanism_client.controller.pickup(hold_s)
+        self.mechanism_last_error = '' if ok else message
+        log('铲球动作确认', message, C_OK if ok else C_BAD)
+        self.stop()
+        return ok
 
     def _rear_visual_scoop(self, approach=True):
-        """YOLO is used only to align laterally; approach then uses pose distance."""
-        # 这一段只发左右横移速度；没有前后移动。对正成功才进入下一段后退。
+        """Search left then right; rotate the rear camera onto the ball."""
         self.stop()
-        # 没球框时停车等待；对正不再受固定总时间/净横移40cm限制。
-        waiting_for_target = False
+        # 正角速度为车体左转。用逐帧解包后的定位角度计量左转行程，
+        # 不能用定时器假定已经转够30°，也不能被 ±180° 换边打断。
+        left_angle = math.radians(getattr(self.args, 'route_rear_search_left_deg', 30.))
+        search_speed = min(self.args.max_ang,
+                           getattr(self.args, 'route_rear_search_speed', .12))
+        previous_yaw = self.pose[2]
+        left_travel = 0.
+        searching_left = True
+        last_state = None
         while True:
             self.spin(.03)
+            yaw = self.pose[2]
+            left_travel += wrap_pi(yaw-previous_yaw)
+            previous_yaw = yaw
             d = self.centered_target_candidates(getattr(self, 'dets_rear', []), centered=False)
             if d is None:
-                # 没有满足类别/置信度/时间戳条件的后摄框：发零速，继续等。
-                # 漏检时等待，恢复后继续；没有固定等待总时限。
-                self.stop()
-                if not waiting_for_target:
-                    log('后摄等待', '暂时没有新鲜球框，停车等待重新识别；恢复后继续对正', C_WARN)
-                    waiting_for_target = True
+                if searching_left and left_travel >= left_angle:
+                    searching_left = False
+                state = 'left' if searching_left else 'right'
+                if state != last_state:
+                    message = (f'后摄暂无目标，先向左旋转 {math.degrees(left_angle):.1f}°'
+                               if searching_left else '后摄暂无目标，持续向右旋转搜索')
+                    log('后摄寻球', message)
+                last_state = state
+                tw = self._Twist()
+                tw.angular.z = search_speed if searching_left else -search_speed
+                self.publish_command(tw)
                 continue
-            if waiting_for_target:
-                log('后摄恢复', '重新识别到目标球，继续横移对正')
-                waiting_for_target = False
+            # 一旦看到球，立即按框中心偏差跟踪；再次丢球则继续向右搜索。
+            searching_left = False
+            if last_state != 'track':
+                log('后摄跟踪', '已发现目标球，旋转至画面中心')
+            last_state = 'track'
             error = (float(d.x_min)+float(d.x_max))/2 - .5
             trace('rear_align', cx=error+.5,
                   confidence=float(d.confidence), stamp=stamp_seconds(d.stamp))
             if abs(error) <= self.args.route_rear_center_tolerance:
                 self.stop()
-                log('后摄对准', '有效目标已居中，切换定位距离后退；接近期间不再要求YOLO')
+                log('后摄对准', '有效目标已居中，停止旋转，切换定位距离后退')
                 return self.aligned_intake_approach() if approach else True
             tw = self._Twist()
-            # Rear image right corresponds to body +y.
-            # 5 mm/s often cannot overcome chassis friction near the centre.
-            # 当前代码按“未镜像后摄”处理：框在右(error>0)→车体左移(+y)，
-            # 框在左→车体右移(-y)；实物画面若镜像，需核对这个符号。
-            # 默认速度上限 0.04m/s、纠偏最低 0.015m/s，只设置 linear.y。
-            speed = min(self.args.route_rear_align_speed, max(.015, abs(error)*.4))
-            tw.linear.y = math.copysign(speed, error)
+            # 未镜像后摄：框在右对应车体左侧；车尾朝左需要车体右转。
+            # 仅旋转，不横移或后退；沿用已有角速度上限。
+            speed = min(search_speed, max(.03, abs(error)*.8))
+            tw.angular.z = -math.copysign(speed, error)
             self.publish_command(tw)
 
     def rear_distance_scoop(self):
@@ -1433,8 +1427,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="末段最低后退速度 m/s，仍受 route-scoop-speed 上限约束；需实车调试")
     ap.add_argument("--route-scoop-timeout", type=float, default=15.0, help='兼容旧参数，已取消固定总时限')
     ap.add_argument("--route-intake-settle", type=float, default=None,
-                    help='发出吸球抬起指令后等待多久再继续（秒），让球被吸进去；'
-                         '不传时用 match_rounds.json 的 intake_settle_s（默认 1.5）')
+                    help='上升到位后保持多久再放下（秒）；下降到位后才继续行驶；'
+                         '不传时用 match_rounds.json 的 intake_settle_s（默认 5）')
     ap.add_argument('--route-intake', '--mechanism', action=argparse.BooleanOptionalAction, default=True,
                     help='机构总开关：关闭跳过吸球、发射、放球，完整比赛路线继续执行')
     # 命令行默认开机构；--no-route-intake/--no-mechanism 关闭。
@@ -1443,7 +1437,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="篮球框中心距画面中心允许偏差（画面宽度比例）")
     ap.add_argument('--route-rear-timeout', type=float, default=15.0, help='兼容旧参数，已取消固定总时限')
     ap.add_argument('--route-rear-align-distance', type=float, default=.40, help='兼容旧参数，已取消横移纠偏位移上限')
-    ap.add_argument('--route-rear-align-speed', type=float, default=.04)
+    ap.add_argument('--route-rear-align-speed', type=float, default=.04,
+                    help='兼容旧横移参数；当前后摄对正使用 route-rear-search-speed')
+    ap.add_argument('--route-rear-search-left-deg', type=float, default=30.,
+                    help='后摄无球时先左转的角度，随后持续右转搜索')
+    ap.add_argument('--route-rear-search-speed', type=float, default=.12,
+                    help='后摄旋转寻球及居中速度 rad/s，沿用 max-ang 上限')
     # 同样保留了旧球框高度参数，但当前后退完成条件只看定位投影距离。
     ap.add_argument('--route-rear-stop-height', type=float, default=.45,
                     help='兼容旧参数；距离铲球模式不再使用球框高度停车')
@@ -1568,7 +1567,7 @@ def main(argv: list[str] | None = None) -> int:
                 'yaw_tol', 'detection_timeout', 'step_tol', 'kp', 'kp_yaw',
                 'route_forward', 'route_forward_speed', 'route_scan_distance', 'route_scan_speed',
                 'route_heading_tol', 'route_scoop_distance', 'route_scoop_speed',
-                'route_scoop_min_speed')
+                'route_scoop_min_speed', 'route_rear_search_left_deg', 'route_rear_search_speed')
     # legacy伺服的参数不再拦截固定路线、first-pass和三个回合的启动。
     if args.route == 'legacy':
         positive += ('pose_match_gap', 'track_bearing_deg', 'track_distance', 'scan_step_seconds',
