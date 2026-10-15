@@ -110,13 +110,17 @@
         "vesc_home",
         "vesc_shoot 3",
         "vesc_stop",
-        "vesc_reset"
+        "vesc_home",
+        "vesc_reset",
+        "vesc_stop"
       ],
       "command_waits_s": [
-        0.0,
-        0.0,
-        3.0,
-        0.0,
+        0.3,
+        0.3,
+        5.0,
+        0.3,
+        0.3,
+        5.0,
         0.0
       ],
       "wait_s": 0.0,

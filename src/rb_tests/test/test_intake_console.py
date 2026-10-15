@@ -99,7 +99,12 @@ def test_manual_pass_uses_checked_actions_and_aborts_on_refusal(failed_command):
     response=client.post('/api/action',json={'name':'LAUNCH_PASS'}).json
     assert response['ok']==(failed_command is None)
     if failed_command:assert not any(c=='vesc_shoot 3' for _,c in m.sent)
-    else:assert sum(c=='vesc_shoot 3' for _,c in m.sent)==1 and m.home==1
+    else:
+        assert sum(c=='vesc_shoot 3' for _,c in m.sent)==1
+        assert sum(c=='vesc_stop' for _,c in m.sent)==3
+        assert sum(c=='vesc_home' for _,c in m.sent)==2
+        # 用户指定的末尾vesc_stop会清除home；不再要求复位后的home保留。
+        assert m.home==0
 
 
 def test_manual_lift_uses_existing_zero_and_confirms_target():

@@ -707,13 +707,17 @@ class RoundRoute:
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         self.r.stop()
         waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
-        ok, message = self.r.mechanism_release(commands, waits, action['wait_s'])
-        self.say('机构动作确认: ' + message)
-        if not ok:
-            self.last_error = message
-            return False
-        self.say('放球动作到位确认完成，不计正式传球/投篮' if self.release_kind == 'drop'
-                 else '发射及定时复位流程已确认；机械最低点和球是否命中未检测')
+        for index, command in enumerate(commands):
+            ok, message = self.r.intake_text(command)
+            self.say(f'出球指令 {command}: {message}')
+            if not ok:
+                self.last_error = f'机构指令 {command} 失败：{message}'
+                return False
+            wait = waits[index] if index < len(waits) else action['wait_s']
+            if wait:
+                self.r.spin(wait)
+        self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
+                 else '出球指令完成；串口成功不代表球已经投出/命中')
         self.carrying = False
         return True
 
