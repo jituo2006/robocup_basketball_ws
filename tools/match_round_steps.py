@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 from match_round_route import (RoundRoute, StartFrame, search_order, validate_mode,
-                               TASK_LABELS, wrap, start_wait)
+                               TASK_LABELS, wrap, start_wait, side_heading)
 
 STATE_DIR = Path('/tmp/rb_match_rounds')
 
@@ -129,11 +129,12 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         ok = False
         try:
             if kind == 'entry':
-                # 起步先静止 start_delay_s 秒（带每秒倒计时），随后右转并进场；
+                # 起步先静止 start_delay_s 秒，再按 A/B 方向转90°并进场；
                 # 等待期间也会处理定位回调，但不发底盘速度。
                 start_wait(runner, cfg['start_delay_s'], emit=plan.say)
-                plan.say(f"入场1/2：右转90°，当前定位={runner.pose}，目标朝向={math.degrees(plan.frame.yaw(-math.pi/2)):.1f}°")
-                ok = plan.turn(-math.pi/2)
+                heading = side_heading(cfg, -math.pi/2)
+                plan.say(f"入场1/2：{'左' if heading > 0 else '右'}转90°，当前定位={runner.pose}，目标朝向={math.degrees(plan.frame.yaw(heading)):.1f}°")
+                ok = plan.turn(heading)
                 if ok:
                     plan.say(f"入场2/2：前往E，名义坐标={cfg['entry']}，定位目标={plan.frame.point(cfg['entry'])}")
                     ok = plan.move(cfg['entry'])

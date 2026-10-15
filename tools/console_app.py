@@ -43,6 +43,12 @@ import time
 from collections import deque
 from pathlib import Path
 
+# 赛场六按键入口不加载 ROS 桥接、硬件探测或综合控制台检查。
+if __name__ == '__main__' and '--pass-only' in sys.argv:
+    from pass_console import main as pass_console_main
+    sys.argv.remove('--pass-only')
+    raise SystemExit(pass_console_main())
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from intake_control import start_intake, stop_intake
 from match_round_route import load_config as load_round_config, validate_mode as validate_round_mode, release_ready
@@ -2159,7 +2165,7 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
 
     @app.route("/")
     def index():
-        return send_file(str(Path(__file__).with_name("console_ui.html")))
+        return send_file(str(Path(__file__).with_name("console_debug_ui.html")))
 
 
     @app.route('/api/first-pass-config')

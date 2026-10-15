@@ -1,0 +1,8 @@
+{
+  "A1": ["bash", "tools/run_first_round.sh", "--start-point", "A"],
+  "A2": ["bash", "tools/run_round2.sh", "--start-point", "A"],
+  "A3": ["bash", "tools/run_round3.sh", "--start-point", "A"],
+  "B1": ["bash", "tools/run_first_round.sh", "--start-point", "B"],
+  "B2": ["bash", "tools/run_round2.sh", "--start-point", "B"],
+  "B3": ["bash", "tools/run_round3.sh", "--start-point", "B"]
+}

@@ -1,4 +1,4 @@
-"""A 区出发的三个回合实验；复用固定路线的 ROS/后摄/吸球实现。
+"""A/B 区出发的三个回合实验；复用固定路线的 ROS/后摄/吸球实现。
 
 drive: 空场走搜索轨迹、动作点和回位，不取球、不发送机构指令。
 collect: 寻一颗目标球、转身对正吸球、退回通道、到动作点停车。
@@ -17,6 +17,11 @@ TASK_LABELS = {'pass': 'ball_basketball', 'shoot': 'ball_volleyball'}
 
 def wrap(a):
     return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+def side_heading(cfg, heading):
+    """A 帧的规划朝向在 B 场地取反，定位和相机测量不在这里变换。"""
+    return -heading if cfg.get('start_point', 'A') == 'B' else heading
 
 
 def start_wait(runner, seconds, emit=None):
@@ -70,7 +75,7 @@ def mirror_to_b(cfg):
     变换（镜像完仍走原有范围校验，所以结果必须仍然合法）：
       所有 y 坐标                y → −y
       所有规划朝向                h → −h
-      inner.dir_pass/dir_shoot   bt ↔ tb
+      inner.dir_pass/dir_shoot   不动：端点坐标已镜像，保留访问顺序
       arc.angles_deg/angles_shoot v → −v
           （弧线点 = 圆心 + R·(cos v, sin v)，v 是场地系逆时针角，故取负；
             朝向 v+π 取负后与 −v+π 等价）
@@ -125,6 +130,7 @@ def load_config(path=CONFIG, start_point=None):
         cfg = mirror_to_b(cfg)
     elif chosen != 'A':
         raise ValueError(f"出发点只能是 A 或 B，收到 {chosen!r}")
+    cfg['start_point'] = chosen
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
@@ -484,7 +490,7 @@ class RoundRoute:
             # 回退开关：旧行为 = 每次都先回进场点
             return [cfg['entry'], corridor]
         half = float(cfg.get('half_court_x_m', 5.75))
-        cur_x, cur_y = float(self.r.pose[0]), float(self.r.pose[1])
+        cur_x, cur_y = self.frame.nominal(self.r.pose[:2])
         if (cur_x - half) * (float(target_x) - half) >= 0:
             return []                                  # 同侧，直接去
         cross = [float(cfg.get('carry_cross_x_m', 4.8)), corridor[1]]
@@ -738,11 +744,11 @@ class RoundRoute:
         self.r.args.speed = self.cfg['speed_mps']
         if getattr(self.r.args, 'route_intake_settle', None) is None:
             self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 1.5))
-        self.say('假定车已放回 A 区、面向篮筐；当前位姿作为本轮起点')
+        self.say(f"假定车已放回 {self.cfg.get('start_point', 'A')} 区、面向篮筐；当前位姿作为本轮起点")
         self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()
         start_wait(self.r, self.cfg['start_delay_s'], emit=self.say)
-        if not self.turn(-math.pi/2):
+        if not self.turn(side_heading(self.cfg, -math.pi/2)):
             return False
         preloaded = self.round == 1 and self.cfg.get('round1_first_ball', 'preloaded') == 'preloaded'
         if preloaded:
