@@ -385,7 +385,9 @@ const DEFAULTS = {
     exit_after_pickup: "direct",
     scan_centered: true,
     /* 取球后回动作点的绕行：弧线/深场时先经【上侧通道 + 通道上 x=carry_cross_x_m 的点】
-       —— 对应编辑器路线里的 corridor → [4.8, 6.8]（旧帧）。中线不绕，直接去传球点。 */
+       —— 编辑器路线里那两个点就是命名节点 "cross"（旧帧写作 [4.8, 6.8]，
+          现在由 carry_cross_x_m 和 corridor 的 Y 决定，跟着通道走）。
+       中线不绕，直接去传球点。 */
     carry_cross_x_m: 4.8,
     /* 传球时是否先绕到 (1.5, 中线y)：false = 编辑器那样直接去传球点（默认） */
     pass_action_via_middle: false,
@@ -459,16 +461,16 @@ const DEFAULTS = {
   route: {
     pass: {
       "1": ["start", "entry", "passPt", "@middle", "passPt", "entry", "start"],
-      "2": ["start", "entry", "@middle", "passPt", [4.8, 6.8], "corridor", "@arc",
-            "corridor", [4.8, 6.8], "passPt", "entry", "start"],
-      "3": ["start", "entry", "corridor", "@arc", "@inner", "corridor", [4.8, 6.8],
-            "passPt", [4.8, 6.8], "corridor", "@arc", "@inner", "corridor",
-            [4.8, 6.8], "passPt", "entry", "start"]
+      "2": ["start", "entry", "@middle", "passPt", "cross", "corridor", "@arc",
+            "corridor", "cross", "passPt", "entry", "start"],
+      "3": ["start", "entry", "corridor", "@arc", "@inner", "corridor", "cross",
+            "passPt", "cross", "corridor", "@arc", "@inner", "corridor",
+            "cross", "passPt", "entry", "start"]
     },
     shoot: {
-      "1": ["start", "entry", "corridor", "shootPt", "corridor", [4.8, 6.8],
-            "@middle", [4.8, 6.8], "corridor", "shootPt", "corridor", "entry", "start"],
-      "2": ["start", "entry", "@middle", [4.8, 6.8], "corridor", "shootPt",
+      "1": ["start", "entry", "corridor", "shootPt", "corridor", "cross",
+            "@middle", "cross", "corridor", "shootPt", "corridor", "entry", "start"],
+      "2": ["start", "entry", "@middle", "cross", "corridor", "shootPt",
             "@arc", "shootPt", "corridor", "entry", "start"],
       "3": ["start", "entry", "corridor", "@arc", "@inner", "shootPt",
             "@arc", "@inner", "shootPt", "corridor", "entry", "start"]
@@ -786,6 +788,10 @@ function tokenPoint(tok) {
     case "corridor": return M.corridor;
     case "passPt":   return M.release.pass.point;
     case "shootPt":  return M.release.shoot.point;
+    /* 绕半场置球线的横穿点：X 取 carry_cross_x_m，Y 取上侧通道的高度。
+       以前 route 表里把它写成字面量 [4.8, 6.8]，通道一改它不会跟着动，
+       图上看着和实际走的不一样。改成命名节点后就跟着 corridor 走了。 */
+    case "cross":    return [M.carry_cross_x_m, M.corridor[1]];
     default:         return null;
   }
 }
