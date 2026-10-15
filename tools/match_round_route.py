@@ -143,19 +143,60 @@ def search_order(round_number, task):
     raise ValueError('只支持第1、2、3回合')
 
 
-def search_plan(cfg, area, cycle=0):
-    """(点, 前摄朝向)。中线始终从规则图右端向左扫；其它区域第二次换向。"""
+def inner_x(cfg, task):
+    """本任务该用哪条深场扫描线：投篮走 inner.x_shoot（球线 X=9 的右侧=三分线内侧），
+    其余走 inner.x。search_plan 与 search_area 共用，避免两处不一致。"""
+    i = cfg['inner']
+    if task == 'shoot' and i.get('x_shoot') is not None:
+        return i['x_shoot']
+    return i['x']
+
+
+def search_plan(cfg, area, cycle=0, round_number=None, task=None):
+    """(点, 前摄朝向)。其它区域第二次动作换向。
+
+    行径路线：
+      中线 —— 左右端点取 middle.left_x/right_x；方向按【轮次】由 middle.scan_dir 给
+              （第1轮车在右端附近 ⇒ 先到右端再往左；第2轮从进场点过来 ⇒ 先到左端）
+      弧线 —— 传球用外侧 radius/angles_deg；投篮用内侧 radius_shoot，
+              角度按【轮次】由 angles_shoot 给（弧线前后接的东西不同，最优方向不同）
+      深场 —— 扫描线取 inner.x；投篮另取 inner.x_shoot（球线 X=9 的右侧=三分线内侧）
+              上下方向按【任务】由 dir_pass / dir_shoot 给（pt=从下到上，否则从上到下）
+    """
+    key = None if round_number is None else str(round_number)
+
+    def pick(value):
+        """value 可以是标量，也可以是 {轮次: 值} 的字典。"""
+        if isinstance(value, dict):
+            return value.get(key) if key is not None else None
+        return value
+
     if area == 'middle':
         m = cfg[area]
-        return [((x, m['y']), -math.pi/2) for x in (m['right_x'], m['left_x'])]
+        direction = pick(m.get('scan_dir')) or 'lr'
+        xs = (m['right_x'], m['left_x']) if direction == 'rl' else (m['left_x'], m['right_x'])
+        return [((x, m['y']), -math.pi/2) for x in xs]
+
     if area == 'inner':
         i = cfg[area]
-        ys = [i['top_y'], i['bottom_y']] if cycle == 0 else [i['bottom_y'], i['top_y']]
-        return [((i['x'], y), 0.) for y in ys]
+        shoot = task == 'shoot'
+        x = inner_x(cfg, task)
+        direction = (i.get('dir_shoot') if shoot else i.get('dir_pass')) or 'tb'
+        ys = [i['bottom_y'], i['top_y']] if direction == 'bt' else [i['top_y'], i['bottom_y']]
+        if cycle:
+            ys = list(reversed(ys))
+        return [((x, y), 0.) for y in ys]
+
     a = cfg['arc']
-    angles = a['angles_deg'] if cycle == 0 else list(reversed(a['angles_deg']))
-    return [((a['center'][0]+a['radius']*math.cos(math.radians(v)),
-              a['center'][1]+a['radius']*math.sin(math.radians(v))),
+    radius = a['radius']
+    angles = pick(a.get('angles_deg'))
+    if task == 'shoot' and a.get('radius_shoot') is not None:
+        radius = a['radius_shoot']
+        angles = pick(a.get('angles_shoot')) or a['angles_deg']
+    if cycle:
+        angles = list(reversed(angles))
+    return [((a['center'][0]+radius*math.cos(math.radians(v)),
+              a['center'][1]+radius*math.sin(math.radians(v))),
              wrap(math.radians(v)+math.pi)) for v in angles]
 
 
@@ -234,11 +275,11 @@ class RoundRoute:
         if area != 'middle':
             transit.append(cfg['corridor'])
             if area == 'inner':
-                transit.append([cfg['inner']['x'], cfg['corridor'][1]])
+                transit.append([inner_x(cfg, self.task), cfg['corridor'][1]])
         for p in transit:
             if not self.move(p, remember=True):
                 return 'failed'
-        points = search_plan(cfg, area, cycle)
+        points = search_plan(cfg, area, cycle, self.round_number, self.task)
         if area == 'middle':
             # 先朝黄线到 C，再向图右端横移；中线横移的第一遍就启用识球。
             if not self.turn(points[0][1]):
