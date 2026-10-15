@@ -28,7 +28,7 @@
     "dji_move 1 0 5"
   ],
   "middle": {
-    "y": 1.05,
+    "y": 0.7,
     "left_x": 0.6,
     "right_x": 4.4,
     "scoop_m": 0.7,
@@ -121,5 +121,9 @@
     "launcher_yaw_offset_deg": 0.0
   },
   "round1_first_ball": "preloaded",
-  "coordinate_y_offset_m": -3.75
+  "coordinate_y_offset_m": -3.75,
+  "face_ball_before_turn": true,
+  "exit_after_pickup": "direct",
+  "carry_cross_x_m": 4.8,
+  "pass_action_via_middle": false
 }
