@@ -49,7 +49,7 @@
     "y": 0.9,
     "left_x": 0.6,
     "right_x": 4.4,
-    "scoop_m": 0.59,
+    "scoop_m": 0.44,
     "scan_dir": {
       "1": "rl",
       "2": "lr",
@@ -69,7 +69,7 @@
       162,
       170
     ],
-    "scoop_m": 0.59,
+    "scoop_m": 0.44,
     "radius_shoot": 2.85,
     "angles_shoot": {
       "2": [
@@ -92,7 +92,7 @@
     "x": 8.1,
     "top_y": 3.15,
     "bottom_y": 0.65,
-    "scoop_m": 0.59,
+    "scoop_m": 0.44,
     "x_shoot": 9.9,
     "dir_pass": "bt",
     "dir_shoot": "tb"
