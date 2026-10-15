@@ -868,7 +868,10 @@ async function loadRoundConfig(){
     $('fixedPathHint').textContent = `右转90° → 前进${cfg.forward_m.toFixed(2)}米 → ${sweep} → 识球即停 → 转180° → 后摄横移对正 → 按上方距离低速后退。中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求YOLO。机构关闭时照常靠近。`;
     $('round1PathHint').textContent = `中线搜索：${sweep}；对正后靠近吸球，到动作点放球。`;
     $('round2PathHint').textContent = `中线先向左端搜索，再向右端搜索，途中识球即停；没找到补扫三分弧；两次取球、放球后回位。`;
-    $('roundCruiseHint').textContent = `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
+    const firstSpeed = cfg.speed_profiles && cfg.speed_profiles['1'];
+    $('roundCruiseHint').textContent = firstSpeed
+      ? `第1回合空车走线${firstSpeed.travel_mps}、载球转运${firstSpeed.carry_mps}、识球扫描${firstSpeed.scan_mps}米/秒；转向上限${firstSpeed.turn_rad_s}弧度/秒。后摄纠偏和后退取球按各自速度执行。第2/3回合仍为${cfg.speed_mps}米/秒。`
+      : `普通行驶/搜索${cfg.speed_mps}米/秒。弧线、内侧距离是待实测初值；后退过程不要求YOLO。`;
     ['middle','arc','inner'].forEach(area => {
       $('round'+area[0].toUpperCase()+area.slice(1)+'Scoop').value = cfg.scoop_m[area];
     });

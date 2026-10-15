@@ -1317,11 +1317,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kp", type=float, default=1.5)
     ap.add_argument("--kp-yaw", type=float, default=2.0)
     ap.add_argument("--kd-yaw", type=float, default=0.25, help="实测角速度阻尼系数")
-    ap.add_argument("--max-ang", type=float, default=0.3, help="角速度上限 rad/s")
+    ap.add_argument("--max-ang", type=float, default=None, help="角速度上限 rad/s；默认读取回合速度配置，其它路线0.3")
     ap.add_argument("--yaw-tol", type=float, default=0.015, help="朝向容差 rad")
     ap.add_argument("--tol", type=float, default=0.10, help="到点容差 m")
-    ap.add_argument("--approach-radius", type=float, default=0.45)
-    ap.add_argument("--approach-speed", type=float, default=0.12)
+    ap.add_argument("--approach-radius", type=float, default=None, help="到点减速区半径；默认读取回合速度配置，其它路线0.45m")
+    ap.add_argument("--approach-speed", type=float, default=None, help="到点减速速度；默认读取回合速度配置，其它路线0.12m/s")
     ap.add_argument("--inset", type=float, default=0.70, help="绕场时离边界距离 m")
     ap.add_argument("--search-timeout", type=float, default=90.0, help="分段搜索总时长 s")
     ap.add_argument("--search-wz", type=float, default=0.12, help="找球自转角速度 rad/s")
@@ -1515,6 +1515,15 @@ def main(argv: list[str] | None = None) -> int:
             args.ball_label = TASK_LABELS[args.round_task]
         except (ValueError, KeyError, TypeError, OSError) as exc:
             ap.error(str(exc))
+    speed_profile = ((round_cfg or {}).get('speed_profiles', {}).get(args.route[-1], {})
+                     if args.route in ('round1', 'round2', 'round3') else {})
+    for name, key, default in (('max_ang', 'turn_rad_s', .3),
+                               ('approach_radius', 'approach_radius_m', .45),
+                               ('approach_speed', 'approach_mps', .12)):
+        if getattr(args, name) is None:
+            setattr(args, name, speed_profile.get(key, default))
+    if not all(math.isfinite(v) and v >= 0 for v in (args.approach_radius, args.approach_speed)):
+        ap.error('到点减速半径和速度须为非负有限数')
     if any(not math.isfinite(v) or v <= 0 for v in (
             args.obstacle_stop_gap,args.obstacle_half_length,args.obstacle_half_width,
             args.obstacle_side_margin,args.obstacle_timeout,args.obstacle_deceleration)):
@@ -1604,7 +1613,7 @@ def main(argv: list[str] | None = None) -> int:
     log_path = Path(args.log_file) if args.log_file else Path(WS) / "log" / ("seek_ball_" + time.strftime("%Y%m%d_%H%M%S") + ".jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     _TRACE = log_path.open("w", encoding="utf-8")
-    trace("settings", args=vars(args))
+    trace("settings", args=vars(args), speed_profile=speed_profile)
     log("日志", str(log_path))
     run = Runner(args)
     try:

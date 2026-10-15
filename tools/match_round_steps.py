@@ -100,6 +100,9 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
     state.setdefault('first_ball', 'preloaded')
     plan = RoundRoute(runner, cfg, round_number, task, 'collect', emit=emit,
                       release_kind=release_kind)
+    plan.carrying = state.get('carrying', index < 3 and (
+        (index == 1 and round_number == 1 and state['first_ball'] == 'preloaded')
+        or state.get('active_action') in ('carry', 'release')))
     plan.frame = StartFrame(state['start_pose'], cfg['start'])
     runner.round_start_frame = plan.frame
     runner.args.ball_label = TASK_LABELS[task]
@@ -197,6 +200,9 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             save_session(state)
             plan.say(f'{kind} 未完成，本阶段停车；重试会沿用本轮起点和已完成动作')
             return False
+        if kind == 'approach':
+            plan.carrying = True
+        state['carrying'] = plan.carrying
         state['substep'] += 1
         state['trail'] = [list(p) for p in plan.trail]
         state['search_origin'] = plan.search_origin
@@ -220,6 +226,12 @@ def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=pri
     steps(round_number, cfg.get('round1_first_ball', 'preloaded'))
     clear_session(round_number, task)
     emit(f'第{round_number}回合整轮开始：以当前位姿建立起点；两次处理球后回位')
+    profile = cfg.get('speed_profiles', {}).get(str(round_number), {})
+    if profile:
+        emit(f"本轮速度：空车走线{profile.get('travel_mps', cfg['speed_mps'])}m/s，"
+             f"载球转运{profile.get('carry_mps', cfg['speed_mps'])}m/s，"
+             f"识球扫描{profile.get('scan_mps', cfg['speed_mps'])}m/s；"
+             f"转向上限{runner.args.max_ang}rad/s")
     try:
         for index in (1, 2, 3):
             emit(f'整轮进度 {index}/3：{steps(round_number, cfg.get("round1_first_ball", "preloaded"))[index-1][1]}')

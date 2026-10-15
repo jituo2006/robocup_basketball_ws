@@ -55,6 +55,18 @@ def load_config(path=CONFIG):
     for key in ('entry', 'corridor'):
         point(cfg[key])
     number(cfg['speed_mps'], math.nextafter(0., math.inf), math.inf)
+    profiles = cfg.get('speed_profiles', {})
+    if not isinstance(profiles, dict) or any(key not in ('1', '2', '3') for key in profiles):
+        raise ValueError('speed_profiles 须为按回合1/2/3配置的字典')
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            raise ValueError('回合速度配置须为字典')
+        for key, value in profile.items():
+            if key not in ('travel_mps', 'carry_mps', 'scan_mps', 'pickup_exit_mps',
+                           'turn_rad_s', 'approach_radius_m', 'approach_mps'):
+                raise ValueError(f'未知回合速度参数: {key}')
+            number(value, 0. if key in ('approach_radius_m', 'approach_mps')
+                   else math.nextafter(0., math.inf), math.inf)
     number(cfg['start_delay_s'], 5, 15)
     if cfg.get('round1_first_ball', 'preloaded') not in ('preloaded', 'search'):
         raise ValueError('首球方式须为 preloaded/search')
@@ -214,6 +226,9 @@ class RoundRoute:
                       mechanism_enabled=getattr(runner.args, 'route_intake', True))
         self.r, self.cfg = runner, cfg
         self.round, self.task, self.mode = round_number, task, mode
+        self.speed_profile = cfg.get('speed_profiles', {}).get(str(round_number), {})
+        # 这是流程中的载球阶段标记，不是入仓传感器反馈。
+        self.carrying = round_number == 1 and cfg.get('round1_first_ball', 'preloaded') == 'preloaded'
         self.release_kind = release_kind
         self.emit = emit
         self.frame = StartFrame(runner.pose, cfg['start'])
@@ -229,12 +244,20 @@ class RoundRoute:
     def say(self, message):
         self.emit(f'第{self.round}回合/{self.task}/{self.mode}: {message}')
 
-    def move_world(self, p, remember=False):
-        # 回合里的到点动作最终都调用 Runner.goto，仍经过同一定位/里程计检查。
+    def move_world(self, p, remember=False, speed=None):
+        # 走线和识球扫描分别选速；最终仍调用原有到点控制。
         # p 已在定位坐标系；remember 只保存返程点，不作为是否允许运动的条件。
+        if speed is None:
+            key = 'carry_mps' if self.carrying else 'travel_mps'
+            speed = self.speed_profile.get(key, self.cfg['speed_mps'])
         distance = math.hypot(p[0]-self.r.pose[0], p[1]-self.r.pose[1])
-        ok = self.r.goto(*p, timeout=max(20., distance/self.r.args.speed+15.),
-                         tolerance=self.r.args.step_tol)
+        saved_speed = self.r.args.speed
+        self.r.args.speed = speed
+        try:
+            ok = self.r.goto(*p, timeout=max(20., distance/speed+15.),
+                             tolerance=self.r.args.step_tol)
+        finally:
+            self.r.args.speed = saved_speed
         if ok and remember:
             self.trail.append(tuple(p))
         return ok
@@ -251,9 +274,10 @@ class RoundRoute:
         # found=目标触发停车，empty=到线端没找到，failed=运动异常/超时。
         target, heading = self.frame.point(target), self.frame.yaw(heading)
         distance = math.hypot(target[0]-self.r.pose[0], target[1]-self.r.pose[1])
+        speed = self.speed_profile.get('scan_mps', self.cfg['speed_mps'])
         status, _det = self.r.scan_to(*target, heading,
-                                     timeout=max(15., distance/self.r.args.speed+10.),
-                                     speed=self.r.args.speed, detect=detect, centered=centered)
+                                     timeout=max(15., distance/speed+10.),
+                                     speed=speed, detect=detect, centered=centered)
         if status == 'found':
             # 记下实际停车点，不把尚未到达的右端点加入返程路线。
             self.search_origin = tuple(self.r.pose)
@@ -266,10 +290,13 @@ class RoundRoute:
     def unwind(self):
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
         self.r.stop()
+        leaving_pickup = self.carrying and self.search_origin is not None
         while self.trail:
             p = self.trail[-1]
-            if not self.move_world(p):
+            speed = self.speed_profile.get('pickup_exit_mps') if leaving_pickup else None
+            if not self.move_world(p, speed=speed):
                 return False
+            leaving_pickup = False
             self.trail.pop()
         return True
 
@@ -319,6 +346,7 @@ class RoundRoute:
                     try:
                         if not self.r.rear_visual_scoop():
                             return 'failed'
+                        self.carrying = True
                     finally:
                         self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout = saved_distance, saved_timeout
                     self.say('取球动作完成，实际入仓仍需实物/传感器确认')
@@ -374,6 +402,7 @@ class RoundRoute:
         action = self.cfg['release'][self.task]
         if not getattr(self.r.args, 'route_intake', True):
             self.say('机构开关关闭：跳过全部吸球/发射/放球指令，继续本轮后续路线')
+            self.carrying = False
             return True
         if self.release_kind == 'match' and action.get('aim_mode') == 'fixed' and not self.heading_ready:
             self.say('尚未转到配置的传球角度，本次不发射')
@@ -393,6 +422,7 @@ class RoundRoute:
             self.r.spin(action['wait_s'])
         self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
                  else '出球指令完成；串口成功不代表球已经投出/命中')
+        self.carrying = False
         return True
 
     def home(self):

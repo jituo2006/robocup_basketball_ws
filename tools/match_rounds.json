@@ -12,6 +12,17 @@
     6.8
   ],
   "speed_mps": 0.25,
+  "speed_profiles": {
+    "1": {
+      "travel_mps": 0.5,
+      "carry_mps": 0.35,
+      "scan_mps": 0.25,
+      "pickup_exit_mps": 0.12,
+      "turn_rad_s": 0.4,
+      "approach_radius_m": 0.6,
+      "approach_mps": 0.12
+    }
+  },
   "start_delay_s": 5.0,
   "drop_commands": [
     "dji_move 1 0 5"

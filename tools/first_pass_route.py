@@ -50,6 +50,8 @@ class FirstPassPlan(RoundRoute):
     """Field points refer to the radar; navigation consumes base centre points."""
     def __init__(self, runner, base, cfg, emit):
         super().__init__(runner, base, 1, 'pass', 'collect', emit=emit, release_kind='drop')
+        # 独立转运流程不隐式套用比赛第1回合的分段速度。
+        self.speed_profile = {}
         self.assist_cfg=cfg
         runner.round_coordinate_frame=cfg.get('coordinate_frame',LEGACY_FRAME)
         self.leg=first_leg(base,cfg)
