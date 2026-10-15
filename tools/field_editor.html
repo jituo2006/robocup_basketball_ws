@@ -190,7 +190,8 @@
     <h1>场地坐标编辑器</h1>
     <div class="tabs" id="taskTabs"></div>
     <div class="sep"></div>
-    <div class="tabs" id="tabs"></div>
+    <div class="tabs" id="startTabs"></div>
+  <div class="tabs" id="tabs"></div>
     <div class="sep"></div>
     <label class="chk"><input type="checkbox" id="cbGrid"> 网格</label>
     <label class="chk"><input type="checkbox" id="cbSnap"> 吸附 0.05m</label>
@@ -286,21 +287,27 @@ const DEFAULTS = {
     start: [1.5, 8.0],
     entry: [1.5, 6.8],
     corridor: [6.4, 6.8],
-    speed_mps: 0.25,
+    speed_mps: 0.35,
     /* 队友 60fe3ca 新增：按回合分段速度。没有对应回合的键就用 speed_mps。 */
     speed_profiles: {
-      "1": { travel_mps: 0.5, carry_mps: 0.35, scan_mps: 0.25,
-             pickup_exit_mps: 0.12, turn_rad_s: 0.4,
+      "1": { travel_mps: 0.62, carry_mps: 0.45, scan_mps: 0.25,
+             pickup_exit_mps: 0.15, turn_rad_s: 0.5,
+             approach_radius_m: 0.6, approach_mps: 0.12 },
+      "2": { travel_mps: 0.62, carry_mps: 0.45, scan_mps: 0.25,
+             pickup_exit_mps: 0.15, turn_rad_s: 0.5,
+             approach_radius_m: 0.6, approach_mps: 0.12 },
+      "3": { travel_mps: 0.62, carry_mps: 0.45, scan_mps: 0.25,
+             pickup_exit_mps: 0.15, turn_rad_s: 0.5,
              approach_radius_m: 0.6, approach_mps: 0.12 }
     },
-    start_delay_s: 5.0,
+    start_delay_s: 10.0,
     drop_commands: ["dji_move 1 0 5"],
     /* 中线：左右端点和队友一致；scan_dir 是【我方走线】加的按轮次方向
        第1轮车在右端附近 ⇒ 先到右端再往左扫；第2轮从进场点(左)过来 ⇒ 先到左端。
        穷举过：第2轮 lr 比 rl 省 3.4 m（传球）/ 3.9 m（投篮）。 */
     /* y=4.45 是【旧帧】；导出成新帧就是 0.7（0.7 = 到球线的距离，正好等于 scoop_m），
        面板/悬停里看到的就是 0.7。 */
-    middle: { y: 4.45, left_x: 0.6, right_x: 4.4, scoop_m: 0.5,
+    middle: { y: 4.45, left_x: 0.6, right_x: 4.4, scoop_m: 0.59,
               scan_dir: { "1": "rl", "2": "lr", "3": "lr" } },
     /* 三分弧。传球走【外侧】R=4.65（扫完往左回传球点）；
        投篮走【内侧】R=2.85（2026 规则允许进三分线取球；内侧离投篮点近得多）。
@@ -309,7 +316,7 @@ const DEFAULTS = {
        angles_shoot 按轮次给：第2轮弧线在投篮点【之后】⇒ 先扫近端；
                               第3轮弧线在投篮点【之前】⇒ 先扫远端收在近端。 */
     arc: { center: [11.0, 3.75], radius: 4.45,
-           angles_deg: [138, 146, 154, 162, 170], scoop_m: 0.5,
+           angles_deg: [138, 146, 154, 162, 170], scoop_m: 0.59,
            radius_shoot: 3.05,
            angles_shoot: { "2": [110, 124, 138, 152, 165],
                            "3": [165, 152, 138, 124, 110] } },
@@ -319,7 +326,7 @@ const DEFAULTS = {
        bottom_y 4.4 = 整车不出中线的极限（队友的 1.3 在对方半场深处）。
        dir_pass=bt 从下到上（弧线扫完停在低处，接得上、不折返）；
        dir_shoot=tb 从上到下（扫完停在低处，直接进投篮点）。 */
-    inner: { x: 8.3, x_shoot: 9.7, top_y: 6.9, bottom_y: 4.4, scoop_m: 0.5,
+    inner: { x: 8.3, x_shoot: 9.7, top_y: 6.9, bottom_y: 4.4, scoop_m: 0.59,
              dir_pass: "bt", dir_shoot: "tb" },
     release: {
       /* 传球点 = 【传球柱 ↔ 传球区圆心】连线与传球区边界的交点附近
@@ -347,6 +354,23 @@ const DEFAULTS = {
       camera_yaw_offset_rad: 0.0, launcher_yaw_offset_deg: 0.0
     },
     round1_first_ball: "preloaded",
+
+    /* ── A/B 出发点（关于场地宽度中线 y=0 对称）──
+       路线只按 A 帧写这一份；B 出发由代码整份镜像生成，不另写一份。
+       start_points 是【实际摆放坐标】，set_start_point.sh 用它同步 localization.yaml
+       的 start_pose；start 就是 A 的坐标，也是镜像的源。 */
+    start_points: { A: [1.5, 4.25], B: [1.5, -4.25] },
+    start_point: "A",
+
+    /* 发出吸球抬起指令后等待多久再继续（秒）—— 让球真正被吸进去。
+       底盘在等待期间保持停止。
+       用在 tools/test_perimeter_ball.py 的 Runner.aligned_intake_approach()，
+       就在 start_intake() 之后那一次 spin。
+       优先级：--route-intake-settle > 这个值 > 内置 1.5 秒。 */
+    intake_settle_s: 1.5,
+    /* 回位时在哪回正：entry（默认）在进场点先转正再直着进出发区；
+       start 是旧行为（先到出发点、再原地转，会把终点位置带偏）。 */
+    home_align_at: "entry",
 
     /* ── 寻球流程开关（默认 = 找到球→正对球→停→转身吸球→直接去下一个点）──
        face_ball_before_turn : true   找到球后先把车头转成正对球，再转身 180°
@@ -474,6 +498,18 @@ let task = "pass";
 
 /* 四个页签：1 / 2 / 3 / 全部 */
 const ROUNDS = [1, 2, 3, "all"];
+
+/* ── 出发点 A / B ─────────────────────────────────────────────────────
+   场上可能从 A 区或 B 区出发。B 出发的路线不是另写一份 ——
+   整份关于场地宽度中线 y = FW/2 镜像一次就得到（球场本身关于中线对称）。
+   这里只是【预览】：选 B 时把图画成镜像的，方便看。
+   S.match 里存的仍是 A 帧那一份，编辑和导出都走它；
+   真正上车时的镜像由 tools/match_round_route.py 的 mirror_to_b() 负责。 */
+const STARTS = [["A", "A 区出发"], ["B", "B 区出发（镜像预览）"]];
+let startPoint = (S.match.start_point === "B") ? "B" : "A";
+const FLIP = () => startPoint === "B";
+/* 内部旧帧里中线在 FW/2，所以镜像就是 y → FW − y（不是取负） */
+const mirY = v => (FLIP() ? (FW - v) : v);
 
 /* "全部"模式用颜色区分三轮 */
 const ROUND_COLOR = { 1: "#d63c3c", 2: "#2f6fd0", 3: "#1f9152" };
@@ -823,8 +859,10 @@ function pubText(x, y) { const p = toPub(x, y); return `(${fmt(p[0])}, ${fmt(p[1
 
 const F2X = x => PAD.l + x * PX;
 const F2Y = y => PAD.t + (Y_TOP - y) * PX;
+/* 模型值的 y 上屏：选 B 时先镜像。常量（Y_TOP/Y_BOT/FW/数字）继续用 F2Y。 */
+const G2Y = y => F2Y(mirY(y));
 const X2F = px => (px - PAD.l) / PX;
-const Y2F = py => Y_TOP - (py - PAD.t) / PX;
+const Y2F = py => mirY(Y_TOP - (py - PAD.t) / PX);
 
 const svg = document.getElementById("svg");
 const NS = "http://www.w3.org/2000/svg";
@@ -1034,7 +1072,7 @@ function draw() {
     el("line", { x1: F2X(0), y1: F2Y(FW / 2), x2: F2X(FL), y2: F2Y(FW / 2),
                  stroke: "#ded0a0", "stroke-width": 1.5 }, g);
     /* 中线置球区圆 */
-    el("circle", { cx: F2X(F.front_zone_circle.x), cy: F2Y(F.front_zone_circle.y),
+    el("circle", { cx: F2X(F.front_zone_circle.x), cy: G2Y(F.front_zone_circle.y),
                    r: F.front_zone_circle.radius_m * PX, fill: "none",
                    stroke: "#b8b8b2", "stroke-width": 1.5 }, g);
     /* 三分线弧 */
@@ -1048,7 +1086,7 @@ function draw() {
       fill: "none", stroke: "#c07820", "stroke-width": 1.5 }, g);
     /* 传球区多边形（占位值 → 虚线提醒） */
     el("polygon", {
-      points: F.pass_zone.map(p => `${F2X(p[0])},${F2Y(p[1])}`).join(" "),
+      points: F.pass_zone.map(p => `${F2X(p[0])},${G2Y(p[1])}`).join(" "),
       fill: "rgba(140,62,200,.05)", stroke: "#8c3ec8", "stroke-width": 1.5,
       "stroke-dasharray": "6 4"
     }, g);
@@ -1061,9 +1099,9 @@ function draw() {
     /* ── 半场置球区（绿竖线 X=5.75）—— 第2/3回合线上 4 个干扰球 ── */
     if (F.half_line) {
       const h = F.half_line;
-      el("line", { x1: F2X(h.x), y1: F2Y(h.y_top), x2: F2X(h.x), y2: F2Y(h.y_bottom),
+      el("line", { x1: F2X(h.x), y1: G2Y(h.y_top), x2: F2X(h.x), y2: G2Y(h.y_bottom),
                    stroke: "#1f9152", "stroke-width": 3 }, g);
-      txt(g, `半场置球区 X=${h.x}`, F2X(h.x) - 5, F2Y(h.y_top) - 6, "#1f9152", 11, "end");
+      txt(g, `半场置球区 X=${h.x}`, F2X(h.x) - 5, G2Y(h.y_top) - 6, "#1f9152", 11, "end");
     }
 
     /* ── 三分线内置球区（红竖线 X=9）── 官方图：距右边线 5000 ── */
@@ -1073,22 +1111,22 @@ function draw() {
       const dy = Math.sqrt(Math.max(0, F.three_point_radius_m ** 2 -
                                       (ix - F.three_point_center[0]) ** 2));
       const y0 = F.three_point_center[1] - dy, y1 = F.three_point_center[1] + dy;
-      el("line", { x1: F2X(ix), y1: F2Y(y1), x2: F2X(ix), y2: F2Y(y0),
+      el("line", { x1: F2X(ix), y1: G2Y(y1), x2: F2X(ix), y2: G2Y(y0),
                    stroke: "#d63c3c", "stroke-width": 3 }, g);
-      txt(g, `三分线内置球区 X=${ix}`, F2X(ix) - 5, F2Y(y0) + 14, "#d63c3c", 11, "end");
-      txt(g, `y∈[${y0.toFixed(2)}, ${y1.toFixed(2)}]`, F2X(ix) - 5, F2Y(y0) + 27,
+      txt(g, `三分线内置球区 X=${ix}`, F2X(ix) - 5, G2Y(y0) + 14, "#d63c3c", 11, "end");
+      txt(g, `y∈[${y0.toFixed(2)}, ${y1.toFixed(2)}]`, F2X(ix) - 5, G2Y(y0) + 27,
           "#c06060", 10, "end");
     }
 
     /* ── A 方传球目标区（图注：都在上边线上）── */
     if (F.pass_targets_A) {
       for (const t of F.pass_targets_A) {
-        el("rect", { x: F2X(t.x) - 8, y: F2Y(t.y) - 8, width: 16, height: 16,
+        el("rect", { x: F2X(t.x) - 8, y: G2Y(t.y) - 8, width: 16, height: 16,
                      fill: "none", stroke: "#8c3ec8", "stroke-width": 2,
                      "stroke-dasharray": "3 2" }, g);
-        el("path", { d: `M${F2X(t.x)},${F2Y(t.y) - 9} l0,-9`, stroke: "#8c3ec8",
+        el("path", { d: `M${F2X(t.x)},${G2Y(t.y) - 9} l0,-9`, stroke: "#8c3ec8",
                      "stroke-width": 1 }, g);
-        txt(g, t.name, F2X(t.x), F2Y(t.y) - 22, "#8c3ec8", 10, "middle");
+        txt(g, t.name, F2X(t.x), G2Y(t.y) - 22, "#8c3ec8", 10, "middle");
       }
       txt(g, "A方传球目标区（上边线上）", F2X(2.2), F2Y(Y_TOP) - 4, "#8c3ec8", 11);
     }
@@ -1096,12 +1134,12 @@ function draw() {
     /* 三分线圆心（参考）—— 标签放在左上，避免和弧线/深场标注重叠 */
     dot(g, F.three_point_center, "#4ba3bd", 3.5);
     txt(g, "3分心", F2X(F.three_point_center[0]) - 4,
-        F2Y(F.three_point_center[1]) + 16, "#4ba3bd", 10, "end");
+        G2Y(F.three_point_center[1]) + 16, "#4ba3bd", 10, "end");
 
     /* 篮筐 */
     dot(g, F.hoop, "#c07820", 6);
     txt(g, `篮筐 ${fmt(F.hoop[0])}, ${fmt(F.hoop[1])}`,
-        F2X(F.hoop[0]), F2Y(F.hoop[1]) - 20, "#a05f10", 12, "middle");
+        F2X(F.hoop[0]), G2Y(F.hoop[1]) - 20, "#a05f10", 12, "middle");
   }
 
   /* ══════════════════════════════════════════════════════════════════
@@ -1125,6 +1163,16 @@ function draw() {
   el("polygon", { points: `${F2X(FL) + 24},${F2Y(Y_BOT) + 14} ${F2X(FL) + 15},${F2Y(Y_BOT) + 10} ${F2X(FL) + 15},${F2Y(Y_BOT) + 18}`,
                   fill: "#b04a3a" });
   txt(svg, "x →（朝篮筐，14m）", F2X(FL) + 28, F2Y(Y_BOT) + 18, "#b04a3a", 11);
+
+  /* ── B 出发预览横幅 ── */
+  if (FLIP()) {
+    el("rect", { x: F2X(0) + 6, y: F2Y(Y_TOP) + 6, width: 448, height: 40,
+                 rx: 6, fill: "#fff4e6", stroke: "#e8590c", "stroke-width": 2 });
+    txt(svg, "预览：B 区出发（整张图关于场地中线镜像）", F2X(0) + 18,
+        F2Y(Y_TOP) + 24, "#b34700", 13, "start");
+    txt(svg, "导出给小车的仍然只有 A 帧那一份，代码会自己镜像", F2X(0) + 18,
+        F2Y(Y_TOP) + 40, "#b34700", 11, "start");
+  }
 
   /* ── 新原点 ── */
   el("circle", { cx: oX, cy: oY, r: 5.5, fill: "#fff", stroke: "#26262a", "stroke-width": 2.5 });
@@ -1150,11 +1198,11 @@ function draw() {
   if (visible("base")) {
     const g = el("g", {});
     const sz = F.start_zone_size_m / 2;
-    el("rect", { x: F2X(F.start_zones.A[0] - sz), y: F2Y(F.start_zones.A[1] + sz),
+    el("rect", { x: F2X(F.start_zones.A[0] - sz), y: G2Y(F.start_zones.A[1] + sz),
                  width: F.start_zone_size_m * PX, height: F.start_zone_size_m * PX,
                  fill: "none", stroke: COL.base, "stroke-width": 2, "stroke-dasharray": "5 3" }, g);
     txt(g, "出发区 A", F2X(F.start_zones.A[0] + sz) + 6,
-        F2Y(F.start_zones.A[1]) + 4, COL.base, 11);
+        G2Y(F.start_zones.A[1]) + 4, COL.base, 11);
   }
 
   /* ── 中线 layer ── */
@@ -1163,8 +1211,8 @@ function draw() {
     const a = [M.middle.right_x, M.middle.y], b = [M.middle.left_x, M.middle.y];
     for (const p of [a, b]) dot(g, p, COL.middle, 7);
     txt(g, `② 中线 (${fmt(M.middle.right_x)},${fmt(toY(M.middle.y))}) → (${fmt(M.middle.left_x)},${fmt(toY(M.middle.y))})`,
-        F2X((a[0] + b[0]) / 2), F2Y(M.middle.y) + 42, COL.middle, 11, "middle");
-    txt(g, `scoop ${fmt(M.middle.scoop_m)}`, F2X((a[0] + b[0]) / 2), F2Y(M.middle.y) + 56,
+        F2X((a[0] + b[0]) / 2), G2Y(M.middle.y) + 42, COL.middle, 11, "middle");
+    txt(g, `scoop ${fmt(M.middle.scoop_m)}`, F2X((a[0] + b[0]) / 2), G2Y(M.middle.y) + 56,
         "#b06a6a", 10, "middle");
   }
 
@@ -1174,12 +1222,12 @@ function draw() {
     const pts = arcPoints();
     for (const p of pts) dot(g, p, COL.arc, 6);
     /* 圆心 + 半径句柄 的虚线 */
-    el("line", { x1: F2X(M.arc.center[0]), y1: F2Y(M.arc.center[1]),
-                 x2: F2X(M.arc.center[0] + M.arc.radius), y2: F2Y(M.arc.center[1]),
+    el("line", { x1: F2X(M.arc.center[0]), y1: G2Y(M.arc.center[1]),
+                 x2: F2X(M.arc.center[0] + M.arc.radius), y2: G2Y(M.arc.center[1]),
                  stroke: COL.arc, "stroke-width": 1, "stroke-dasharray": "3 3", opacity: .5 }, g);
     const tp = pts[pts.length - 1];
-    txt(g, `③ 弧线 R${fmt(arcRadius(task))}${task === "shoot" ? "（内）" : "（外）"}`, F2X(tp[0]) + 12, F2Y(tp[1]) + 2, COL.arc, 11);
-    txt(g, `scoop ${fmt(M.arc.scoop_m)}`, F2X(tp[0]) + 12, F2Y(tp[1]) + 16, "#6f8fc0", 10);
+    txt(g, `③ 弧线 R${fmt(arcRadius(task))}${task === "shoot" ? "（内）" : "（外）"}`, F2X(tp[0]) + 12, G2Y(tp[1]) + 2, COL.arc, 11);
+    txt(g, `scoop ${fmt(M.arc.scoop_m)}`, F2X(tp[0]) + 12, G2Y(tp[1]) + 16, "#6f8fc0", 10);
   }
 
   /* ── 深场 layer ── */
@@ -1190,8 +1238,8 @@ function draw() {
     for (const p of [a, b]) dot(g, p, COL.inner, 6);
     const my = (M.inner.top_y + M.inner.bottom_y) / 2;
     txt(g, `④ 深场 x=${fmt(_ix)}${task === "shoot" ? "（三分线内侧）" : ""}`,
-        F2X(_ix) + 12, F2Y(my) - 3, COL.inner, 11);
-    txt(g, `scoop ${fmt(M.inner.scoop_m)}`, F2X(_ix) + 12, F2Y(my) + 11, "#4f9e73", 10);
+        F2X(_ix) + 12, G2Y(my) - 3, COL.inner, 11);
+    txt(g, `scoop ${fmt(M.inner.scoop_m)}`, F2X(_ix) + 12, G2Y(my) + 11, "#4f9e73", 10);
   }
 
   /* ── 出球点 layer（只看当前任务那一个）── */
@@ -1200,22 +1248,22 @@ function draw() {
     if (task === "pass") {
       const pp = M.release.pass.point;
       const hd = (M.release.pass.search_heading_deg || 0) * Math.PI / 180;
-      el("line", { x1: F2X(pp[0]), y1: F2Y(pp[1]),
-                   x2: F2X(pp[0] + 2.2 * Math.cos(hd)), y2: F2Y(pp[1] + 2.2 * Math.sin(hd)),
+      el("line", { x1: F2X(pp[0]), y1: G2Y(pp[1]),
+                   x2: F2X(pp[0] + 2.2 * Math.cos(hd)), y2: G2Y(pp[1] + 2.2 * Math.sin(hd)),
                    stroke: COL.release, "stroke-width": 1.5, "stroke-dasharray": "5 3" }, g);
       txt(g, `传球朝向 ${M.release.pass.search_heading_deg}°`,
-          F2X(pp[0]) - 10, F2Y(pp[1]) - 30, COL.release, 10, "end");
-      el("rect", { x: F2X(pp[0]) - 6, y: F2Y(pp[1]) - 6, width: 12, height: 12,
+          F2X(pp[0]) - 10, G2Y(pp[1]) - 30, COL.release, 10, "end");
+      el("rect", { x: F2X(pp[0]) - 6, y: G2Y(pp[1]) - 6, width: 12, height: 12,
                    fill: COL.release, stroke: "#fff", "stroke-width": 2 }, g);
     } else {
       const sp = M.release.shoot.point;
       if (M.release.shoot.aim) {
-        el("line", { x1: F2X(sp[0]), y1: F2Y(sp[1]),
-                     x2: F2X(M.release.shoot.aim[0]), y2: F2Y(M.release.shoot.aim[1]),
+        el("line", { x1: F2X(sp[0]), y1: G2Y(sp[1]),
+                     x2: F2X(M.release.shoot.aim[0]), y2: G2Y(M.release.shoot.aim[1]),
                      stroke: COL.shoot, "stroke-width": 1.6, "stroke-dasharray": "5 3" }, g);
         txt(g, "投篮瞄准篮筐", F2X(9.6), F2Y(3.05), COL.shoot, 10);
       }
-      el("rect", { x: F2X(sp[0]) - 6, y: F2Y(sp[1]) - 6, width: 12, height: 12,
+      el("rect", { x: F2X(sp[0]) - 6, y: G2Y(sp[1]) - 6, width: 12, height: 12,
                    fill: COL.shoot, stroke: "#fff", "stroke-width": 2 }, g);
     }
   }
@@ -1226,13 +1274,13 @@ function draw() {
     for (const [name, lm] of Object.entries(S.landmarks || {})) {
       if (lm.x == null || lm.y == null) continue;
       const on = lm.enabled;
-      el("circle", { cx: F2X(lm.x), cy: F2Y(lm.y), r: 7,
+      el("circle", { cx: F2X(lm.x), cy: G2Y(lm.y), r: 7,
                      fill: on ? COL.lm : "none",
                      stroke: on ? "#fff" : "#bbb", "stroke-width": 2,
                      opacity: on ? 1 : .5 }, g);
       const short = name === "passing_pillar_A" ? "传球柱" : "投篮柱";
       txt(g, on ? short : short + "（未启用）",
-          F2X(lm.x) + 11, F2Y(lm.y) + 17, on ? COL.lm : "#aaa", 10);
+          F2X(lm.x) + 11, G2Y(lm.y) + 17, on ? COL.lm : "#aaa", 10);
     }
   }
 
@@ -1251,15 +1299,15 @@ function draw() {
     /* 连线模式下，已经被点过的 token 加一圈标记 */
     const li = linkMode ? linkBuf.indexOf(h.id) : -1;
     if (li >= 0)
-      el("circle", { cx: F2X(p[0]), cy: F2Y(p[1]), r: 12, fill: "none",
+      el("circle", { cx: F2X(p[0]), cy: G2Y(p[1]), r: 12, fill: "none",
                      stroke: "#e08a1e", "stroke-width": 3, opacity: .9 }, g);
 
-    el("circle", { class: "hit", cx: F2X(p[0]), cy: F2Y(p[1]), r: 13 }, g);
-    el("circle", { class: "vis", cx: F2X(p[0]), cy: F2Y(p[1]), r: 6.5,
+    el("circle", { class: "hit", cx: F2X(p[0]), cy: G2Y(p[1]), r: 13 }, g);
+    el("circle", { class: "vis", cx: F2X(p[0]), cy: G2Y(p[1]), r: 6.5,
                    fill: "#fff", stroke: col, "stroke-width": 2.5 }, g);
     /* 连线模式：在点上显示"是第几步" */
     if (li >= 0) {
-      const t = el("text", { x: F2X(p[0]), y: F2Y(p[1]) - 14, "font-size": 10,
+      const t = el("text", { x: F2X(p[0]), y: G2Y(p[1]) - 14, "font-size": 10,
                              "text-anchor": "middle", fill: "#e08a1e",
                              "font-weight": "700" }, g);
       t.textContent = `第${li + 1}步`;
@@ -1267,7 +1315,7 @@ function draw() {
 
     /* 途经点：右边挂个 × 用来删（功能性节点没有这个） */
     if (h.deletable) {
-      const bx = F2X(p[0]) + 13, by = F2Y(p[1]) - 13;
+      const bx = F2X(p[0]) + 13, by = G2Y(p[1]) - 13;
       const del = el("g", { style: "cursor:pointer" }, g);
       el("circle", { cx: bx, cy: by, r: 8, fill: "#e0554a", stroke: "#fff",
                      "stroke-width": 1.5 }, del);
@@ -1354,16 +1402,16 @@ function txt(parent, s, x, y, fill, size, anchor) {
   return t;
 }
 function dot(parent, p, fill, r) {
-  return el("circle", { cx: F2X(p[0]), cy: F2Y(p[1]), r, fill }, parent);
+  return el("circle", { cx: F2X(p[0]), cy: G2Y(p[1]), r, fill }, parent);
 }
 function line(parent, a, b, stroke, w, dash) {
-  const at = { x1: F2X(a[0]), y1: F2Y(a[1]), x2: F2X(b[0]), y2: F2Y(b[1]),
+  const at = { x1: F2X(a[0]), y1: G2Y(a[1]), x2: F2X(b[0]), y2: G2Y(b[1]),
                stroke, "stroke-width": w };
   if (dash) at["stroke-dasharray"] = dash;
   return el("line", at, parent);
 }
 function polyline(pts) {
-  return pts.map((p, i) => `${i ? "L" : "M"}${F2X(p[0])},${F2Y(p[1])}`).join(" ");
+  return pts.map((p, i) => `${i ? "L" : "M"}${F2X(p[0])},${G2Y(p[1])}`).join(" ");
 }
 
 /* 沿路径画方向箭头（小三角），让人看清车往哪开 */
@@ -1372,7 +1420,7 @@ function arrows(parent, pts, color) {
     const a = pts[i], b = pts[i + 1];
     const dx = b[0] - a[0], dy = b[1] - a[1];
     if (Math.hypot(dx, dy) < 0.30) continue;        // 太短的段不画，免得糊成一团
-    const mx = F2X(a[0] + dx * 0.55), my = F2Y(a[1] + dy * 0.55);
+    const mx = F2X(a[0] + dx * 0.55), my = G2Y(a[1] + dy * 0.55);
     const ang = Math.atan2(-dy, dx);                // 屏幕 y 反向
     const c = Math.cos(ang), s = Math.sin(ang);
     const tip = [mx + 6.5 * c, my + 6.5 * s];
@@ -1449,7 +1497,7 @@ function drawRoutes() {
     const key = e.pt[0].toFixed(3) + "," + e.pt[1].toFixed(3);
     const rep = (seenPos[key] = (seenPos[key] || 0) + 1);
     const px = F2X(e.pt[0]) + 13 + (rep - 1) * 21;
-    const py = F2Y(e.pt[1]) - 11 - (rep - 1) * 4;
+    const py = G2Y(e.pt[1]) - 11 - (rep - 1) * 4;
     const isRel = (e.tok === "passPt" || e.tok === "shootPt");
     el("circle", { cx: px, cy: py, r: 9,
                    fill: e.kind === "wp" ? COL.wp : (isRel ? "#34343a" : "#ffffff"),
@@ -1465,8 +1513,8 @@ function drawRoutes() {
 
   /* 起 / 止 标记 */
   const s0 = go[0], sN = go[go.length - 1];
-  el("circle", { cx: F2X(s0[0]), cy: F2Y(s0[1]), r: 3.5, fill: "#34343a" }, g);
-  el("circle", { cx: F2X(sN[0]), cy: F2Y(sN[1]), r: 3.5, fill: "#34343a" }, g);
+  el("circle", { cx: F2X(s0[0]), cy: G2Y(s0[1]), r: 3.5, fill: "#34343a" }, g);
+  el("circle", { cx: F2X(sN[0]), cy: G2Y(sN[1]), r: 3.5, fill: "#34343a" }, g);
 
   /* ── 图例（放在场地下方，那里最空，不会压住任何标注）── */
   const relSteps = [];
@@ -1485,7 +1533,7 @@ function arcPath(c, r, a0, a1) {
   const p0 = [c[0] + r * Math.cos(a0 * Math.PI / 180), c[1] + r * Math.sin(a0 * Math.PI / 180)];
   const p1 = [c[0] + r * Math.cos(a1 * Math.PI / 180), c[1] + r * Math.sin(a1 * Math.PI / 180)];
   const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
-  return `M${F2X(p0[0])},${F2Y(p0[1])} A${r * PX},${r * PX} 0 ${large} 0 ${F2X(p1[0])},${F2Y(p1[1])}`;
+  return `M${F2X(p0[0])},${G2Y(p0[1])} A${r * PX},${r * PX} 0 ${large} 0 ${F2X(p1[0])},${G2Y(p1[1])}`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1534,7 +1582,7 @@ function startDrag(ev, h) {
   ev.preventDefault();
   drag = h;
   const svgPt = toSvg(ev);
-  h._off = [F2X(h.get()[0]) - svgPt.x, F2Y(h.get()[1]) - svgPt.y];
+  h._off = [F2X(h.get()[0]) - svgPt.x, G2Y(h.get()[1]) - svgPt.y];
   /* 正交约束用：记住按下时这个点的原始位置 */
   const p0 = h.get();
   h._origin = [p0[0], p0[1]];
@@ -2065,6 +2113,14 @@ const ROWS = [
   ["n",  "speed_mps", "速度 m/s", "base", () => S.match.speed_mps, v => S.match.speed_mps = v],
   ["n",  "start_delay_s", "启动延迟 s", "base", () => S.match.start_delay_s, v => S.match.start_delay_s = v],
 
+  /* ── 吸球机构 ────────────────────────────────────────────────
+     串口序列本身写在 tools/intake_control.py（dji_stop → dji_zero → dji_move 1 90 5），
+     不需要在这里配。这里只配【发完抬起指令后等多久】，让球真正被吸进去再走。
+     对应 Runner.aligned_intake_approach() 里那一次等待。 */
+  ["grp", "吸球机构（串口序列在 intake_control.py）", "base"],
+  ["n",  "intake_settle_s", "吸球后等待 s", "base",
+    () => S.match.intake_settle_s, v => S.match.intake_settle_s = v],
+
   ["grp", "中线（红）", "middle"],
   ["n",  "middle.right_x", "右端 x", "middle", () => S.match.middle.right_x, v => S.match.middle.right_x = v],
   ["n",  "middle.left_x", "左端 x", "middle", () => S.match.middle.left_x, v => S.match.middle.left_x = v],
@@ -2228,6 +2284,26 @@ for (const [id, name] of TASKS) {
   taskTabs.appendChild(b);
 }
 
+/* 出发点 A / B 两个按钮 */
+const startTabs = document.getElementById("startTabs");
+for (const [key, name] of STARTS) {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.dataset.start = key;
+  b.className = key === startPoint ? "on" : "";
+  b.title = key === "B"
+    ? "预览 B 区出发：整张图关于场地中线镜像。导出时仍然只写 A 帧那一份，"
+      + "真正上车由代码的 mirror_to_b() 镜像。"
+    : "预览 A 区出发（仓库里存的那一份）";
+  b.onclick = () => {
+    startPoint = key;
+    S.match.start_point = key;   // 这个键会跟着导出，小车按它选出发点
+    syncTabs();
+    draw();
+  };
+  startTabs.appendChild(b);
+}
+
 const tabs = document.getElementById("tabs");
 for (const r of ROUNDS) {
   const b = document.createElement("button");
@@ -2262,6 +2338,7 @@ function syncLayerBoxes() {
 function syncTabs() {
   [...taskTabs.children].forEach(b => b.classList.toggle("on", b.dataset.task === task));
   [...tabs.children].forEach(b => b.classList.toggle("on", b.dataset.round == round));
+  [...startTabs.children].forEach(b => b.classList.toggle("on", b.dataset.start === startPoint));
   const hr = document.getElementById("hintRound");
   const tname = task === "pass" ? "传球" : "投篮";
   if (round === "all") {
