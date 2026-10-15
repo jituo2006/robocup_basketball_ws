@@ -1813,62 +1813,14 @@ function renderRouteEditor() {
       `</span></div>`;
   });
 
-  const nRel = list.filter(t => t === "passPt" || t === "shootPt").length;
-  let warn = nRel !== 2
-    ? `<b style="color:#d97706">⚠️ 现在只有 ${nRel} 次出球</b>，规则要求每轮 2 次（累计 2 次计分）。<br>`
-    : `<b>出球点 2 次 ✓</b>（规则：每轮累计 2 次）<br>`;
+  /* 路线编辑框下面不再显示任何警告。
+     原来这里有四类：① 出球点次数 ② 过阻碍线 ③ 半场检查 ④ 时间预算。
+     ② 那一段判据用的是写死的 6.8（通道已经改成 6.05），算出来是错的；
+     其余三类在现场也偏吵，所以整块去掉。
+     三个计算函数 crossingReport / halfReport / routeStats 保留着，
+     想恢复只要把 warn 那几段拼回来。 */
 
-  /* 过阻碍线检查 */
-  const cr = crossingReport(round, task);
-  const bad = cr.filter(c => !c.ok);
-  if (!cr.length) {
-    warn += `本轮的路线<b>不跨越</b>半场置球区（X=${HALF_LINE_X} 竖线），不涉及过阻碍线。<br>`;
-  } else if (bad.length) {
-    warn += `<b style="color:#d63c3c">⚠️ 有 ${bad.length} 处过低穿过「阻碍线」</b>` +
-      `（半场置球区 X=${HALF_LINE_X}，线顶 Y=${HALF_LINE_TOP_Y}，线上 4 个干扰球）：<br>`;
-    for (const c of bad) {
-      warn += `<span style="color:#d63c3c">　· (${fmt(c.from[0])},${fmt(c.from[1])}) → ` +
-        `(${fmt(c.to[0])},${fmt(c.to[1])})　在 Y=${fmt(c.y)} 穿过，` +
-        `比线顶低 ${fmt(-c.clear)} m</span><br>`;
-    }
-    warn += `　改法：插一个途经点在 Y≈6.8 上（X 小于 ${HALF_LINE_X}），` +
-      `让它<b>先上再右</b>，或加一步<b>上侧通道</b>。<br>`;
-  } else {
-    warn += `过阻碍线 <b>${cr.length}</b> 处，最高 Y=${fmt(Math.min(...cr.map(c => c.y)))}` +
-      ` ✓ 都是从线顶上方绕的。<br>`;
-  }
-  warn += `<span style="color:#a2a29c">⚠️ 但线顶余量只有 ` +
-    `${fmt(6.8 - HALF_LINE_TOP_Y)} m，车体仍会压到线顶那颗球 —— ` +
-    `4 颗干扰球的实际高度要现场量。</span><br>`;
-
-  /* ── 半场检查 ── */
-  const hr = halfReport(round, task);
-  if (hr.ok) {
-    warn += `<b style="color:#1f9152">半场 ✓</b> 整车都在我们半场` +
-      `（最低车心 y=${fmt(hr.minY)}，需要 ≥${fmt(hr.need)}）<br>`;
-  } else {
-    warn += `<b style="color:#d63c3c">⚠️ 有 ${hr.bad.length} 个点会让车体压过中线</b>` +
-      `（对方半场 y<${HALF_Y}）：<br>`;
-    for (const p of hr.bad.slice(0, 5))
-      warn += `<span style="color:#d63c3c">　· (${fmt(p[0])}, ${fmt(p[1])})` +
-        `　车体会到 y=${fmt(p[1] - 0.60)}</span><br>`;
-    warn += `　改法：把这些点抬高到 y ≥ ${hr.need}，` +
-      `或改弧线角度 / 深场的上下端点。<br>`;
-  }
-
-  /* ── 时间预算 ── */
-  const st = routeStats(round, task);
-  const tCls = st.over > 0 ? "#d63c3c" : (st.safe ? "#1f9152" : "#d97706");
-  const tWord = st.over > 0 ? `超时 ${fmt(st.over, 0)} s`
-              : (st.safe ? `余 ${fmt(-st.over, 0)} s`
-                         : `仅余 ${fmt(-st.over, 0)} s —— 建议至少留 30% 余量`);
-  warn += `<b style="color:${tCls}">⏱ 路径 ${fmt(st.len, 1)} m，纯行驶 ≈ ${fmt(st.t, 0)} s` +
-    ` / 时限 ${st.lim} s（${tWord}）</b><br>` +
-    `<span style="color:#a2a29c">　只算行驶，不含停车/找球/铲球/出球 —— 真实一定更久。<br>` +
-    `　当前速度 ${st.spd} m/s；要让行驶只占时限 70%，` +
-    `这条路线需要 <b style="color:${tCls}">${fmt(st.need)} m/s</b></span><br>`;
-
-  h += `</div><div class="hint2">${warn}` +
+  h += `</div><div class="hint2">` +
     `▲▼ 改顺序；<b>＋</b> 在该步后插途经点；<b>✕</b> 删（只有橙色途经点能删）。<br>` +
     `点某一行＝选中它，然后用顶部「＋ 加点」在地图上点位置。</div>`;
   host.innerHTML = h;
