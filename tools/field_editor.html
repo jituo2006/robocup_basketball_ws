@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>场地坐标编辑器 · RoboCup 篮球</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.5 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: #f4f4f2; color: #1e1e1e; display: flex; overflow: hidden;
+  }
+  /* ── 左：画布 ───────────────────────────────────────── */
+  #stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #topbar {
+    display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+    background: #fff; border-bottom: 1px solid #dcdcd8; flex-wrap: wrap;
+  }
+  #topbar h1 { font-size: 15px; margin: 0 10px 0 0; font-weight: 600; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button {
+    padding: 5px 13px; border: 1px solid #cfcfca; background: #fafaf8;
+    border-radius: 5px; cursor: pointer; font-size: 13px; color: #444;
+  }
+  .tabs button.on { background: #2f6fd0; border-color: #2f6fd0; color: #fff; font-weight: 600; }
+  .tabs button:hover:not(.on) { background: #f0f0ec; }
+  /* 加点 / 连线 / 删点 这几个操作按钮 */
+  #topbar button.tb {
+    padding: 4px 10px; border: 1px solid #cfcfca; background: #fff;
+    border-radius: 5px; cursor: pointer; font-size: 12px; color: #333;
+  }
+  #topbar button.tb:hover { background: #f4f4f0; }
+  #topbar button.tb.on {
+    background: #e08a1e; border-color: #e08a1e; color: #fff; font-weight: 600;
+  }
+  /* 选中的点加一圈强调环 */
+  .hnd.sel circle.vis { stroke-width: 4; }
+  .sep { width: 1px; height: 22px; background: #dcdcd8; }
+  label.chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+  #wrap { flex: 1; overflow: auto; padding: 10px 14px 20px; }
+  svg { background: #fff; border-radius: 6px; display: block; }
+  .hint { color: #8a8a84; font-size: 12px; margin: 6px 0 0; }
+
+  /* ── 右：面板 ───────────────────────────────────────── */
+  #panel {
+    width: 400px; background: #fff; border-left: 1px solid #dcdcd8;
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  #panel .head { padding: 10px 14px 8px; border-bottom: 1px solid #ececea; }
+  #panel .head h2 { font-size: 13px; margin: 0 0 2px; font-weight: 600; }
+  #panel .head p { margin: 0; color: #8a8a84; font-size: 12px; }
+  #body { flex: 1; overflow: auto; padding: 8px 0 60px; }
+  .grp { margin: 0 0 4px; }
+  .grp > h3 {
+    margin: 0; padding: 9px 14px 5px; font-size: 12px; font-weight: 600;
+    color: #6b6b66; letter-spacing: .02em;
+  }
+  .grp > h3 small { font-weight: 400; color: #9d9d97; margin-left: 6px; }
+  .row {
+    display: grid; grid-template-columns: 1fr 78px 78px; gap: 6px;
+    align-items: center; padding: 2px 14px;
+  }
+  .row:hover { background: #f7f7f4; }
+  .row .k { font-size: 12px; color: #333; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; }
+  .row .k i { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+              margin-right: 6px; vertical-align: middle; }
+  .row input {
+    width: 100%; padding: 3px 4px; border: 1px solid #d8d8d3; border-radius: 4px;
+    font: 11px/1.4 ui-monospace, Consolas, monospace; text-align: right; background: #fff;
+  }
+  .row input:focus { outline: 2px solid #bcd4f5; border-color: #7aa9e6; }
+  .row input.ro { background: #f4f4f1; color: #777; }
+  .row.head2 { grid-template-columns: 1fr 78px 78px; color: #9d9d97; font-size: 11px;
+               padding-bottom: 0; }
+  .row.head2 span:nth-child(2), .row.head2 span:nth-child(3) { text-align: right; }
+
+  #foot { border-top: 1px solid #ececea; padding: 8px 14px; display: flex; gap: 6px;
+          flex-wrap: wrap; background: #fcfcfa; position: relative; }
+  #foot button {
+    padding: 6px 11px; border: 1px solid #cfcfca; background: #fff; border-radius: 5px;
+    cursor: pointer; font-size: 12px;
+  }
+  #foot button.pri { background: #2f6fd0; border-color: #2f6fd0; color: #fff; font-weight: 600; }
+  #foot button:hover { filter: brightness(.96); }
+  /* 导出下拉 */
+  .dd { position: relative; }
+  .ddmenu {
+    position: absolute; bottom: 34px; left: 0; min-width: 230px; z-index: 40;
+    background: #fff; border: 1px solid #cfcfca; border-radius: 7px; padding: 4px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14); display: none;
+  }
+  .ddmenu.open { display: block; }
+  .ddmenu button {
+    display: block; width: 100%; text-align: left; border: 0; background: none;
+    padding: 7px 9px; font-size: 12px; border-radius: 5px; cursor: pointer;
+  }
+  .ddmenu button:hover { background: #f2f2ee; }
+  .ddmenu button .t { display: block; color: #333; }
+  .ddmenu button .d { display: block; color: #9d9d97; font-size: 11px; margin-top: 1px; }
+  .ddmenu hr { border: 0; border-top: 1px solid #ececea; margin: 4px 2px; }
+  #ddBadge { font-weight: 700; }
+  #ddBadge.some { color: #d97706; }
+  #saveInfo {
+    padding: 5px 14px 9px; font-size: 11.5px; color: #8a8a84;
+    border-top: 1px solid #f2f2ee; background: #fcfcfa; line-height: 1.6;
+  }
+  #saveInfo b { color: #444; }
+  #saveInfo .chg { color: #d97706; font-weight: 600; }
+  #saveInfo .ok { color: #1f9152; }
+
+  /* ── 走法顺序编辑器（右面板顶部）────────────────────────── */
+  #rte { border-bottom: 2px solid #e4e4df; background: #fbfbf9; }
+  #rte .rh { display: flex; align-items: center; gap: 6px; padding: 9px 12px 5px; }
+  #rte .rh b { font-size: 12px; flex: 1; }
+  #rte .rh button {
+    padding: 3px 8px; border: 1px solid #cfcfca; background: #fff;
+    border-radius: 5px; cursor: pointer; font-size: 11.5px;
+  }
+  #rte .rh button:hover { background: #f0f0ec; }
+  #rte .rl { padding: 0 0 7px; }
+  #rte .st {
+    display: grid; grid-template-columns: 24px 1fr 74px;
+    gap: 3px; align-items: center; padding: 2px 10px 2px 8px;
+    font-size: 12px; cursor: pointer; border-left: 3px solid transparent;
+  }
+  #rte .st:hover { background: #f2f2ee; }
+  #rte .st.sel { background: #e8f0fb; border-left-color: #2f6fd0; }
+  #rte .st .n { color: #a2a29c; font-size: 11px; text-align: right; }
+  #rte .st .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #rte .st .nm i { display: inline-block; width: 7px; height: 7px; border-radius: 2px;
+                   margin-right: 5px; vertical-align: middle; }
+  #rte .st .nm small { color: #a2a29c; }
+  #rte .st .ops { text-align: right; white-space: nowrap; }
+  #rte .st .ops button {
+    border: 0; background: none; cursor: pointer; color: #b0b0aa;
+    padding: 1px 3px; font-size: 12px; line-height: 1; border-radius: 3px;
+  }
+  #rte .st .ops button:hover { color: #2f6fd0; background: #e8f0fb; }
+  #rte .st .ops button.del:hover { color: #d63c3c; background: #fdeceb; }
+  #rte .st .ops button:disabled { opacity: .25; cursor: default; }
+  #rte .st .ops button:disabled:hover { color: #b0b0aa; background: none; }
+  #rte .hint2 { padding: 0 12px 7px; font-size: 11px; color: #a2a29c; line-height: 1.6; }
+  #rte .hint2 b { color: #6b6b66; }
+
+  dialog {
+    border: 1px solid #cfcfca; border-radius: 8px; padding: 0; width: min(760px, 92vw);
+    max-height: 84vh;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog .dh { display: flex; align-items: center; padding: 10px 14px;
+               border-bottom: 1px solid #ececea; gap: 8px; }
+  dialog .dh strong { flex: 1; font-size: 13px; }
+  dialog .dh button { padding: 4px 10px; border: 1px solid #cfcfca; background: #fff;
+                      border-radius: 5px; cursor: pointer; font-size: 12px; }
+  dialog textarea {
+    width: 100%; height: 56vh; border: 0; border-top: 1px solid #ececea; padding: 12px 14px;
+    font: 12px/1.55 ui-monospace, Consolas, monospace; resize: none; outline: none;
+    background: #fbfbf9;
+  }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #eef4fc;
+          color: #2f6fd0; }
+  .pill.warn { background: #fdf3e6; color: #b4720f; }
+
+  /* SVG 交互 */
+  .hnd { cursor: grab; }
+  .hnd:active { cursor: grabbing; }
+  .hnd circle.hit { fill: transparent; }
+  .hnd:hover circle.vis { r: 9; }
+  .lbl { font: 11px "Microsoft YaHei", sans-serif; paint-order: stroke;
+         stroke: #fff; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+
+  /* 悬停解释气泡 */
+  #tip {
+    position: fixed; left: 0; top: 0; max-width: 340px;
+    background: #26262a; color: #ededed; padding: 9px 12px;
+    border-radius: 6px; font-size: 12px; line-height: 1.65;
+    pointer-events: none; opacity: 0; z-index: 60;
+    transition: opacity .12s;
+  }
+  #tip.on { opacity: 1; }
+  #tip b { color: #ffd479; display: block; margin-bottom: 3px; font-size: 12.5px; }
+  #tip i { color: #9ecbff; font-style: normal; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="topbar">
+    <h1>场地坐标编辑器</h1>
+    <div class="tabs" id="taskTabs"></div>
+    <div class="sep"></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="sep"></div>
+    <label class="chk"><input type="checkbox" id="cbGrid"> 网格</label>
+    <label class="chk"><input type="checkbox" id="cbSnap"> 吸附 0.05m</label>
+    <label class="chk" title="拖动时锁成纯水平或纯垂直（按住 Shift 也生效）">
+      <input type="checkbox" id="cbOrtho"> <b>正交约束</b></label>
+    <div class="sep"></div>
+    <label class="chk"><input type="checkbox" id="cbRoute" checked> 连线</label>
+    <label class="chk"><input type="checkbox" id="cbArrows" checked> 箭头</label>
+    <label class="chk"><input type="checkbox" id="cbSteps" checked> 步号</label>
+    <label class="chk"><input type="checkbox" id="ly_wp" checked> 途经点</label>
+    <div class="sep"></div>
+    <button id="btnAdd"  class="tb" onclick="toggleAdd()"  title="开启后在地图上点一下，就在选中点后面插入一个途经点">＋ 加点</button>
+    <button id="btnLink" class="tb" onclick="toggleLink()" title="进入连线模式：依次点各个点，重新定义走法顺序">⇢ 连线</button>
+    <button id="btnDel"  class="tb" onclick="deleteSel()" title="删除选中的途经点（功能性节点不可删）">✕ 删点</button>
+    <div class="sep"></div>
+    <label class="chk"><input type="checkbox" id="ly_base" checked> 起步</label>
+    <label class="chk"><input type="checkbox" id="ly_middle" checked> 中线</label>
+    <label class="chk"><input type="checkbox" id="ly_arc" checked> 弧线</label>
+    <label class="chk"><input type="checkbox" id="ly_inner" checked> 深场</label>
+    <label class="chk"><input type="checkbox" id="ly_release" checked> 出球点</label>
+    <label class="chk"><input type="checkbox" id="ly_mission" checked> 场地几何</label>
+    <label class="chk"><input type="checkbox" id="ly_lm" checked> 定位柱</label>
+  </div>
+  <div id="wrap">
+    <svg id="svg"></svg>
+    <p class="hint">
+      <b>选轮次只显示那一轮的路线。</b>拖任意圆点改坐标，右侧数字框也能输入；
+      开「正交约束」后拖动会锁成水平/垂直。
+      <span class="pill" id="hintRound"></span>
+    </p>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="head">
+    <h2 id="ph">数值</h2>
+    <p>改动会<b>自动存在浏览器里</b>，刷新不丢。想留成文件就点「💾 保存进度」；
+       要覆盖仓库文件才点「导出…」—— 底部会告诉你<b>哪几个文件真的改了</b>。</p>
+  </div>
+  <div id="rte"></div>
+  <div id="body"></div>
+  <div id="foot">
+    <button id="btnUndo" onclick="undo()" disabled
+            title="撤回上一步改动（也可按 Ctrl+Z）">↶ 撤回</button>
+    <button class="pri" id="btnSave" onclick="saveState()"
+            title="把当前所有坐标存成一个文件，下次用「打开」接着编">💾 保存进度</button>
+    <button onclick="document.getElementById('fileIn').click()"
+            title="打开之前保存的进度文件">📂 打开</button>
+    <input type="file" id="fileIn" accept=".json,application/json"
+           style="display:none" onchange="loadState(this)">
+    <div class="dd" id="dd">
+      <button onclick="toggleDD(event)">导出… <span id="ddBadge"></span></button>
+      <div class="ddmenu" id="ddmenu"></div>
+    </div>
+    <button onclick="resetAll()" title="恢复成仓库原始值（可撤回）">重置</button>
+  </div>
+  <div id="saveInfo"></div>
+</div>
+
+<dialog id="dlg">
+  <div class="dh">
+    <strong id="dtitle"></strong>
+    <button onclick="copyOut()">复制</button>
+    <button onclick="dlg.close()">关闭</button>
+  </div>
+  <textarea id="dout" spellcheck="false"></textarea>
+</dialog>
+
+<div id="tip"></div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════
+   初始数据 —— 与仓库当前值一致
+   ═══════════════════════════════════════════════════════════════════ */
+const DEFAULTS = {
+  /* ═══════════════════════════════════════════════════════════════════
+     ⚠️ 本块【逐字对齐 jituo2006/robocup_basketball_ws 的 main 分支】
+        tools/match_rounds.json      → S.match
+        src/rb_mission/config/mission.yaml (field 段)  → S.mission
+        src/rb_localization/config/localization.yaml   → S.landmarks（已被队友删除）
+     采集时间：jituo/main = 6e04b37
+
+     ⚠️ 坐标系：ROS 侧仍然用【旧帧】——
+          x 沿 14m 长边，原点在远离篮筐那条底线；y 沿 7.5m 短边，y=3.75 是宽度中线
+        jituo 另有一套【公开帧】给前端/API 用（+Y 朝篮筐，x=0 在宽度中线），
+        由 tools/field_coordinates.py 做转换，ROS 内部不变。见 PUBLIC_FRAME_* 常量。
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* tools/match_rounds.json */
+  match: {
+    start: [1.5, 8.0],
+    entry: [1.5, 6.8],
+    corridor: [6.4, 6.8],
+    speed_mps: 0.25,
+    /* 队友 60fe3ca 新增：按回合分段速度。没有对应回合的键就用 speed_mps。 */
+    speed_profiles: {
+      "1": { travel_mps: 0.5, carry_mps: 0.35, scan_mps: 0.25,
+             pickup_exit_mps: 0.12, turn_rad_s: 0.4,
+             approach_radius_m: 0.6, approach_mps: 0.12 }
+    },
+    start_delay_s: 5.0,
+    drop_commands: ["dji_move 1 0 5"],
+    /* 中线：左右端点和队友一致；scan_dir 是【我方走线】加的按轮次方向
+       第1轮车在右端附近 ⇒ 先到右端再往左扫；第2轮从进场点(左)过来 ⇒ 先到左端。
+       穷举过：第2轮 lr 比 rl 省 3.4 m（传球）/ 3.9 m（投篮）。 */
+    /* y=4.45 是【旧帧】；导出成新帧就是 0.7（0.7 = 到球线的距离，正好等于 scoop_m），
+       面板/悬停里看到的就是 0.7。 */
+    middle: { y: 4.45, left_x: 0.6, right_x: 4.4, scoop_m: 0.7,
+              scan_dir: { "1": "rl", "2": "lr", "3": "lr" } },
+    /* 三分弧。传球走【外侧】R=4.65（扫完往左回传球点）；
+       投篮走【内侧】R=2.85（2026 规则允许进三分线取球；内侧离投篮点近得多）。
+       ⚠️ 队友原来是 [160,170,180,190,200]：190°/200° 落在【对方半场】且弧线拉得长，
+          投篮第3轮会和深场线来回穿插。这里换回精简角度。
+       angles_shoot 按轮次给：第2轮弧线在投篮点【之后】⇒ 先扫近端；
+                              第3轮弧线在投篮点【之前】⇒ 先扫远端收在近端。 */
+    arc: { center: [11.0, 3.75], radius: 4.65,
+           angles_deg: [138, 146, 154, 162, 170], scoop_m: 0.25,
+           radius_shoot: 2.85,
+           angles_shoot: { "2": [110, 124, 138, 152, 165],
+                           "3": [165, 152, 138, 124, 110] } },
+    /* 深场（三分线内置球区 X=9 那条红线）。
+       x=8.2 与队友一致；投篮另给 x_shoot=9.8（球线右侧=三分线内侧，贴投篮点）。
+       top_y 6.9 = 整车不出上边线的极限（红线本半场到 6.92，原来只扫到 6.2 会漏 0.72 m）。
+       bottom_y 4.4 = 整车不出中线的极限（队友的 1.3 在对方半场深处）。
+       dir_pass=bt 从下到上（弧线扫完停在低处，接得上、不折返）；
+       dir_shoot=tb 从上到下（扫完停在低处，直接进投篮点）。 */
+    inner: { x: 8.2, x_shoot: 9.8, top_y: 6.9, bottom_y: 4.4, scoop_m: 0.15,
+             dir_pass: "bt", dir_shoot: "tb" },
+    release: {
+      /* 传球点 = 【传球柱 ↔ 传球区圆心】连线与传球区边界的交点附近
+           圆心 (2.5,3.75) R=2.5；传球柱 (5.75,7.5) → 方向 49.1°（不是 45°）
+           沿这条线走到"整车刚好还在圆内"：(3.55,4.95)，到柱 3.37 m
+           原先 (3.6,4.5) 算下来车最低 y=3.72，本来就压过中线 3 cm。
+           朝向 49° 指向 A 方传球目标区3（顶部圆环，单次 50 分）。
+           ⚠️ 队友的 first_pass_route.json 用公开帧 (-1.9,3.45) = 旧帧 (3.45,5.675)，
+              离柱更近但车会伸出传球圆 0.43 m —— 判罚尺度要靠现场问裁判。 */
+      pass:  { aim_mode: "fixed", point: [3.55, 4.95], aim: null,
+               commands: ["vesc_status", "vesc_home", "vesc_shoot 3"],
+               wait_s: 2.0, search_heading_deg: 49.0 },
+      /* 投篮点 = 三分线内、投篮边界线外、离篮筐最近、整车不出我们半场
+           到篮筐 2.13 m（>2.0 投篮分 10），到三分圆心 0.97（<3.75 命中分 10）
+           队友的 (6.4,4.8) 离篮筐 6.12 m —— 太远。 */
+      shoot: { point: [10.45, 4.55], aim: [12.425, 3.75],
+               commands: [], wait_s: 2.0 }
+    },
+    pillar_alignment: {
+      enabled: true, confidence: 0.55, tolerance_deg: 1.5,
+      stable_frames: 3, timeout_s: 6.0, max_turn_deg: 20.0,
+      max_ang_rad_s: 0.15, kp: 1.2,
+      camera_yaw_offset_rad: 0.0, launcher_yaw_offset_deg: 0.0
+    },
+    round1_first_ball: "preloaded",
+
+    /* ── 寻球流程开关（默认 = 找到球→正对球→停→转身吸球→直接去下一个点）──
+       face_ball_before_turn : true   找到球后先把车头转成正对球，再转身 180°
+       exit_after_pickup     : direct 取球后【直接去下一个点】；
+                                       设 "unwind" 回退到旧行为（沿走过折线原路退回）
+       scan_centered         : false  球出现在画面任意位置就停（随后正对）；
+                                       设 true 回到旧行为（必须自己扫进中心带才停）
+       代码位置：tools/match_round_route.py 的 scan() / face_detected() / search_area() */
+    face_ball_before_turn: true,
+    exit_after_pickup: "direct",
+    scan_centered: false,
+    /* 取球后回动作点的绕行：弧线/深场时先经【上侧通道 + 通道上 x=carry_cross_x_m 的点】
+       —— 对应编辑器路线里的 corridor → [4.8, 6.8]（旧帧）。中线不绕，直接去传球点。 */
+    carry_cross_x_m: 4.8,
+    /* 传球时是否先绕到 (1.5, 中线y)：false = 编辑器那样直接去传球点（默认） */
+    pass_action_via_middle: false
+  },
+
+  /* src/rb_mission/config/mission.yaml → field: */
+  mission: {
+    length_m: 14.0,
+    width_m: 7.5,
+    hoop: [12.425, 3.75],
+    front_zone_circle: { x: 2.5, y: 3.75, radius_m: 2.5 },
+    shoot_line_radius_m: 2.0,
+    three_point_radius_m: 3.75,
+    three_point_center: [11.0, 3.75],
+    pass_zone: [[8.0, 1.0], [13.0, 1.0], [13.0, 6.5], [8.0, 6.5]],
+    shoot_zone_target: [9.5, 3.75],
+    shoot_zone_target_30: [7.0, 3.75],
+    pass_zone_target: [10.5, 3.75],
+    start_zone_size_m: 1.0,
+    start_zone_offset_m: 1.0,
+    start_zones: { A: [1.5, 8.0], B: [1.5, -0.5] },
+    home: [1.5, 8.0],
+
+    /* 官方《比赛场地尺寸示意图》上的两条置球线（图注换算，单位 m） */
+    half_line: { x: 5.75, y_bottom: 0.75, y_top: 6.75 },
+    inner_line: { x: 9.0 },
+    /* A 方传球目标区（图注：三个都在【上边线】上；x 为目测，现场要量） */
+    pass_targets_A: [
+      { name: "A1", x: 3.5,  y: 7.5 },
+      { name: "A3(50分)", x: 5.75, y: 7.5 },
+      { name: "A2", x: 11.5, y: 7.5 }
+    ]
+  },
+
+  /* ⚠️ jituo/main 已把 localization.yaml 的 landmarks 段【整段删除】
+     （提交 2f8947e「remove ... pillar pose correction」）。
+     定位柱不再参与位姿修正，只留 match.pillar_alignment 做出球前的视觉微调。
+     所以这里留空；若要恢复，把旧的 passing_pillar_A 填回来即可。 */
+  landmarks: {},
+
+  /* ═══════════════════════════════════════════════════════════════════
+     jituo 的【公开坐标系】(tools/field_coordinates.py) —— 只给前端/API 看
+        x 沿 7.5m 宽边，x=0 在宽度中线；y 沿 14m 长边，+y 朝篮筐
+        公开 = (7.5 − y旧 − x_origin, x旧)，yaw公开 = yaw旧 + 90°
+     ═══════════════════════════════════════════════════════════════════ */
+  public_frame: { x_origin_m: 3.725, midfield_y_m: 5.75,
+                  name: "field_center_y_basket" },
+
+  /* ═══════════════════════════════════════════════════════════════════
+     ⚠️ route 是【我方的走法规划辅助】，jituo 的 match_rounds.json 里没有这个键。
+        它是给下面的路线编辑器用的：把"某个环节第几轮怎么走"写成 token 串，
+        导出时落到 match 同级的 route 键，代码侧不读它。
+
+        token 约定：
+          start / entry / corridor / passPt / shootPt  = 功能点
+          @middle / @arc / @inner                      = 区域（展开成扫描点）
+          [x, y]                                       = 自定义途经点
+
+        规则依据：每个环节每轮【2 次动作】
+          （rules_2026_revised.yaml:17 actions_per_round: 2；
+            传球分/命中分/投篮分均"累计 2 次"；回位分要求完成 2 次后才回位）
+        所以出球点每轮出现 2 次。
+     ═══════════════════════════════════════════════════════════════════ */
+  route: {
+    pass: {
+      "1": ["start", "entry", "passPt", "@middle", "passPt", "entry", "start"],
+      "2": ["start", "entry", "@middle", "passPt", [4.8, 6.8], "corridor", "@arc",
+            "corridor", [4.8, 6.8], "passPt", "entry", "start"],
+      "3": ["start", "entry", "corridor", "@arc", "@inner", "corridor", [4.8, 6.8],
+            "passPt", [4.8, 6.8], "corridor", "@arc", "@inner", "corridor",
+            [4.8, 6.8], "passPt", "entry", "start"]
+    },
+    shoot: {
+      "1": ["start", "entry", "corridor", "shootPt", "corridor", [4.8, 6.8],
+            "@middle", [4.8, 6.8], "corridor", "shootPt", "corridor", "entry", "start"],
+      "2": ["start", "entry", "@middle", [4.8, 6.8], "corridor", "shootPt",
+            "@arc", "shootPt", "corridor", "entry", "start"],
+      "3": ["start", "entry", "corridor", "@arc", "@inner", "shootPt",
+            "@arc", "@inner", "shootPt", "corridor", "entry", "start"]
+    }
+  }
+};
+
+/* jituo 公开帧的换算（与 tools/field_coordinates.py 一致） */
+const PUBLIC_W = 7.5;
+function toPublicPoint(p, xo) {
+  xo = (xo === undefined) ? S.public_frame.x_origin_m : xo;
+  return [r2(PUBLIC_W - p[1] - xo), r2(p[0])];
+}
+function toLegacyPoint(p, xo) {
+  xo = (xo === undefined) ? S.public_frame.x_origin_m : xo;
+  return [r2(p[1]), r2(PUBLIC_W - p[0] - xo)];
+}
+let S = JSON.parse(JSON.stringify(DEFAULTS));
+
+/* 各轮搜哪些区域（默认值；实际以 S.route 为准，用户可改） */
+const ORDER = {
+  pass:  { 1: ["middle"], 2: ["middle", "arc"], 3: ["arc", "inner"] },
+  shoot: { 1: ["middle"], 2: ["middle", "arc"], 3: ["inner", "arc"] }
+};
+
+/* 任务：传球 / 投篮 —— 两条路线不一样，选哪个只显示哪个 */
+const TASKS = [["pass", "传球"], ["shoot", "投篮"]];
+let task = "pass";
+
+/* 四个页签：1 / 2 / 3 / 全部 */
+const ROUNDS = [1, 2, 3, "all"];
+
+/* "全部"模式用颜色区分三轮 */
+const ROUND_COLOR = { 1: "#d63c3c", 2: "#2f6fd0", 3: "#1f9152" };
+
+let round = 2;
+let showGrid = false, snap = false, ortho = false;
+let showRoute = true, showArrows = true, showSteps = true;
+/* 编辑模式：选中点 / ＋加点模式 / 连线模式 */
+let selId = null;         // 当前选中点的 id（加点就插在它后面）
+let addMode = false;      // ＋加点：在地图上点一下插一个途经点
+let linkMode = false;     // 连线：依次点各个点，重排走法
+let linkBuf = [];         // 连线模式下已点的 token 顺序
+const LAYERS = { base: true, middle: true, arc: true, inner: true,
+                 release: true, mission: true, lm: true, wp: true };
+
+const COL = {
+  base:   "#8a8a84",
+  middle: "#d63c3c",
+  arc:    "#2f6fd0",
+  inner:  "#1f9152",
+  release:"#8c3ec8",
+  shoot:  "#c8287c",
+  mission:"#c07820",
+  lm:     "#1f9152",
+  wp:     "#e08a1e"          /* 自定义途经点：橙色，和区域色区分开 */
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   每个点的解释 —— 鼠标停在点上 0.4 秒弹出；右侧数值行的提示也用这些
+   ═══════════════════════════════════════════════════════════════════ */
+const TIP_TEXT = {
+  /* ── 起步 ── */
+  start:
+    "车<b>开机时摆放的位置</b>。<br>" +
+    "比赛前把车推进出发区，开机瞬间车在哪，那个位置就当成本点。<br>" +
+    "全场所有坐标都是<b>相对它</b>算出来的，所以<b>摆放位置必须固定</b>——" +
+    "摆歪了整条路线跟着偏。<br>" +
+    "<i>规则里叫「出发区 A」，是个 1×1 米的方块，凸出在上边线以外。</i>",
+
+  entry:
+    "车从出发区<b>开进场地的第一个落脚点</b>。<br>" +
+    "先开到这儿、再开始找球，避免从场外直接斜插进去撞到东西。",
+
+  corridor:
+    "沿场地上边走的一段<b>「走廊」</b>。<br>" +
+    "传球路线回位时会走它——绕着场边回去，<b>不横穿场地中间</b>，免得撞到地上的球。",
+
+  /* ── 中线（红） ── */
+  "middle.right_x":
+    "中线找球的<b>起点</b>，在扫描线右端。<br>" +
+    "车开到这儿，车头转向场地内，然后<b>往左横着扫</b>，一看到球就停。<br>" +
+    "<i>规则：第 1 轮的两个目标球都放在中线置球区。</i>",
+
+  "middle.left_x":
+    "中线找球的<b>终点</b>，在扫描线左端。<br>" +
+    "横着扫到这儿还没看到球，就放弃这个区域、换下一个区域搜。<br>" +
+    "<i>注意：左右两端共用同一个 y。拖任何一个都会改这条扫描线的高度。</i>",
+
+  "middle.y":
+    "这条横着扫的线<b>离下边线多远</b>（场地宽 7.5 米）。<br>" +
+    "拖左右任一个端点都会同时改这个值。",
+
+  "middle.scoop_m":
+    "在中线找到球之后，车<b>要往后退多少米</b>把球铲进来。<br>" +
+    "球放得离车远就设大一点。<i>单位：米。</i>",
+
+  /* ── 弧线（蓝） ── */
+  "arc.center":
+    "车走的那条弧线的<b>圆心</b>。<br>" +
+    "它和「三分线圆心」是<b>同一个点</b>——三分线的画法是" +
+    "「右侧底线中点往场内 3 米」为圆心。<br>" +
+    "<i>⚠️ 这个圆心不是篮筐，两者差 1.4 米。</i>",
+
+  "arc.radius":
+    "车沿弧线走时的<b>半径</b>（从圆心量起）。<br>" +
+    "比三分线半径大 0.9 米 → 车贴着三分线<b>外侧</b>走，不压线。<br>" +
+    "<i>改这个值，弧线上 5 个扫描点会一起跟着变。</i>",
+
+  "arc.scoop_m":
+    "在弧线上找到球之后，车<b>要往后退多少米</b>铲球。",
+
+  /* ── 深场（绿） ── */
+  "inner.x / top_y":
+    "三分线内区域的搜索点，<b>靠上边线的那个</b>。<br>" +
+    "这里离篮筐近，所以第 3 轮投篮会<b>先搜这里</b>——球近，投进更容易。<br>" +
+    "<i>规则：第 3 轮三分线内置球区放 3 颗目标球。</i>",
+
+  "inner / bottom_y":
+    "三分线内区域的搜索点，<b>靠下边线的那个</b>。<br>" +
+    "和上点共用同一个 x（在同一条竖线上）。",
+
+  "inner.scoop_m":
+    "在深场找到球之后，车<b>要往后退多少米</b>铲球。这里球离车最近，退得最少。",
+
+  /* ── 出球点 ── */
+  "pass.point":
+    "传球的<b>出球位置</b>。<br>" +
+    "车把球带到这儿、转好方向、再把球传出去。<br>" +
+    "<i>规则：在「传球区内」传球得 10 分/次，区外只有 5 分/次。</i><br>" +
+    "<i>⚠️ 这个点现在可能不在传球区里，要用现场场地图核对。</i>",
+
+  "pass.heading":
+    "车停在传球点时，<b>车头要转到哪个角度</b>（0°＝朝篮筐方向，逆时针为正）。<br>" +
+    "只有当上面填了「瞄准目标」时才被忽略。",
+
+  "shoot.point":
+    "投篮的<b>出球位置</b>。<br>" +
+    "规则要求站在「投篮边界线以外」投篮才拿满分，线内只算一半。",
+
+  "shoot.aim":
+    "投篮时<b>朝哪个目标打</b>。<br>" +
+    "填了它，车头会自动转向这个点；这里填的是篮筐坐标。",
+
+  /* ── 场地几何 ── */
+  hoop:
+    "迷你篮筐的场地坐标。<br>" +
+    "自动投篮会按「车到篮筐的距离」算发射转速和角度，所以这个点必须量准。<br>" +
+    "<i>推导依据：初赛篮筐与标准篮筐投影同心，标准篮筐中心距底线 1.575m。" +
+    "14 − 1.575 = 12.425。</i>",
+
+  "three_point_center":
+    "判断「三分线内还是线外」用的<b>圆心</b>。<br>" +
+    "<i>规则：三分线外投进 30 分，线内投进 10 分。</i><br>" +
+    "<i>⚠️ 它不是篮筐——画法是「右侧底线中点往场内 3 米」，即 (14−3, 3.75)。</i>",
+
+  "three_point_radius_m":
+    "三分线<b>半径</b>（以三分线圆心画圆）。",
+
+  "shoot_line_radius_m":
+    "投篮边界线的<b>半径</b>，以<b>篮筐</b>为圆心。<br>" +
+    "<i>规则：必须在这个圆外面投篮才拿 10 分/次，圆内只拿 5 分。</i>",
+
+  "front_zone_circle":
+    "「中线置球区」那个大圆的<b>圆心</b>。<br>" +
+    "<i>规则：第 1 轮的目标球放在这个区域里。</i>",
+
+  "front_zone_circle.radius_m":
+    "「中线置球区」大圆的<b>半径</b>。",
+
+  "start_zone_size_m":
+    "出发区方块的<b>边长</b>（米）。<br>" +
+    "<i>规则只说设 A/B 区，具体大小在场地示意图里，这个值需要现场核对。</i>",
+
+  "start_zones.A":
+    "出发区 A 的<b>中心坐标</b>（车要去停的地方）。<br>" +
+    "和「出发点」是同一个位置——改这里会一起改。",
+
+  pass_zone:
+    "传球区多边形的<b>角点</b>（图上是紫色虚线框）。<br>" +
+    "<i>规则：在这个框里传球得 10 分/次，框外只有 5 分/次。</i><br>" +
+    "<i>⚠️⚠️ 规则只说「传球边界线是一条 5 米直线」，具体画在哪在场地示意图里，" +
+    "我们还没拿到 2026 的图 —— <b>所以这四个角点目前是占位值，必须现场核对</b>。</i>",
+
+  /* ── 定位柱 ── */
+  passing_pillar_A:
+    "本轮用来定位的<b>视觉基准柱</b>。<br>" +
+    "<i>规则：直径 20cm、高 1 米、蓝绿相间的圆柱。</i><br>" +
+    "车看到它，就能修正自己的位置误差，也能用它校正出球方向。<br>" +
+    "<i>⚠️ 只有摆在这个坐标上的柱子会被用来定位；坐标填错反而会算歪。</i>",
+
+  /* ── 速度类 ── */
+  speed_mps:
+    "车行驶的<b>速度上限</b>（米/秒）。<br>" +
+    "0.25 m/s 就是 1 秒走 25 厘米——很慢，但稳。",
+
+  start_delay_s:
+    "点开始之后<b>原地等多少秒</b>才动。<br>" +
+    "<i>规则 2.3-7 要求：必须延迟 5~15 秒启动，延迟期间不得有任何动作。</i>",
+};
+
+/* 画布上的点 → 用哪条解释 */
+const HANDLE_TIP = {
+  start: "start", entry: "entry", corridor: "corridor",
+  midR: "middle.right_x", midL: "middle.left_x",
+  arcC: "arc.center", arcR: "arc.radius",
+  innT: "inner.x / top_y", innB: "inner / bottom_y",
+  passPt: "pass.point", shootPt: "shoot.point", shootAim: "shoot.aim",
+  hoop: "hoop", tpC: "three_point_center", midCircle: "front_zone_circle",
+  pzT: "pass_zone", pzB: "pass_zone", sz: "start_zones.A",
+  lmPass: "passing_pillar_A",
+};
+
+/* ── 当前轮次涉及哪些"区域图层" ───────────────────────────────
+   由【走法列表】决定：route 里出现 @middle 就说明这一轮搜中线。
+   传球/投篮各算各的；你在"连线"里去掉某个区域，图层也会跟着变灰。 */
+function activeAreasOf(r, tk) {
+  const out = [];
+  for (const t of routeList(tk || task, r)) {
+    if (isAreaTok(t)) { const a = t.slice(1); if (!out.includes(a)) out.push(a); }
+  }
+  return out;
+}
+function activeAreas() {
+  if (round === "all") return ["middle", "arc", "inner"];
+  return activeAreasOf(round, task);
+}
+/* 某个图层现在画不画：既要在本轮范围内，也要被用户勾上 */
+function visible(k) {
+  if (!LAYERS[k]) return false;
+  if (k === "base" || k === "release" || k === "mission" || k === "lm" || k === "wp")
+    return true;
+  return activeAreas().includes(k);
+}
+/* 某个图层在本轮是否适用（用来禁用无关的勾选框） */
+function applies(k) {
+  if (k === "base" || k === "release" || k === "mission" || k === "lm" || k === "wp")
+    return true;
+  return activeAreas().includes(k);
+}
+
+/* ── 一个区域按搜索顺序给出它的扫描点 ─────────────────────── */
+function areaPoints(area, r, tk) {
+  const M = S.match;
+  r = (r === undefined) ? round : r;
+  tk = tk || task;
+  if (area === "middle") {
+    const a = [M.middle.right_x, M.middle.y], b = [M.middle.left_x, M.middle.y];
+    const sd = M.middle.scan_dir;
+    const d = (sd && typeof sd === "object") ? (sd[String(r)] || "lr") : (sd || "lr");
+    return d === "rl" ? [a, b] : [b, a];
+  }
+  if (area === "arc") return arcPoints(tk, r);
+  if (area === "inner") {
+    /* 投篮时扫描线放到三分线内侧（球线 X=9 的右边），更贴投篮点 */
+    const x = (tk === "shoot" && M.inner.x_shoot != null)
+            ? M.inner.x_shoot : M.inner.x;
+    const a = [x, M.inner.top_y], b = [x, M.inner.bottom_y];
+    const d = (tk === "shoot") ? (M.inner.dir_shoot || "tb")
+                               : (M.inner.dir_pass || "bt");
+    return d === "bt" ? [b, a] : [a, b];
+  }
+  return [];
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   路线模型 —— 功能性节点 + 可增删的途经点
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 功能性节点：位置写在别的字段里，名字是固定的，不允许删 */
+const NODE_LABEL = {
+  start:    "出发点",
+  entry:    "进场点",
+  corridor: "上侧通道",
+  passPt:   "传球点",
+  shootPt:  "投篮点"
+};
+function isAreaTok(t) { return typeof t === "string" && t.charAt(0) === "@"; }
+function isWaypoint(t) { return Array.isArray(t); }
+function isNodeTok(t) { return typeof t === "string" && !isAreaTok(t); }
+
+/* 功能性节点的坐标（由别的字段间接决定） */
+function tokenPoint(tok) {
+  const M = S.match;
+  switch (tok) {
+    case "start":    return M.start;
+    case "entry":    return M.entry;
+    case "corridor": return M.corridor;
+    case "passPt":   return M.release.pass.point;
+    case "shootPt":  return M.release.shoot.point;
+    default:         return null;
+  }
+}
+
+/* 取某一轮某一任务的走法列表（没有就用默认建一份） */
+function routeList(tk, r) {
+  if (!S.route[tk]) S.route[tk] = JSON.parse(JSON.stringify(DEFAULTS.route[tk] || {}));
+  const k = String(r);
+  if (!S.route[tk][k])
+    S.route[tk][k] = JSON.parse(JSON.stringify((DEFAULTS.route[tk] || {})[k] || []));
+  return S.route[tk][k];
+}
+
+/* 把走法列表展开成【逐个坐标点】，并带上来源信息（画图/编号/命中都用它） */
+function routeSeq(r, tk) {
+  tk = tk || task;
+  if (r === "all") return [];
+  const out = [];
+  const list = routeList(tk, r);
+  for (let ti = 0; ti < list.length; ti++) {
+    const tok = list[ti];
+    if (isAreaTok(tok)) {
+      const area = tok.slice(1);
+      areaPoints(area, r, tk).forEach((p, i) => out.push({
+        pt: p, tok, tokIndex: ti, area, kind: "area", sub: i
+      }));
+    } else if (isWaypoint(tok)) {
+      out.push({ pt: tok, tok, tokIndex: ti, kind: "wp" });
+    } else {
+      const p = tokenPoint(tok);
+      if (p) out.push({ pt: p, tok, tokIndex: ti, kind: "node" });
+    }
+  }
+  return out;
+}
+
+/* 去程/回程：去程完全由 route 决定；回程固定（出球点→通道→进场点→出发区） */
+function routePathFor(r, tk) {
+  return routeSeq(r, tk).map(e => e.pt);
+}
+function returnPathFor(tk) {
+  const M = S.match;
+  const end = ((tk || task) === "shoot") ? M.release.shoot.point : M.release.pass.point;
+  return [end.slice(), M.corridor.slice(), M.entry.slice(), M.start.slice()];
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   坐标换算
+   ═══════════════════════════════════════════════════════════════════ */
+const PX = 56;                        // 每米像素
+const PAD = { l: 74, r: 46, t: 58, b: 42 };
+const Y_TOP = 8.7, Y_BOT = -1.05;
+const FL = 14, FW = 7.5;
+const W = PAD.l + FL * PX + PAD.r;
+const H = PAD.t + (Y_TOP - Y_BOT) * PX + PAD.b;
+
+/* ══════════════════════════════════════════════════════════════════════
+   ⚠️ 现在场上有【三套】坐标，别混：
+
+   ① 内部/图纸帧（本文件内部存储 + 画图用，也是 mission.yaml 用的）
+        x 沿 14m 长边，原点在远离篮筐那条底线
+        y 沿 7.5m 短边， 0 = 下边线， 7.5 = 上边线， 3.75 = 宽度中线
+
+   ② 新帧 = tools/match_rounds.json 用的（**导出给小车的就是这套**）
+        "coordinate_y_offset_m": -3.75
+        x 不变（仍沿 14m 长边，原点在底线）
+        y 从【宽度中线】起算： 0 = 中线， −3.75 = 下边线， +3.75 = 上边线
+        ⇒ 换算： 新.y = 旧.y − 3.75      旧.y = 新.y + 3.75
+        ⇒ 原点 (0,0) = 旧帧 (0, 3.75) = 【中线最左端】 ✔ 你要的那个
+
+   ③ jituo 公开帧（tools/field_coordinates.py，**只给控制台前端/API 看**）
+        公开.x = 7.5 − 旧.y − 3.725      公开.y = 旧.x     ← 这是 90° 旋转！
+        ⚠️ 原点和②一样，但【坐标轴差了 90°】。常数是 3.725 而不是 3.75，
+           差 2.5cm。别和②混用。
+
+   ⇒ 本文件：内部 = ①，面板显示/编辑 = ②，导出 match_rounds.json = ②，
+             导出 mission.yaml = ①（mission 节点没跟着偏，见 mission.yaml 的 y=3.75）
+   ══════════════════════════════════════════════════════════════════════ */
+const Y0 = -3.75;                       // ②的偏移： 新.y = 旧.y + Y0
+const toY = v => r2(v + Y0);            // 旧 → 新（面板显示、图上标注）
+const fromY = v => r2(v - Y0);          // 新 → 旧（面板输入、导入）
+function pubText2(x, y) { const p = [r2(FW - y - PUB_XO), r2(x)]; return `公开(旋转) (${fmt(p[0])}, ${fmt(p[1])})`; }
+const PUB_XO = 3.725;                  // field_coordinates.json 的 x_origin_m
+const PUB_MID_Y = 5.75;                // midfield_y_m
+const toPub = (x, y) => [r2(FW - y - PUB_XO), r2(x)];
+const toLeg = (X, Y) => [r2(Y), r2(FW - X - PUB_XO)];
+function pubText(x, y) { const p = toPub(x, y); return `(${fmt(p[0])}, ${fmt(p[1])})`; }
+
+const F2X = x => PAD.l + x * PX;
+const F2Y = y => PAD.t + (Y_TOP - y) * PX;
+const X2F = px => (px - PAD.l) / PX;
+const Y2F = py => Y_TOP - (py - PAD.t) / PX;
+
+const svg = document.getElementById("svg");
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  (parent || svg).appendChild(n);
+  return n;
+}
+const r2 = v => Math.round(v * 1000) / 1000;
+/* 显示用：最多 2 位小数，并去掉末尾多余的 0
+   4.80 → "4.8"   10.45 → "10.45"   7.5444 → "7.54"
+   ⚠️ 只是排版用，不改数据。数据该有的精度仍由 r2 保留。 */
+const fmt = (v, n) => {
+  if (v == null || !isFinite(v)) return String(v);
+  const p = Math.pow(10, n == null ? 2 : n);
+  return String(Math.round(v * p) / p);
+};
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+
+/* ═══════════════════════════════════════════════════════════════════
+   拖动句柄定义 —— 每个可拖的点在这里登记
+   ═══════════════════════════════════════════════════════════════════ */
+/* 当前任务/轮次该用哪组角度（返回【数组引用】，拖动弧点时直接改它） */
+function arcAnglesRef(tk, r) {
+  const a = S.match.arc;
+  tk = tk || task;
+  r = (r === undefined) ? round : r;
+  if (tk === "shoot" && a.radius_shoot != null && a.angles_shoot) {
+    if (typeof a.angles_shoot === "object" && !Array.isArray(a.angles_shoot)) {
+      const k = String(r);
+      if (!a.angles_shoot[k])
+        a.angles_shoot[k] = JSON.parse(JSON.stringify(a.angles_deg));
+      return a.angles_shoot[k];
+    }
+    if (Array.isArray(a.angles_shoot)) return a.angles_shoot;
+  }
+  return a.angles_deg;
+}
+/* 当前任务该用哪个深场扫描线 x（投篮在三分线内侧）*/
+function innerX(tk) {
+  const I = S.match.inner;
+  tk = tk || task;
+  return (tk === "shoot" && I.x_shoot != null) ? I.x_shoot : I.x;
+}
+/* 当前任务该用哪个扫描半径 */
+function arcRadius(tk) {
+  const a = S.match.arc;
+  tk = tk || task;
+  return (tk === "shoot" && a.radius_shoot != null) ? a.radius_shoot : a.radius;
+}
+function arcPoints(tk, r) {
+  const a = S.match.arc;
+  const R = arcRadius(tk);
+  return arcAnglesRef(tk, r).map(d => {
+    const t = d * Math.PI / 180;
+    return [a.center[0] + R * Math.cos(t),
+            a.center[1] + R * Math.sin(t)];
+  });
+}
+
+function handles() {
+  const M = S.match, F = S.mission;
+  const hs = [];
+  const seen = new Set();
+  const add = (id, layer, label, get, set, opts) => {
+    /* 走法里同一个节点可能出现两次（比如每轮两次出球），
+       但它只有一个位置，所以句柄只画一次 */
+    if (seen.has(id)) return;
+    seen.add(id);
+    hs.push(Object.assign({ id, layer, label, get, set }, opts || {}));
+  };
+
+  /* 起步 */
+  add("start",    "base", "出发点 A",   () => M.start,       (x, y) => M.start = [x, y]);
+  add("entry",    "base", "进场点",     () => M.entry,       (x, y) => M.entry = [x, y]);
+  add("corridor", "base", "上侧通道",   () => M.corridor,    (x, y) => M.corridor = [x, y]);
+
+  /* 中线：两个点共用 y，所以拖任一个都改 y */
+  add("midR", "middle", "中线右端", () => [M.middle.right_x, M.middle.y],
+      (x, y) => { M.middle.right_x = x; M.middle.y = y; });
+  add("midL", "middle", "中线左端", () => [M.middle.left_x, M.middle.y],
+      (x, y) => { M.middle.left_x = x; M.middle.y = y; });
+
+  /* ── 弧线 ──────────────────────────────────────────────────────
+     圆心、半径句柄，再加上【每个弧点各一个句柄】。
+     拖弧点 = 让它沿圆弧滑动 → 只改这一个点的角度，圆本身不变。
+     （若允许把弧点拖离圆，弧线就不再是圆了，所以特意做成"贴圆滑动"。）
+     ──────────────────────────────────────────────────────────── */
+  add("arcC", "arc", "弧线圆心", () => M.arc.center,
+      (x, y) => M.arc.center = [x, y]);
+  const _arcR = () => arcRadius(task);
+  const _arcRset = (x) => {
+    const v = r2(Math.max(0.5, x - M.arc.center[0]));
+    if (task === "shoot" && M.arc.radius_shoot != null) M.arc.radius_shoot = v;
+    else M.arc.radius = v;
+  };
+  add("arcR", "arc", `弧线半径（${task === "shoot" ? "投篮·内侧" : "传球·外侧"}）`,
+      () => [M.arc.center[0] + _arcR(), M.arc.center[1]], _arcRset);
+  const _ref = arcAnglesRef(task, round);
+  arcPoints(task, round).forEach((p, i) => {
+    add("arcP" + i, "arc",
+        `弧点 ${i + 1}（当前 ${_ref[i]}°）`,
+        () => arcPoints(task, round)[i],
+        (x, y) => {
+          /* 拖到哪，就把这个点的角度设成"圆心指向该处"的角度 */
+          const dx = x - M.arc.center[0], dy = y - M.arc.center[1];
+          _ref[i] = Math.round(Math.atan2(dy, dx) * 1800 / Math.PI) / 10;
+        },
+        { arcIdx: i });
+  });
+
+  /* 深场 */
+  const _setIX = (x) => {
+    if (task === "shoot" && M.inner.x_shoot != null) M.inner.x_shoot = x;
+    else M.inner.x = x;
+  };
+  add("innT", "inner", `深场上点（${task === "shoot" ? "投篮·三分线内侧" : "传球"}）`,
+      () => [innerX(task), M.inner.top_y],
+      (x, y) => { _setIX(x); M.inner.top_y = y; });
+  add("innB", "inner", `深场下点（${task === "shoot" ? "投篮·三分线内侧" : "传球"}）`,
+      () => [innerX(task), M.inner.bottom_y],
+      (x, y) => { _setIX(x); M.inner.bottom_y = y; });
+
+  /* 出球点：只显示当前任务那一个（传球/投篮点不一样） */
+  if (task === "pass") {
+    add("passPt", "release", "传球点", () => M.release.pass.point,
+        (x, y) => M.release.pass.point = [x, y]);
+  } else {
+    add("shootPt", "release", "投篮点", () => M.release.shoot.point,
+        (x, y) => M.release.shoot.point = [x, y]);
+    if (M.release.shoot.aim)
+      add("shootAim", "release", "投篮瞄准", () => M.release.shoot.aim,
+          (x, y) => M.release.shoot.aim = [x, y]);
+  }
+
+  /* ── 自定义途经点（可增删；功能性节点不在这里）──────────────── */
+  if (round !== "all") {
+    routeList(task, round).forEach((t, ti) => {
+      if (!isWaypoint(t)) return;
+      add("wp" + ti, "wp", `途经点（走法第 ${ti + 1} 位）`, () => t,
+          (x, y) => { t[0] = x; t[1] = y; },
+          { deletable: true, tokIndex: ti });
+    });
+  }
+
+  /* 场地几何（mission.yaml） */
+  add("hoop", "mission", "篮筐", () => F.hoop, (x, y) => F.hoop = [x, y]);
+  add("tpC", "mission", "三分线圆心", () => F.three_point_center,
+      (x, y) => F.three_point_center = [x, y]);
+  add("midCircle", "mission", "中线置球区心",
+      () => [F.front_zone_circle.x, F.front_zone_circle.y],
+      (x, y) => { F.front_zone_circle.x = x; F.front_zone_circle.y = y; });
+  add("pzT", "mission", "传球区左上", () => F.pass_zone[3],
+      (x, y) => { F.pass_zone[0][0] = x; F.pass_zone[3] = [x, y]; F.pass_zone[2][0] = F.pass_zone[2][0]; });
+  add("pzB", "mission", "传球区右下", () => F.pass_zone[1],
+      (x, y) => { F.pass_zone[1] = [x, y]; F.pass_zone[2][1] = y; });
+  add("sz", "mission", "出发区A心", () => F.start_zones.A,
+      (x, y) => { F.start_zones.A = [x, y]; F.home = [x, y]; });
+
+  /* 定位柱 */
+  /* jituo/main 已删除 localization.yaml 的 landmarks 段 ⇒ 没有就不画这个句柄 */
+  if (S.landmarks && S.landmarks.passing_pillar_A)
+    add("lmPass", "lm", "传球柱",
+        () => [S.landmarks.passing_pillar_A.x, S.landmarks.passing_pillar_A.y],
+        (x, y) => { S.landmarks.passing_pillar_A.x = x; S.landmarks.passing_pillar_A.y = y; });
+
+  return hs;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   画图
+   ═══════════════════════════════════════════════════════════════════ */
+function draw() {
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+
+  const M = S.match, F = S.mission;
+
+  /* ── 网格 ── */
+  if (showGrid) {
+    const g = el("g", {});
+    for (let x = 0; x <= FL; x += 0.5)
+      el("line", { x1: F2X(x), y1: F2Y(Y_TOP), x2: F2X(x), y2: F2Y(Y_BOT),
+                   stroke: x % 1 ? "#f0f0ec" : "#e4e4df", "stroke-width": 1 }, g);
+    for (let y = 0; y <= FW; y += 0.5)
+      el("line", { x1: F2X(0), y1: F2Y(y), x2: F2X(FL), y2: F2Y(y),
+                   stroke: y % 1 ? "#f0f0ec" : "#e4e4df", "stroke-width": 1 }, g);
+  }
+
+  /* ── 场外带 ── */
+  el("rect", { x: F2X(0), y: F2Y(Y_TOP), width: FL * PX, height: (Y_TOP - FW) * PX,
+               fill: "#eceae5" });
+  el("text", { x: F2X(10.6), y: F2Y(Y_TOP) + 17, fill: "#a2a29c", "font-size": 11 })
+    .textContent = "场地以外";
+
+  /* ── 场地本体 ── */
+  el("rect", { x: F2X(0), y: F2Y(FW), width: FL * PX, height: FW * PX,
+               fill: "#fff", stroke: "#26262a", "stroke-width": 2.5 });
+
+  /* ── 场地几何 layer ── */
+  if (LAYERS.mission) {
+    const g = el("g", { opacity: .85 });
+    /* 中线 */
+    el("line", { x1: F2X(0), y1: F2Y(FW / 2), x2: F2X(FL), y2: F2Y(FW / 2),
+                 stroke: "#ded0a0", "stroke-width": 1.5 }, g);
+    /* 中线置球区圆 */
+    el("circle", { cx: F2X(F.front_zone_circle.x), cy: F2Y(F.front_zone_circle.y),
+                   r: F.front_zone_circle.radius_m * PX, fill: "none",
+                   stroke: "#b8b8b2", "stroke-width": 1.5 }, g);
+    /* 三分线弧 */
+    el("path", {
+      d: arcPath(F.three_point_center, F.three_point_radius_m, 95, 265),
+      fill: "none", stroke: "#4ba3bd", "stroke-width": 2
+    }, g);
+    /* 投篮线弧 */
+    el("path", {
+      d: arcPath(F.hoop, F.shoot_line_radius_m, 100, 260),
+      fill: "none", stroke: "#c07820", "stroke-width": 1.5 }, g);
+    /* 传球区多边形（占位值 → 虚线提醒） */
+    el("polygon", {
+      points: F.pass_zone.map(p => `${F2X(p[0])},${F2Y(p[1])}`).join(" "),
+      fill: "rgba(140,62,200,.05)", stroke: "#8c3ec8", "stroke-width": 1.5,
+      "stroke-dasharray": "6 4"
+    }, g);
+    txt(g, `传球区（占位）`, F2X(8.2), F2Y(6.5) - 8, "#8c3ec8", 11);
+    txt(g, "三分线 R" + F.three_point_radius_m, F2X(11), F2Y(0.5), "#4ba3bd", 11, "middle");
+    txt(g, "投篮线 R" + F.shoot_line_radius_m, F2X(12.2), F2Y(1.6), "#c07820", 11, "end");
+    txt(g, "中线置球区 R" + F.front_zone_circle.radius_m,
+        F2X(0.4), F2Y(5.7), "#9c9c96", 11);
+
+    /* ── 半场置球区（绿竖线 X=5.75）—— 第2/3回合线上 4 个干扰球 ── */
+    if (F.half_line) {
+      const h = F.half_line;
+      el("line", { x1: F2X(h.x), y1: F2Y(h.y_top), x2: F2X(h.x), y2: F2Y(h.y_bottom),
+                   stroke: "#1f9152", "stroke-width": 3 }, g);
+      txt(g, `半场置球区 X=${h.x}`, F2X(h.x) - 5, F2Y(h.y_top) - 6, "#1f9152", 11, "end");
+    }
+
+    /* ── 三分线内置球区（红竖线 X=9）── 官方图：距右边线 5000 ── */
+    if (F.inner_line) {
+      const ix = F.inner_line.x;
+      /* 长度 = 该竖线在三分圆内的弦：|y−3.75| ≤ sqrt(R²−(x−11)²) */
+      const dy = Math.sqrt(Math.max(0, F.three_point_radius_m ** 2 -
+                                      (ix - F.three_point_center[0]) ** 2));
+      const y0 = F.three_point_center[1] - dy, y1 = F.three_point_center[1] + dy;
+      el("line", { x1: F2X(ix), y1: F2Y(y1), x2: F2X(ix), y2: F2Y(y0),
+                   stroke: "#d63c3c", "stroke-width": 3 }, g);
+      txt(g, `三分线内置球区 X=${ix}`, F2X(ix) - 5, F2Y(y0) + 14, "#d63c3c", 11, "end");
+      txt(g, `y∈[${y0.toFixed(2)}, ${y1.toFixed(2)}]`, F2X(ix) - 5, F2Y(y0) + 27,
+          "#c06060", 10, "end");
+    }
+
+    /* ── A 方传球目标区（图注：都在上边线上）── */
+    if (F.pass_targets_A) {
+      for (const t of F.pass_targets_A) {
+        el("rect", { x: F2X(t.x) - 8, y: F2Y(t.y) - 8, width: 16, height: 16,
+                     fill: "none", stroke: "#8c3ec8", "stroke-width": 2,
+                     "stroke-dasharray": "3 2" }, g);
+        el("path", { d: `M${F2X(t.x)},${F2Y(t.y) - 9} l0,-9`, stroke: "#8c3ec8",
+                     "stroke-width": 1 }, g);
+        txt(g, t.name, F2X(t.x), F2Y(t.y) - 22, "#8c3ec8", 10, "middle");
+      }
+      txt(g, "A方传球目标区（上边线上）", F2X(2.2), F2Y(Y_TOP) - 4, "#8c3ec8", 11);
+    }
+
+    /* 三分线圆心（参考）—— 标签放在左上，避免和弧线/深场标注重叠 */
+    dot(g, F.three_point_center, "#4ba3bd", 3.5);
+    txt(g, "3分心", F2X(F.three_point_center[0]) - 4,
+        F2Y(F.three_point_center[1]) + 16, "#4ba3bd", 10, "end");
+
+    /* 篮筐 */
+    dot(g, F.hoop, "#c07820", 6);
+    txt(g, `篮筐 ${fmt(F.hoop[0])}, ${fmt(F.hoop[1])}`,
+        F2X(F.hoop[0]), F2Y(F.hoop[1]) - 20, "#a05f10", 12, "middle");
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     坐标轴：原点在【中线最左端】
+        内部/图纸帧 = 旧帧： y=0 下边线, y=3.75 中线, y=7.5 上边线
+        导出的 match_rounds.json = 新帧： y=0 中线, y=−3.75 下边线, y=+3.75 上边线
+     ⇒ 图上的 y 刻度按【新帧】标（这是车实际读到的数），旧帧刻度画淡作对照
+     ══════════════════════════════════════════════════════════════════ */
+  const oX = F2X(0), oY = F2Y(FW / 2);          // 新帧原点 = 旧帧 (0, 3.75) = 中线左端
+
+  /* ── +y（新帧）朝上 = 屏幕向上 ── */
+  el("line", { x1: oX - 26, y1: oY, x2: oX - 26, y2: F2Y(Y_TOP) + 6,
+               stroke: "#3a6cb8", "stroke-width": 2.5 });
+  el("polygon", { points: `${oX - 26},${F2Y(Y_TOP) - 4} ${oX - 30},${F2Y(Y_TOP) + 6} ${oX - 22},${F2Y(Y_TOP) + 6}`,
+                  fill: "#3a6cb8" });
+  txt(svg, `y ↑  中线=0  上边线=+${fmt(FW / 2)}`, oX - 32, F2Y(Y_TOP) + 20, "#3a6cb8", 11, "end");
+
+  /* ── +x（新帧）朝篮筐 = 屏幕向右 ── */
+  el("line", { x1: oX, y1: F2Y(Y_BOT) + 14, x2: F2X(FL) + 16, y2: F2Y(Y_BOT) + 14,
+               stroke: "#b04a3a", "stroke-width": 2.5 });
+  el("polygon", { points: `${F2X(FL) + 24},${F2Y(Y_BOT) + 14} ${F2X(FL) + 15},${F2Y(Y_BOT) + 10} ${F2X(FL) + 15},${F2Y(Y_BOT) + 18}`,
+                  fill: "#b04a3a" });
+  txt(svg, "x →（朝篮筐，14m）", F2X(FL) + 28, F2Y(Y_BOT) + 18, "#b04a3a", 11);
+
+  /* ── 新原点 ── */
+  el("circle", { cx: oX, cy: oY, r: 5.5, fill: "#fff", stroke: "#26262a", "stroke-width": 2.5 });
+  el("circle", { cx: oX, cy: oY, r: 1.8, fill: "#26262a" });
+  txt(svg, "原点 (0,0) = 中线最左端", oX + 12, oY - 9, "#26262a", 12, "start");
+  txt(svg, "导出给小车的新帧 (0,0)　内部旧帧 (0, 3.75)", oX + 12, oY + 5, "#6b6b66", 10);
+
+  /* ── 四边的 y 值（新帧刻度）── */
+  txt(svg, "y=−3.75 下边线", F2X(FL) - 6, F2Y(0) + 16, "#8a8a84", 10, "end");
+  txt(svg, `y=+${fmt(FW / 2)} 上边线`, F2X(0) + 6, F2Y(FW) - 7, "#8a8a84", 10);
+  txt(svg, "y=0 中线", F2X(3.2) + 6, F2Y(FW / 2) - 6, "#26262a", 10);
+
+  /* ── jituo 公开帧参照（90°旋转那套，只给控制台对数；原点同、轴不同）── */
+  txt(svg, `公开(旋转) x=${fmt(toPub(FL, 0)[0])}`, F2X(FL) - 6, F2Y(0) + 28, "#c0c0ba", 9, "end");
+  txt(svg, `公开(旋转) x=${fmt(toPub(0, FW)[0])}`, F2X(0) + 6, F2Y(FW) + 6, "#c0c0ba", 9);
+
+  /* ── 路线连线（画在圆点下面）─────────────────────────────────
+     点与点之间【始终相连】：一条完整的去程，加一条虚线的回程。
+     选单轮时就是那一轮的一条路；选"全部"时三轮各一条自己的颜色。 */
+  drawRoutes();
+
+  /* ── 起步 layer ── */
+  if (visible("base")) {
+    const g = el("g", {});
+    const sz = F.start_zone_size_m / 2;
+    el("rect", { x: F2X(F.start_zones.A[0] - sz), y: F2Y(F.start_zones.A[1] + sz),
+                 width: F.start_zone_size_m * PX, height: F.start_zone_size_m * PX,
+                 fill: "none", stroke: COL.base, "stroke-width": 2, "stroke-dasharray": "5 3" }, g);
+    txt(g, "出发区 A", F2X(F.start_zones.A[0] + sz) + 6,
+        F2Y(F.start_zones.A[1]) + 4, COL.base, 11);
+  }
+
+  /* ── 中线 layer ── */
+  if (visible("middle")) {
+    const g = el("g", {});
+    const a = [M.middle.right_x, M.middle.y], b = [M.middle.left_x, M.middle.y];
+    for (const p of [a, b]) dot(g, p, COL.middle, 7);
+    txt(g, `② 中线 (${fmt(M.middle.right_x)},${fmt(toY(M.middle.y))}) → (${fmt(M.middle.left_x)},${fmt(toY(M.middle.y))})`,
+        F2X((a[0] + b[0]) / 2), F2Y(M.middle.y) + 42, COL.middle, 11, "middle");
+    txt(g, `scoop ${fmt(M.middle.scoop_m)}`, F2X((a[0] + b[0]) / 2), F2Y(M.middle.y) + 56,
+        "#b06a6a", 10, "middle");
+  }
+
+  /* ── 弧线 layer ── */
+  if (visible("arc")) {
+    const g = el("g", {});
+    const pts = arcPoints();
+    for (const p of pts) dot(g, p, COL.arc, 6);
+    /* 圆心 + 半径句柄 的虚线 */
+    el("line", { x1: F2X(M.arc.center[0]), y1: F2Y(M.arc.center[1]),
+                 x2: F2X(M.arc.center[0] + M.arc.radius), y2: F2Y(M.arc.center[1]),
+                 stroke: COL.arc, "stroke-width": 1, "stroke-dasharray": "3 3", opacity: .5 }, g);
+    const tp = pts[pts.length - 1];
+    txt(g, `③ 弧线 R${fmt(arcRadius(task))}${task === "shoot" ? "（内）" : "（外）"}`, F2X(tp[0]) + 12, F2Y(tp[1]) + 2, COL.arc, 11);
+    txt(g, `scoop ${fmt(M.arc.scoop_m)}`, F2X(tp[0]) + 12, F2Y(tp[1]) + 16, "#6f8fc0", 10);
+  }
+
+  /* ── 深场 layer ── */
+  if (visible("inner")) {
+    const g = el("g", {});
+    const _ix = innerX(task);
+    const a = [_ix, M.inner.top_y], b = [_ix, M.inner.bottom_y];
+    for (const p of [a, b]) dot(g, p, COL.inner, 6);
+    const my = (M.inner.top_y + M.inner.bottom_y) / 2;
+    txt(g, `④ 深场 x=${fmt(_ix)}${task === "shoot" ? "（三分线内侧）" : ""}`,
+        F2X(_ix) + 12, F2Y(my) - 3, COL.inner, 11);
+    txt(g, `scoop ${fmt(M.inner.scoop_m)}`, F2X(_ix) + 12, F2Y(my) + 11, "#4f9e73", 10);
+  }
+
+  /* ── 出球点 layer（只看当前任务那一个）── */
+  if (visible("release")) {
+    const g = el("g", {});
+    if (task === "pass") {
+      const pp = M.release.pass.point;
+      const hd = (M.release.pass.search_heading_deg || 0) * Math.PI / 180;
+      el("line", { x1: F2X(pp[0]), y1: F2Y(pp[1]),
+                   x2: F2X(pp[0] + 2.2 * Math.cos(hd)), y2: F2Y(pp[1] + 2.2 * Math.sin(hd)),
+                   stroke: COL.release, "stroke-width": 1.5, "stroke-dasharray": "5 3" }, g);
+      txt(g, `传球朝向 ${M.release.pass.search_heading_deg}°`,
+          F2X(pp[0]) - 10, F2Y(pp[1]) - 30, COL.release, 10, "end");
+      el("rect", { x: F2X(pp[0]) - 6, y: F2Y(pp[1]) - 6, width: 12, height: 12,
+                   fill: COL.release, stroke: "#fff", "stroke-width": 2 }, g);
+    } else {
+      const sp = M.release.shoot.point;
+      if (M.release.shoot.aim) {
+        el("line", { x1: F2X(sp[0]), y1: F2Y(sp[1]),
+                     x2: F2X(M.release.shoot.aim[0]), y2: F2Y(M.release.shoot.aim[1]),
+                     stroke: COL.shoot, "stroke-width": 1.6, "stroke-dasharray": "5 3" }, g);
+        txt(g, "投篮瞄准篮筐", F2X(9.6), F2Y(3.05), COL.shoot, 10);
+      }
+      el("rect", { x: F2X(sp[0]) - 6, y: F2Y(sp[1]) - 6, width: 12, height: 12,
+                   fill: COL.shoot, stroke: "#fff", "stroke-width": 2 }, g);
+    }
+  }
+
+  /* ── 定位柱 layer ── */
+  if (visible("lm")) {
+    const g = el("g", {});
+    for (const [name, lm] of Object.entries(S.landmarks || {})) {
+      if (lm.x == null || lm.y == null) continue;
+      const on = lm.enabled;
+      el("circle", { cx: F2X(lm.x), cy: F2Y(lm.y), r: 7,
+                     fill: on ? COL.lm : "none",
+                     stroke: on ? "#fff" : "#bbb", "stroke-width": 2,
+                     opacity: on ? 1 : .5 }, g);
+      const short = name === "passing_pillar_A" ? "传球柱" : "投篮柱";
+      txt(g, on ? short : short + "（未启用）",
+          F2X(lm.x) + 11, F2Y(lm.y) + 17, on ? COL.lm : "#aaa", 10);
+    }
+  }
+
+  /* ── 拖动句柄（最后画，保证在最上层） ── */
+  const hs = handles();
+  for (const h of hs) {
+    if (!visible(h.layer)) continue;
+    const p = h.get();
+    if (!p || p[0] == null || p[1] == null) continue;
+    const g = el("g", {
+      class: "hnd" + (selId === h.id ? " sel" : ""),
+      "data-id": h.id
+    });
+    const col = COL[h.layer] || "#333";
+
+    /* 连线模式下，已经被点过的 token 加一圈标记 */
+    const li = linkMode ? linkBuf.indexOf(h.id) : -1;
+    if (li >= 0)
+      el("circle", { cx: F2X(p[0]), cy: F2Y(p[1]), r: 12, fill: "none",
+                     stroke: "#e08a1e", "stroke-width": 3, opacity: .9 }, g);
+
+    el("circle", { class: "hit", cx: F2X(p[0]), cy: F2Y(p[1]), r: 13 }, g);
+    el("circle", { class: "vis", cx: F2X(p[0]), cy: F2Y(p[1]), r: 6.5,
+                   fill: "#fff", stroke: col, "stroke-width": 2.5 }, g);
+    /* 连线模式：在点上显示"是第几步" */
+    if (li >= 0) {
+      const t = el("text", { x: F2X(p[0]), y: F2Y(p[1]) - 14, "font-size": 10,
+                             "text-anchor": "middle", fill: "#e08a1e",
+                             "font-weight": "700" }, g);
+      t.textContent = `第${li + 1}步`;
+    }
+
+    /* 途经点：右边挂个 × 用来删（功能性节点没有这个） */
+    if (h.deletable) {
+      const bx = F2X(p[0]) + 13, by = F2Y(p[1]) - 13;
+      const del = el("g", { style: "cursor:pointer" }, g);
+      el("circle", { cx: bx, cy: by, r: 8, fill: "#e0554a", stroke: "#fff",
+                     "stroke-width": 1.5 }, del);
+      const xt = el("text", { x: bx, y: by + 3.4, "font-size": 10,
+                              "text-anchor": "middle", fill: "#fff",
+                              "font-weight": "700" }, del);
+      xt.textContent = "×";
+      del.addEventListener("pointerdown", ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        selId = h.id;
+        deleteSel();
+      });
+      /* 让 × 不被"拖动"抢走 */
+      del.addEventListener("pointerenter", ev => tipArm(ev, "删除这个途经点", null));
+    }
+
+    /* 悬停：先给出【这个点的坐标】，再接原来的解释 */
+    const tipKey = HANDLE_TIP[h.id];
+    const tipTxt = tipKey ? TIP_TEXT[tipKey] : null;
+    const coordTip = () => {
+      let p = null;
+      try { p = h.get(); } catch (e) { return tipTxt || null; }
+      if (!Array.isArray(p) || p.length < 2 || typeof p[1] !== "number") return tipTxt || null;
+      const nx = r2(p[0]), ny = toY(p[1]);
+      let html = `<span style="font-size:15px;font-weight:700;color:#1f6feb">`
+               + `x=${fmt(nx)}　y=${fmt(ny)}</span>`
+               + `<br><span style="opacity:.72;font-size:11px">这是导出给小车的新帧（中线 y=0）</span>`
+               + `<br><span style="opacity:.55;font-size:11px">内部/图纸旧帧 x=${fmt(p[0])} y=${fmt(p[1])}`
+               + `　·　${pubText2(p[0], p[1])}</span>`;
+      if (tipTxt) html += `<div style="margin-top:5px;border-top:1px solid #ddd;padding-top:5px">${tipTxt}</div>`;
+      return html;
+    };
+    g.addEventListener("pointerenter", ev => tipArm(ev, h.label, coordTip()));
+    g.addEventListener("pointermove", ev => {
+      tipEv = ev;
+      if (!tipEl.classList.contains("on")) return;
+      /* 拖动时坐标会变 —— 把提示文字也刷新一遍 */
+      const body = tipEl.querySelector(".tipbody");
+      if (body) body.innerHTML = coordTip() || "";
+      tipMoveTo(ev);
+    });
+    g.addEventListener("pointerleave", tipHide);
+
+    /* 按下：连线模式 = 记一步；否则 = 选中 + 开始拖动 */
+    g.addEventListener("pointerdown", ev => {
+      tipHide();
+      if (linkMode) {
+        ev.preventDefault();
+        /* 区域点 → 记成整块 @区域，避免只连一个弧点 */
+        const tok = (h.layer === "middle" ? "@middle"
+                   : h.layer === "arc" ? "@arc"
+                   : h.layer === "inner" ? "@inner"
+                   : h.id);
+        linkPush(tok);
+        return;
+      }
+      selId = h.id;
+      startDrag(ev, h);
+    });
+  }
+
+  /* ── 连线模式的浮层提示 ── */
+  const hud = el("g", {});
+  if (linkMode) {
+    const n = linkBuf.length;
+    txt(hud, `连线模式：已点 ${n} 个。依次点各个点排出新走法`,
+        F2X(0.05), F2Y(Y_TOP) + 16, "#b4720f", 12);
+    txt(hud, "区域（中线/弧线/深场）点一下就是整块；打完点右上「完成连线」",
+        F2X(0.05), F2Y(Y_TOP) + 32, "#b4720f", 11);
+  } else if (addMode) {
+    txt(hud, "加点模式：在地图上点一下，就在【选中点】后面插一个途经点",
+        F2X(0.05), F2Y(Y_TOP) + 16, "#b4720f", 12);
+  }
+
+  drawPanel();
+  renderRouteEditor();
+  scheduleSave();          /* 每次重画后延时自动存一次本地（防刷新丢） */
+}
+
+function txt(parent, s, x, y, fill, size, anchor) {
+  const t = el("text", { x, y, fill, "font-size": size, class: "lbl" }, parent);
+  if (anchor) t.setAttribute("text-anchor", anchor);
+  t.textContent = s;
+  return t;
+}
+function dot(parent, p, fill, r) {
+  return el("circle", { cx: F2X(p[0]), cy: F2Y(p[1]), r, fill }, parent);
+}
+function line(parent, a, b, stroke, w, dash) {
+  const at = { x1: F2X(a[0]), y1: F2Y(a[1]), x2: F2X(b[0]), y2: F2Y(b[1]),
+               stroke, "stroke-width": w };
+  if (dash) at["stroke-dasharray"] = dash;
+  return el("line", at, parent);
+}
+function polyline(pts) {
+  return pts.map((p, i) => `${i ? "L" : "M"}${F2X(p[0])},${F2Y(p[1])}`).join(" ");
+}
+
+/* 沿路径画方向箭头（小三角），让人看清车往哪开 */
+function arrows(parent, pts, color) {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    if (Math.hypot(dx, dy) < 0.30) continue;        // 太短的段不画，免得糊成一团
+    const mx = F2X(a[0] + dx * 0.55), my = F2Y(a[1] + dy * 0.55);
+    const ang = Math.atan2(-dy, dx);                // 屏幕 y 反向
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const tip = [mx + 6.5 * c, my + 6.5 * s];
+    const b1 = [mx - 4 * c + 4 * s, my - 4 * s - 4 * c];
+    const b2 = [mx - 4 * c - 4 * s, my - 4 * s + 4 * c];
+    el("polygon", {
+      points: `${tip[0]},${tip[1]} ${b1[0]},${b1[1]} ${b2[0]},${b2[1]}`,
+      fill: color, opacity: .9
+    }, parent);
+  }
+}
+
+/* 路线：点与点之间始终相连 */
+function drawRoutes() {
+  if (!showRoute) return;
+  const g = el("g", {});
+
+  if (round === "all") {
+    /* 全部：三轮各画一条自己的颜色，不跨轮连（跨轮连没有意义） */
+    for (const r of [1, 2, 3]) {
+      const p = routePathFor(r, task);
+      if (p.length < 2) continue;
+      for (const area of activeAreasOf(r, task)) {   // 区域高亮带
+        const ap = areaPoints(area);
+        if (ap.length < 2) continue;
+        el("path", { d: polyline(ap), fill: "none", stroke: COL[area],
+                     "stroke-width": 7, opacity: .16, "stroke-linecap": "round" }, g);
+      }
+      el("path", { d: polyline(p), fill: "none", stroke: ROUND_COLOR[r],
+                   "stroke-width": 2.2, opacity: .85, "stroke-linejoin": "round" }, g);
+      if (showArrows) arrows(g, p, ROUND_COLOR[r]);
+    }
+    txt(g, "全部模式：红=第1轮  蓝=第2轮  绿=第3轮",
+        F2X(0.05), F2Y(0) + 34, "#8a8a84", 11);
+    return;
+  }
+
+  /* 单轮：一整轮的路（含两次动作 + 回位）。
+     最后一个出球点之后的那几段是【回位】，画成虚线。 */
+  for (const area of activeAreas()) {
+    const ap = areaPoints(area);
+    if (ap.length < 2) continue;
+    el("path", { d: polyline(ap), fill: "none", stroke: COL[area],
+                 "stroke-width": 8, opacity: .16, "stroke-linecap": "round" }, g);
+  }
+  const seq = routeSeq(round, task);
+  const go = seq.map(e => e.pt);
+
+  /* 最后一个出球点的位置 → 之后的算回位 */
+  let lastRel = -1;
+  seq.forEach((e, i) => { if (e.tok === "passPt" || e.tok === "shootPt") lastRel = i; });
+  const homeFrom = lastRel >= 0 ? lastRel : go.length - 1;
+
+  const actionPts = go.slice(0, homeFrom + 1);
+  const homePts = go.slice(homeFrom);
+  if (actionPts.length >= 2)
+    el("path", { d: polyline(actionPts), fill: "none", stroke: "#34343a",
+                 "stroke-width": 2.6, "stroke-linejoin": "round",
+                 "stroke-linecap": "round" }, g);
+  if (homePts.length >= 2)
+    el("path", { d: polyline(homePts), fill: "none", stroke: "#a0a09a",
+                 "stroke-width": 1.8, "stroke-dasharray": "7 5" }, g);
+  if (showArrows) {
+    arrows(g, actionPts, "#34343a");
+    if (homePts.length >= 2) arrows(g, homePts, "#a0a09a");
+  }
+
+  /* ── 步序号：让"下一步去哪"一眼看出来 ──────────────────────
+     功能性节点与途经点都编号；区域里的每个扫描点各占一号。
+     出球点会出现两次（每轮两次动作），同一个位置重复出现时
+     序号往右错开，免得两个数字叠在一起看不清。 */
+  const seenPos = {};
+  if (showSteps) seq.forEach((e, i) => {
+    const key = e.pt[0].toFixed(3) + "," + e.pt[1].toFixed(3);
+    const rep = (seenPos[key] = (seenPos[key] || 0) + 1);
+    const px = F2X(e.pt[0]) + 13 + (rep - 1) * 21;
+    const py = F2Y(e.pt[1]) - 11 - (rep - 1) * 4;
+    const isRel = (e.tok === "passPt" || e.tok === "shootPt");
+    el("circle", { cx: px, cy: py, r: 9,
+                   fill: e.kind === "wp" ? COL.wp : (isRel ? "#34343a" : "#ffffff"),
+                   stroke: e.kind === "wp" ? "#ffffff"
+                         : (COL[e.area] || "#555"),
+                   "stroke-width": 1.6, opacity: .95 }, g);
+    const t = el("text", {
+      x: px, y: py + 3.6, "font-size": 10, "text-anchor": "middle",
+      fill: (e.kind === "wp" || isRel) ? "#ffffff" : "#333", "font-weight": "600"
+    }, g);
+    t.textContent = String(i + 1);
+  });
+
+  /* 起 / 止 标记 */
+  const s0 = go[0], sN = go[go.length - 1];
+  el("circle", { cx: F2X(s0[0]), cy: F2Y(s0[1]), r: 3.5, fill: "#34343a" }, g);
+  el("circle", { cx: F2X(sN[0]), cy: F2Y(sN[1]), r: 3.5, fill: "#34343a" }, g);
+
+  /* ── 图例（放在场地下方，那里最空，不会压住任何标注）── */
+  const relSteps = [];
+  seq.forEach((e, i) => {
+    if (e.tok === "passPt" || e.tok === "shootPt") relSteps.push(i + 1);
+  });
+  const relTxt = relSteps.length
+    ? `（第 ${relSteps.join(" 和第 ")} 步各出球一次，共 ${relSteps.length} 次）`
+    : "（⚠️ 没有出球点！）";
+  txt(g, `— 实线 = 进场 + 两次动作：找球→出球 ${relTxt}`,
+      F2X(0.05), F2Y(0) + 34, "#34343a", 11);
+  txt(g, `— 虚线 = 第 ${relSteps.length ? relSteps[relSteps.length - 1] : "?"} 步之后回位；橙色 = 自定义途经点`,
+      F2X(0.05), F2Y(0) + 50, "#a0a09a", 11);
+}
+function arcPath(c, r, a0, a1) {
+  const p0 = [c[0] + r * Math.cos(a0 * Math.PI / 180), c[1] + r * Math.sin(a0 * Math.PI / 180)];
+  const p1 = [c[0] + r * Math.cos(a1 * Math.PI / 180), c[1] + r * Math.sin(a1 * Math.PI / 180)];
+  const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+  return `M${F2X(p0[0])},${F2Y(p0[1])} A${r * PX},${r * PX} 0 ${large} 0 ${F2X(p1[0])},${F2Y(p1[1])}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   悬停解释气泡
+   ═══════════════════════════════════════════════════════════════════ */
+const tipEl = document.getElementById("tip");
+let tipTimer = null, tipEv = null;
+
+function tipMoveTo(ev) {
+  const pad = 15;
+  const r = tipEl.getBoundingClientRect();
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if (x + r.width > innerWidth - 10) x = ev.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 10) y = ev.clientY - r.height - pad;
+  tipEl.style.left = Math.max(6, x) + "px";
+  tipEl.style.top = Math.max(6, y) + "px";
+}
+
+/* 鼠标停在点上 0.4 秒后弹出 */
+function tipArm(ev, title, text) {
+  clearTimeout(tipTimer);
+  tipEv = ev;
+  if (!text) return;
+  tipTimer = setTimeout(() => {
+    tipEl.innerHTML = `<b>${title}</b><span class="tipbody">${text || ""}</span>`;
+    tipEl.classList.add("on");
+    if (tipEv) tipMoveTo(tipEv);
+  }, 400);
+}
+function tipHide() {
+  clearTimeout(tipTimer);
+  tipEl.classList.remove("on");
+}
+/* 数值行上的提示：鼠标停下也弹（用行本身当锚点） */
+function tipArmAt(el, title, text) {
+  el.addEventListener("pointerenter", ev => tipArm(ev, title, text));
+  el.addEventListener("pointermove", ev => { if (tipEl.classList.contains("on")) tipMoveTo(ev); });
+  el.addEventListener("pointerleave", tipHide);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   拖动
+   ═══════════════════════════════════════════════════════════════════ */
+let drag = null;
+function startDrag(ev, h) {
+  ev.preventDefault();
+  drag = h;
+  const svgPt = toSvg(ev);
+  h._off = [F2X(h.get()[0]) - svgPt.x, F2Y(h.get()[1]) - svgPt.y];
+  /* 正交约束用：记住按下时这个点的原始位置 */
+  const p0 = h.get();
+  h._origin = [p0[0], p0[1]];
+  /* 撤回用：按下时先记下拖动【之前】的状态，
+     松手时如果真动过才入栈 → 一次拖动 = 一步撤回 */
+  h._before = JSON.stringify(S);
+  h._moved = false;
+  svg.setPointerCapture ? svg.setPointerCapture(ev.pointerId) : null;
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", endDrag, { once: true });
+}
+function toSvg(ev) {
+  const r = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  const sx = vb.width / r.width, sy = vb.height / r.height;
+  return { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy };
+}
+function onMove(ev) {
+  if (!drag) return;
+  const p = toSvg(ev);
+  let x = X2F(p.x + (drag._off ? drag._off[0] : 0));
+  let y = Y2F(p.y + (drag._off ? drag._off[1] : 0));
+
+  /* ── 正交约束 ─────────────────────────────────────────────────
+     把位移锁成"纯水平"或"纯垂直"：取位移大的那个轴，另一个轴保持原值。
+     开关打开时生效，或按住 Shift 临时生效。 */
+  const wantOrtho = ortho || ev.shiftKey;
+  if (wantOrtho && drag._origin) {
+    const o = drag._origin;
+    if (Math.abs(x - o[0]) >= Math.abs(y - o[1])) y = o[1];
+    else x = o[0];
+  }
+
+  if (snap) { x = Math.round(x / 0.05) * 0.05; y = Math.round(y / 0.05) * 0.05; }
+  x = r2(clamp(x, -3, FL + 3));
+  y = r2(clamp(y, -2, Y_TOP + 0.3));
+  drag.set(x, y);
+  drag._moved = true;
+  draw();
+}
+function endDrag() {
+  /* 只有真拖动过才记一步（单纯点一下不入栈） */
+  if (drag && drag._moved && drag._before) pushHistory(drag._before);
+  drag = null;
+  window.removeEventListener("pointermove", onMove);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   阻碍线检查 —— 半场置球区是 X=5.75 的一条【竖线】(Y≈0.75~6.75)
+   ═══════════════════════════════════════════════════════════════════
+   2025 规则 §6-2：半场置球区（绿线）= 传球边界线与三分线之间。
+   repo 解读（docs/18）：X=5.75，Y≈[0.75, 6.75]。
+   第 2/3 回合这条线上有 4 个【干扰球】(用球表 0/4) —— 撞一次扣 2 分。
+
+   所以从场地左侧(x<5.75)去右侧(x>5.75)，必须从【竖线上端】绕过去，
+   也就是先升到 Y=6.8（进场点 / 上侧通道 的 Y 都是 6.8）再横穿。
+   ⚠️ 上端余量只有 6.8−6.75 = 0.05 m，车体一定会压到线顶那颗球 ——
+      4 颗球到底摆在 Y 的哪几个高度，必须现场量。
+*/
+const HALF_LINE_X = 5.75;
+const HALF_LINE_TOP_Y = 6.75;
+
+function segCrossY(a, b, X) {
+  if ((a[0] - X) * (b[0] - X) > 0) return null;    // 不跨越
+  if (Math.abs(b[0] - a[0]) < 1e-9) return null;
+  const k = (X - a[0]) / (b[0] - a[0]);
+  if (k < 0 || k > 1) return null;
+  return a[1] + k * (b[1] - a[1]);
+}
+
+/* 返回本轮所有"过阻碍线"的位置，标注是否够高 */
+function crossingReport(r, tk) {
+  const seq = routeSeq(r, tk || task).map(e => e.pt);
+  const out = [];
+  for (let i = 0; i < seq.length - 1; i++) {
+    const y = segCrossY(seq[i], seq[i + 1], HALF_LINE_X);
+    if (y === null) continue;
+    out.push({
+      from: seq[i], to: seq[i + 1], y: r2(y),
+      clear: r2(y - HALF_LINE_TOP_Y),
+      ok: y >= HALF_LINE_TOP_Y - 0.001
+    });
+  }
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   半场检查 —— 整车（不只是车心）不许进对方半场
+   ═══════════════════════════════════════════════════════════════════
+   我们的半场 = y ≥ 3.75（上场半场；出发区 A 在上边线之外）。
+   车不是质点：展开 1.20×1.00，还要留定位余量 0.10 m。
+     · 车头沿 y → 沿 y 占 长/2 + 余量 = 0.70 ⇒ 车心最低 y = 4.45
+     · 车头沿 x → 沿 y 占 宽/2 + 余量 = 0.60 ⇒ 车心最低 y = 4.35
+   统一用 4.35 当警告线（比按最保守朝向算的 4.45 略松一点）。
+*/
+const HALF_Y = 3.75;
+const HALF_NEED_Y = 4.35;
+
+function halfReport(r, tk) {
+  const seq = routeSeq(r, tk || task).map(e => e.pt);
+  const ys = seq.map(p => p[1]);
+  const minY = ys.length ? Math.min(...ys) : Infinity;
+  const bad = seq.filter(p => p[1] < HALF_NEED_Y - 1e-9);
+  /* 线段也要看：直线段的 y 是线性的，两端够就整段够 */
+  const badSeg = [];
+  for (let i = 0; i < seq.length - 1; i++) {
+    const m = Math.min(seq[i][1], seq[i + 1][1]);
+    if (m < HALF_NEED_Y - 1e-9 && m >= HALF_Y - 1e-9) badSeg.push([seq[i], seq[i + 1]]);
+  }
+  return { minY: isFinite(minY) ? r2(minY) : null, need: HALF_NEED_Y,
+           bad, badSeg, ok: bad.length === 0 };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   时间预算 —— 每条路线能不能在回合时限内开完
+   ═══════════════════════════════════════════════════════════════════
+   时限依据：2026 规则 §9「每回合准备 60/120 秒」；
+             2025 用时一览表「第一回合 90 秒，第二/三回合 120 秒」。
+   ⚠️ 这里算的是【纯行驶】= 路径长 ÷ 速度上限，不含：
+        停车/转向、找球扫描、铲球、放球/出球、避障绕行、定位纠偏。
+      真实耗时一定更长，所以留 30% 余量才算安全。
+*/
+const ROUND_LIMIT_S = { 1: 90, 2: 120, 3: 120 };
+
+function routeStats(r, tk) {
+  const seq = routeSeq(r, tk || task).map(e => e.pt);
+  let len = 0;
+  for (let i = 0; i < seq.length - 1; i++)
+    len += Math.hypot(seq[i + 1][0] - seq[i][0], seq[i + 1][1] - seq[i][1]);
+  const spd = Math.max(0.05, Number(S.match.speed_mps) || 0.25);
+  const t = len / spd;
+  const lim = ROUND_LIMIT_S[r] || 120;
+  /* 想让「纯行驶」只占时限 70%（留 30% 给停车/找球/铲球/出球），
+     当前路线至少需要多快的速度 */
+  const need = len / (lim * 0.7);
+  return { len, t, lim, over: t - lim, safe: t <= lim * 0.7,
+           need, spd, nPts: seq.length };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   走法顺序编辑器（右面板最上面那个列表）
+   ═══════════════════════════════════════════════════════════════════
+   比在地图上连线直观：直接看到第几步去哪，▲▼ 改顺序，✕ 删途经点。
+   功能性节点不能删（规则要求每轮必须有 2 次出球等），所以那些行没有 ✕。
+*/
+function stepName(tok, occ) {
+  if (isAreaTok(tok)) {
+    const a = tok.slice(1);
+    const nm = a === "middle" ? "中线" : a === "arc" ? "弧线" : "深场";
+    return `搜 ${nm}（${areaPoints(a).length} 个扫描点）`;
+  }
+  if (isWaypoint(tok)) return `途经点 (${fmt(tok[0])}, ${fmt(tok[1])})`;
+  const base = NODE_LABEL[tok] || tok;
+  /* 出球点会出现两次，标上一二 */
+  if ((tok === "passPt" || tok === "shootPt") && occ > 0)
+    return base + (occ === 1 ? " ①" : occ === 2 ? " ②" : ` ${occ}`);
+  return base;
+}
+function stepColor(tok, layer) {
+  if (isAreaTok(tok)) return COL[tok.slice(1)] || "#888";
+  if (isWaypoint(tok)) return COL.wp;
+  if (tok === "passPt" || tok === "shootPt") return COL.release;
+  return COL.base;
+}
+/* 这个 token 在列表里第几次出现（给 ①② 用） */
+function occOf(list, i) {
+  const tok = list[i];
+  if (tok !== "passPt" && tok !== "shootPt") return 0;
+  let n = 0;
+  for (let j = 0; j <= i; j++) if (list[j] === tok) n++;
+  return n;
+}
+
+function renderRouteEditor() {
+  const host = document.getElementById("rte");
+  if (!host) return;
+  if (round === "all") {
+    host.innerHTML = `<div class="rh"><b>走法顺序</b></div>
+      <div class="hint2">「全部」是总览，不能编辑走法。<br>
+      请先在上面选一个<b>具体轮次</b>（第 1 / 2 / 3 轮）。</div>`;
+    return;
+  }
+  const list = routeList(task, round);
+  const tname = task === "pass" ? "传球" : "投篮";
+  let h = `<div class="rh"><b>走法顺序 · ${tname} · 第 ${round} 轮</b>
+    <button onclick="stepAddAfter(-1)" title="在第一步之前插一个途经点">＋ 插到最前</button>
+    <button onclick="stepAddAfter(${list.length - 1})" title="在最后一步之后插一个途经点">＋ 加到最后</button>
+    <button onclick="toggleLink()" title="也可以在地图上依次点各个点重排">⇢ 图上连线</button>
+  </div><div class="rl">`;
+
+  list.forEach((tok, i) => {
+    const isWp = isWaypoint(tok);
+    const nm = stepName(tok, occOf(list, i));
+    const col = stepColor(tok);
+    const sel = (selId && tokIndexOf(selId) === i) ? " sel" : "";
+    h += `<div class="st${sel}" onclick="stepSel(${i})" title="点一下选中：加点会插在它后面">` +
+      `<span class="n">${i + 1}</span>` +
+      `<span class="nm"><i style="background:${col}"></i>${nm}</span>` +
+      `<span class="ops">` +
+        `<button onclick="event.stopPropagation();stepMove(${i},-1)" ${i === 0 ? "disabled" : ""} title="上移">▲</button>` +
+        `<button onclick="event.stopPropagation();stepMove(${i},1)" ${i === list.length - 1 ? "disabled" : ""} title="下移">▼</button>` +
+        `<button onclick="event.stopPropagation();stepAddAfter(${i})" title="在它后面插一个途经点">＋</button>` +
+        (isWp ? `<button class="del" onclick="event.stopPropagation();stepDel(${i})" title="删掉这个途经点">✕</button>`
+              : `<button disabled title="功能性节点不能删（规则要求，比如每轮必须 2 次出球）">✕</button>`) +
+      `</span></div>`;
+  });
+
+  const nRel = list.filter(t => t === "passPt" || t === "shootPt").length;
+  let warn = nRel !== 2
+    ? `<b style="color:#d97706">⚠️ 现在只有 ${nRel} 次出球</b>，规则要求每轮 2 次（累计 2 次计分）。<br>`
+    : `<b>出球点 2 次 ✓</b>（规则：每轮累计 2 次）<br>`;
+
+  /* 过阻碍线检查 */
+  const cr = crossingReport(round, task);
+  const bad = cr.filter(c => !c.ok);
+  if (!cr.length) {
+    warn += `本轮的路线<b>不跨越</b>半场置球区（X=${HALF_LINE_X} 竖线），不涉及过阻碍线。<br>`;
+  } else if (bad.length) {
+    warn += `<b style="color:#d63c3c">⚠️ 有 ${bad.length} 处过低穿过「阻碍线」</b>` +
+      `（半场置球区 X=${HALF_LINE_X}，线顶 Y=${HALF_LINE_TOP_Y}，线上 4 个干扰球）：<br>`;
+    for (const c of bad) {
+      warn += `<span style="color:#d63c3c">　· (${fmt(c.from[0])},${fmt(c.from[1])}) → ` +
+        `(${fmt(c.to[0])},${fmt(c.to[1])})　在 Y=${fmt(c.y)} 穿过，` +
+        `比线顶低 ${fmt(-c.clear)} m</span><br>`;
+    }
+    warn += `　改法：插一个途经点在 Y≈6.8 上（X 小于 ${HALF_LINE_X}），` +
+      `让它<b>先上再右</b>，或加一步<b>上侧通道</b>。<br>`;
+  } else {
+    warn += `过阻碍线 <b>${cr.length}</b> 处，最高 Y=${fmt(Math.min(...cr.map(c => c.y)))}` +
+      ` ✓ 都是从线顶上方绕的。<br>`;
+  }
+  warn += `<span style="color:#a2a29c">⚠️ 但线顶余量只有 ` +
+    `${fmt(6.8 - HALF_LINE_TOP_Y)} m，车体仍会压到线顶那颗球 —— ` +
+    `4 颗干扰球的实际高度要现场量。</span><br>`;
+
+  /* ── 半场检查 ── */
+  const hr = halfReport(round, task);
+  if (hr.ok) {
+    warn += `<b style="color:#1f9152">半场 ✓</b> 整车都在我们半场` +
+      `（最低车心 y=${fmt(hr.minY)}，需要 ≥${fmt(hr.need)}）<br>`;
+  } else {
+    warn += `<b style="color:#d63c3c">⚠️ 有 ${hr.bad.length} 个点会让车体压过中线</b>` +
+      `（对方半场 y<${HALF_Y}）：<br>`;
+    for (const p of hr.bad.slice(0, 5))
+      warn += `<span style="color:#d63c3c">　· (${fmt(p[0])}, ${fmt(p[1])})` +
+        `　车体会到 y=${fmt(p[1] - 0.60)}</span><br>`;
+    warn += `　改法：把这些点抬高到 y ≥ ${hr.need}，` +
+      `或改弧线角度 / 深场的上下端点。<br>`;
+  }
+
+  /* ── 时间预算 ── */
+  const st = routeStats(round, task);
+  const tCls = st.over > 0 ? "#d63c3c" : (st.safe ? "#1f9152" : "#d97706");
+  const tWord = st.over > 0 ? `超时 ${fmt(st.over, 0)} s`
+              : (st.safe ? `余 ${fmt(-st.over, 0)} s`
+                         : `仅余 ${fmt(-st.over, 0)} s —— 建议至少留 30% 余量`);
+  warn += `<b style="color:${tCls}">⏱ 路径 ${fmt(st.len, 1)} m，纯行驶 ≈ ${fmt(st.t, 0)} s` +
+    ` / 时限 ${st.lim} s（${tWord}）</b><br>` +
+    `<span style="color:#a2a29c">　只算行驶，不含停车/找球/铲球/出球 —— 真实一定更久。<br>` +
+    `　当前速度 ${st.spd} m/s；要让行驶只占时限 70%，` +
+    `这条路线需要 <b style="color:${tCls}">${fmt(st.need)} m/s</b></span><br>`;
+
+  h += `</div><div class="hint2">${warn}` +
+    `▲▼ 改顺序；<b>＋</b> 在该步后插途经点；<b>✕</b> 删（只有橙色途经点能删）。<br>` +
+    `点某一行＝选中它，然后用顶部「＋ 加点」在地图上点位置。</div>`;
+  host.innerHTML = h;
+}
+
+/* 选中某一行的 token */
+function stepSel(i) {
+  const list = routeList(task, round);
+  const tok = list[i];
+  if (isWaypoint(tok)) selId = "wp" + i;
+  else if (isAreaTok(tok)) {
+    const a = tok.slice(1);
+    selId = a === "middle" ? "midR" : a === "arc" ? "arcP0" : "innT";
+  } else selId = tok;
+  draw();
+}
+
+/* 上移 / 下移一步 */
+function stepMove(i, dir) {
+  const list = routeList(task, round);
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return;
+  pushHistory();
+  const t = list[i]; list[i] = list[j]; list[j] = t;
+  selId = null;
+  draw();
+}
+
+/* 删掉某一行的途经点（功能性节点拒绝） */
+function stepDel(i) {
+  const list = routeList(task, round);
+  if (!isWaypoint(list[i])) {
+    alert("这是功能性节点，不能删。\n只有橙色的【自定义途经点】可以删。");
+    return;
+  }
+  pushHistory();
+  list.splice(i, 1);
+  selId = null;
+  draw();
+}
+
+/* 在第 i 步后面插一个途经点；i = -1 表示插到最前面 */
+function stepAddAfter(i) {
+  if (round === "all") return;
+  const list = routeList(task, round);
+  /* 新点默认放在"它和下一步"的中间，位置一眼能看见 */
+  const pA = i >= 0 ? tokenOrWpPoint(list[i]) : tokenOrWpPoint(list[0] || "start");
+  const pB = tokenOrWpPoint(list[i + 1] || list[list.length - 1] || "start");
+  let nx, ny;
+  if (pA && pB) { nx = r2((pA[0] + pB[0]) / 2); ny = r2((pA[1] + pB[1]) / 2); }
+  else if (pA) { nx = r2(pA[0] + 0.5); ny = r2(pA[1] + 0.5); }
+  else { nx = 3.0; ny = 5.0; }
+  pushHistory();
+  list.splice(i + 1, 0, [nx, ny]);
+  selId = "wp" + (i + 1);
+  draw();
+}
+function tokenOrWpPoint(tok) {
+  if (tok == null) return null;
+  if (isWaypoint(tok)) return tok;
+  if (isAreaTok(tok)) { const p = areaPoints(tok.slice(1)); return p[0] || null; }
+  return tokenPoint(tok);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   加点 / 删点 / 连线
+   ═══════════════════════════════════════════════════════════════════
+   规矩（按现场要求）：
+     · 功能性节点（出发点/进场点/通道/传球点/投篮点/各搜索区域）【不可删】
+     · 能加能删的只有自定义【途经点】，它插在走法列表里
+*/
+function setModeUI() {
+  const set = (id, on) => {
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle("on", !!on);
+  };
+  set("btnAdd", addMode);
+  set("btnLink", linkMode);
+  const bl = document.getElementById("btnLink");
+  if (bl) bl.textContent = linkMode
+    ? `✓ 完成连线 (${linkBuf.length})`
+    : "⇢ 连线";
+  const svgEl = document.getElementById("svg");
+  if (svgEl) svgEl.style.cursor = (addMode || linkMode) ? "crosshair" : "";
+}
+
+function toggleAdd() {
+  if (round === "all") { alert("「全部」只是总览，不能编辑。请先选一个具体轮次。"); return; }
+  addMode = !addMode;
+  if (addMode) linkMode = false;
+  setModeUI();
+  draw();
+}
+
+function toggleLink() {
+  if (round === "all") { alert("「全部」只是总览，不能编辑。请先选一个具体轮次。"); return; }
+  if (linkMode) { linkApply(); return; }      // 已在连线模式 → 完成并应用
+  linkMode = true;
+  addMode = false;
+  linkBuf = [];
+  setModeUI();
+  draw();
+}
+
+/* 选中某个点（作为"加点插在哪"的参照） */
+function selectPoint(id) {
+  selId = (selId === id) ? null : id;
+  draw();
+}
+
+/* 找一个句柄的点在走法列表里的位置（返回 tokIndex；找不到返回 -1） */
+function tokIndexOf(id) {
+  const list = routeList(task, round);
+  if (id.startsWith("wp")) return parseInt(id.slice(2), 10);
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    if (isAreaTok(t) && id.startsWith("arcP") && t === "@arc") return i;
+    if (isNodeTok(t) && t === id) return i;
+    if (isAreaTok(t) && ((id === "midR" || id === "midL") && t === "@middle")) return i;
+    if (isAreaTok(t) && ((id === "innT" || id === "innB") && t === "@inner")) return i;
+  }
+  return -1;
+}
+
+/* 在"选中点"后面插一个途经点；没选中就插在出球点前面 */
+function addWaypointAt(x, y) {
+  if (round === "all") return;
+  const list = routeList(task, round);
+  let at = list.length;
+  if (selId != null) {
+    const i = tokIndexOf(selId);
+    if (i >= 0) at = i + 1;
+  } else {
+    /* 默认插在最后一个"出球点"之前，也就是找球段末尾 */
+    const j = list.findIndex(t => t === "passPt" || t === "shootPt");
+    if (j >= 0) at = j;
+  }
+  pushHistory();
+  list.splice(at, 0, [r2(x), r2(y)]);
+  selId = "wp" + at;
+  draw();
+}
+
+/* 删除选中的途经点（功能性节点拒绝删） */
+function deleteSel() {
+  if (round === "all") { alert("「全部」不能编辑。"); return; }
+  if (!selId) { alert("先点一下要删的【橙色途经点】，再点删点。"); return; }
+  const list = routeList(task, round);
+  const i = tokIndexOf(selId);
+  if (i < 0 || !isWaypoint(list[i])) {
+    alert("只能删【橙色的自定义途经点】。\n出发点 / 进场点 / 通道 / 传球点 / 投篮点 / 搜索区域都是功能性节点，不能删。");
+    return;
+  }
+  pushHistory();
+  list.splice(i, 1);
+  selId = null;
+  draw();
+}
+
+/* 连线模式：把一个 token 追加到新顺序里 */
+function linkPush(tok) {
+  if (linkBuf.length && linkBuf[linkBuf.length - 1] === tok) return;
+  linkBuf.push(tok);
+  draw();
+}
+
+/* 应用连线结果 */
+function linkApply() {
+  if (!linkBuf.length) { alert("还没点任何点。"); return; }
+  const hasEnd = linkBuf.some(t => t === "passPt" || t === "shootPt");
+  if (!hasEnd) {
+    if (!confirm("这条走法里没有【传球点/投篮点】，出球那一步会丢。仍然保存吗？")) return;
+  }
+  pushHistory();
+  S.route[task][String(round)] = linkBuf.slice();
+  linkBuf = [];
+  linkMode = false;
+  setModeUI();
+  draw();
+}
+
+/* 连线模式：取消 */
+function linkCancel() { linkBuf = []; linkMode = false; setModeUI(); draw(); }
+
+/* 把当前（含连线的临时顺序）画出来时用的序列 */
+function displaySeq() {
+  return routeSeq(round, task);
+}
+
+/* 在空白处点一下 → 加点（只在加点模式生效） */
+function onSvgClick(ev) {
+  if (!addMode || round === "all") return;
+  /* 点在句柄上时不当作"加点"（句柄自己会 stopPropagation 之外的判断） */
+  if (ev.target && ev.target.closest && ev.target.closest(".hnd")) return;
+  const r = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  const x = X2F((ev.clientX - r.left) * (vb.width / r.width));
+  const y = Y2F((ev.clientY - r.top) * (vb.height / r.height));
+  addWaypointAt(clamp(x, -2, FL + 2), clamp(y, -1.5, Y_TOP));
+}
+
+/* 连线/加点模式下的快捷键 */
+function onModeKey(ev) {
+  if (ev.key === "Escape") {
+    if (linkMode) { linkCancel(); return; }
+    if (addMode) { addMode = false; setModeUI(); draw(); return; }
+    if (selId) { selId = null; draw(); }
+  }
+  if ((ev.key === "Delete" || ev.key === "Backspace") && selId) {
+    /* 别抢输入框里的退格 */
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+    ev.preventDefault();
+    deleteSel();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   撤回（只回退【数据】，不动显示开关）
+   ═══════════════════════════════════════════════════════════════════
+   · 拖一次 = 一步（按下时记下拖动前的状态，松手时才入栈；
+     所以"只点一下没拖动"不会占一步，也不会一次撤回只挪一个像素）
+   · 数字框改一次 = 一步
+   · 重置 = 一步
+*/
+const HISTORY = [];
+const HIST_MAX = 200;
+
+function pushHistory(stateStr) {
+  HISTORY.push(stateStr !== undefined ? stateStr : JSON.stringify(S));
+  if (HISTORY.length > HIST_MAX) HISTORY.shift();
+  syncUndoBtn();
+}
+
+function undo() {
+  if (!HISTORY.length) return;
+  S = JSON.parse(HISTORY.pop());
+  syncUndoBtn();
+  draw();
+}
+
+function syncUndoBtn() {
+  const b = document.getElementById("btnUndo");
+  if (!b) return;
+  b.disabled = HISTORY.length === 0;
+  b.textContent = HISTORY.length ? `↶ 撤回 (${HISTORY.length})` : "↶ 撤回";
+}
+
+/* Ctrl+Z / Cmd+Z */
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+    e.preventDefault();
+    undo();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   右侧数值面板
+   ═══════════════════════════════════════════════════════════════════ */
+const ROWS = [
+  ["grp", "起步（match_rounds.json）", "base"],
+  ["xy", "start", "出发点", "base", () => S.match.start, v => S.match.start = v],
+  ["xy", "entry", "进场点", "base", () => S.match.entry, v => S.match.entry = v],
+  ["xy", "corridor", "上侧通道", "base", () => S.match.corridor, v => S.match.corridor = v],
+  ["n",  "speed_mps", "速度 m/s", "base", () => S.match.speed_mps, v => S.match.speed_mps = v],
+  ["n",  "start_delay_s", "启动延迟 s", "base", () => S.match.start_delay_s, v => S.match.start_delay_s = v],
+
+  ["grp", "中线（红）", "middle"],
+  ["n",  "middle.right_x", "右端 x", "middle", () => S.match.middle.right_x, v => S.match.middle.right_x = v],
+  ["n",  "middle.left_x", "左端 x", "middle", () => S.match.middle.left_x, v => S.match.middle.left_x = v],
+  ["n",  "middle.y", "扫描线 y", "middle", () => S.match.middle.y, v => S.match.middle.y = v],
+  ["n",  "middle.scoop_m", "后退 m", "middle", () => S.match.middle.scoop_m, v => S.match.middle.scoop_m = v],
+
+  ["grp", "弧线（蓝）", "arc"],
+  ["xyv", "arc.center", "圆心", "arc", () => S.match.arc.center, v => S.match.arc.center = v],
+  ["n",  "arc.radius", "半径 m", "arc", () => S.match.arc.radius, v => S.match.arc.radius = v],
+  ["n",  "arc.scoop_m", "后退 m", "arc", () => S.match.arc.scoop_m, v => S.match.arc.scoop_m = v],
+
+  ["grp", "深场（绿）", "inner"],
+  ["xyv", "inner.x / top_y", "上点", "inner", () => [S.match.inner.x, S.match.inner.top_y],
+    v => { S.match.inner.x = v[0]; S.match.inner.top_y = v[1]; }],
+  ["xyv", "inner / bottom_y", "下点", "inner", () => [S.match.inner.x, S.match.inner.bottom_y],
+    v => { S.match.inner.bottom_y = v[1]; }],
+  ["n",  "inner.scoop_m", "后退 m", "inner", () => S.match.inner.scoop_m, v => S.match.inner.scoop_m = v],
+
+  ["grp", "出球点", "release"],
+  ["xyv", "pass.point", "传球点", "release", () => S.match.release.pass.point,
+    v => S.match.release.pass.point = v],
+  ["n",  "pass.heading", "传球朝向 °", "release", () => S.match.release.pass.search_heading_deg,
+    v => S.match.release.pass.search_heading_deg = v],
+  ["xyv", "shoot.point", "投篮点", "release", () => S.match.release.shoot.point,
+    v => S.match.release.shoot.point = v],
+  ["xyv", "shoot.aim", "瞄准", "release", () => S.match.release.shoot.aim,
+    v => S.match.release.shoot.aim = v],
+
+  ["grp", "场地几何（mission.yaml field）", "mission"],
+  ["xyv", "hoop", "篮筐", "mission", () => S.mission.hoop, v => S.mission.hoop = v],
+  ["xyv", "three_point_center", "三分心", "mission", () => S.mission.three_point_center,
+    v => S.mission.three_point_center = v],
+  ["n",  "three_point_radius_m", "三分 R", "mission", () => S.mission.three_point_radius_m,
+    v => S.mission.three_point_radius_m = v],
+  ["n",  "shoot_line_radius_m", "投篮 R", "mission", () => S.mission.shoot_line_radius_m,
+    v => S.mission.shoot_line_radius_m = v],
+  ["xyv", "front_zone_circle", "中线置球区心", "mission",
+    () => [S.mission.front_zone_circle.x, S.mission.front_zone_circle.y],
+    v => { S.mission.front_zone_circle.x = v[0]; S.mission.front_zone_circle.y = v[1]; }],
+  ["n",  "front_zone_circle.radius_m", "中线置球区 R", "mission",
+    () => S.mission.front_zone_circle.radius_m,
+    v => S.mission.front_zone_circle.radius_m = v],
+  ["n",  "start_zone_size_m", "出发区边长", "mission", () => S.mission.start_zone_size_m,
+    v => S.mission.start_zone_size_m = v],
+  ["xyv", "start_zones.A", "出发区 A", "mission", () => S.mission.start_zones.A,
+    v => { S.mission.start_zones.A = v; S.mission.home = v; }],
+
+  /* ⚠️ jituo/main 已把 localization.yaml 的 landmarks 段整段删除
+     （提交 2f8947e「remove ... pillar pose correction」）⇒ 这里默认不再出现。
+     若哪天恢复该段，下面的行会自动重新出现（不写死）。 */
+  ...(S.landmarks && S.landmarks.passing_pillar_A ? [
+    ["grp", "定位柱（localization.yaml landmarks）", "lm"],
+    ["xyv", "passing_pillar_A", "传球柱", "lm",
+      () => [S.landmarks.passing_pillar_A.x, S.landmarks.passing_pillar_A.y],
+      v => { S.landmarks.passing_pillar_A.x = v[0]; S.landmarks.passing_pillar_A.y = v[1]; }],
+  ] : []),
+];
+
+function drawPanel() {
+  const body = document.getElementById("body");
+  const scroll = body.scrollTop;
+  body.innerHTML = "";
+  const pubSync = [];   /* 坐标行的公开帧读数，渲染完统一刷一次 */
+  void pubSync;
+  for (const row of ROWS) {
+    if (row[0] === "grp") {
+      const g = document.createElement("div");
+      g.className = "grp";
+      const h = document.createElement("h3");
+      h.innerHTML = row[1] + `<small>${row[2]}</small>`;
+      g.appendChild(h);
+      body.appendChild(g);
+      continue;
+    }
+    let k, label, layer, get, set;
+    if (row[0] === "sep") {
+      /* 中线的三个数值放在一行里 */
+      k = row[1];
+      const d = document.createElement("div");
+      d.className = "row";
+      d.innerHTML = `<span class="k"><i style="background:${COL.middle}"></i>
+        中线 right_x / left_x / y（也拖图上的点）</span>`;
+      body.appendChild(d);
+      continue;
+    }
+    [, k, label, layer, get, set] = row;
+    const d = document.createElement("div");
+    d.className = "row";
+    const cur = get();
+    const isXY = Array.isArray(cur);
+    /* y 这一格按【新帧】显示： 新.y = 旧.y − 3.75。 x / 半径 / 角度 / 时间不动。
+       只有 middle.y 这个"n"行是 y 坐标，其余 n 行都不是。 */
+    const isYRow = (k === "middle.y");
+    const curDisp = isXY ? [cur[0], toY(cur[1])]
+                        : (isYRow ? toY(cur) : cur);
+    d.innerHTML =
+      `<span class="k" title=""><i style="background:${COL[layer] || "#888"}"></i>${label}</span>` +
+      (isXY
+        ? `<input class="ix" type="number" step="0.01" value="${curDisp[0] ?? ""}">
+           <input class="iy" type="number" step="0.01" value="${curDisp[1] ?? ""}">
+           <span class="pub" title="第一行是给匹配的公开帧（90°旋转，只给控制台看）；导出给小车的是上面那两个框（新帧，中线=0）"></span>`
+        : `<input class="iv" type="number" step="0.01" value="${curDisp ?? ""}">
+           <span></span>`);
+    /* 坐标行：在输入框右边再显示一份【公开帧】读数，方便和队友控制台对数 */
+    d._syncPub = () => {
+      const sp = d.querySelector(".pub");
+      if (!sp) return;
+      const a = parseFloat(d.querySelector(".ix").value);
+      const b = parseFloat(d.querySelector(".iy").value);
+      if (!isFinite(a) || !isFinite(b)) { sp.textContent = ""; return; }
+      sp.textContent = pubText2(a, fromY(b));   // a/b 是新帧，pubText2 要旧帧
+    };
+    d._syncPub();          /* 初次渲染也刷一次，否则要等改动才出现 */
+    /* 行的说明：鼠标停在标签上也弹同一个气泡 */
+    const kEl = d.querySelector(".k");
+    if (kEl && TIP_TEXT[k]) tipArmAt(kEl, label, TIP_TEXT[k]);
+    /* 出球点那些行：不是当前任务的淡化掉（传球/投篮的点不一样） */
+    if (k) {
+      const isPassRow = k.indexOf("pass.") === 0;
+      const isShootRow = k.indexOf("shoot.") === 0;
+      if ((isPassRow && task !== "pass") || (isShootRow && task !== "shoot")) {
+        d.style.opacity = ".42";
+        d.title = "这是另一个任务（" + (isPassRow ? "传球" : "投篮") + "）的点";
+      }
+    }
+    const inputs = d.querySelectorAll("input");
+    inputs.forEach(inp => {
+      inp.addEventListener("change", () => {
+        const v = parseFloat(inp.value);
+        if (!isFinite(v)) return;
+        pushHistory();                       // ← 改之前先记一步
+        if (isXY) {
+          const a = parseFloat(inputs[0].value), b = parseFloat(inputs[1].value);
+          set([r2(a), fromY(b)]);           // ← y 从新帧换回旧帧再存
+          if (d._syncPub) d._syncPub();
+        } else set(isYRow ? fromY(v) : r2(v));   // ← middle.y 同理
+        draw();
+      });
+    });
+    body.appendChild(d);
+  }
+  body.scrollTop = scroll;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   页签 / 开关
+   ═══════════════════════════════════════════════════════════════════ */
+/* ── 任务页签：传球 / 投篮（两条路线不一样，选哪个只显示哪个）── */
+const taskTabs = document.getElementById("taskTabs");
+for (const [id, name] of TASKS) {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.dataset.task = id;
+  b.onclick = () => {
+    task = id;
+    selId = null; addMode = false; linkMode = false; linkBuf = [];
+    setModeUI();
+    syncTabs();
+    draw();
+  };
+  taskTabs.appendChild(b);
+}
+
+const tabs = document.getElementById("tabs");
+for (const r of ROUNDS) {
+  const b = document.createElement("button");
+  b.textContent = r === "all" ? "全部" : `第 ${r} 轮`;
+  b.dataset.round = r;
+  b.onclick = () => {
+    round = r;
+    selId = null; addMode = false; linkMode = false; linkBuf = [];
+    setModeUI();
+    syncTabs();
+    draw();
+  };
+  tabs.appendChild(b);
+}
+
+/* 把与当前轮无关的图层勾选框灰掉（状态记在 LAYERS 里，切回来会恢复） */
+function syncLayerBoxes() {
+  for (const k of Object.keys(LAYERS)) {
+    const cb = document.getElementById("ly_" + k);
+    if (!cb) continue;
+    const ok = applies(k);
+    cb.disabled = !ok;
+    cb.checked = ok && LAYERS[k];
+    const lab = cb.parentElement;
+    if (lab) {
+      lab.style.opacity = ok ? "1" : ".4";
+      lab.title = ok ? "" : "本轮不搜这个区域";
+    }
+  }
+}
+
+function syncTabs() {
+  [...taskTabs.children].forEach(b => b.classList.toggle("on", b.dataset.task === task));
+  [...tabs.children].forEach(b => b.classList.toggle("on", b.dataset.round == round));
+  const hr = document.getElementById("hintRound");
+  const tname = task === "pass" ? "传球" : "投篮";
+  if (round === "all") {
+    hr.textContent = `全部轮次 · ${tname}：三轮各一条颜色（不互相连，因为不属于同一趟）`;
+    hr.className = "pill warn";
+  } else {
+    const areas = activeAreas().map(a =>
+      a === "middle" ? "中线" : a === "arc" ? "弧线" : "深场");
+    hr.textContent = `第 ${round} 轮 · ${tname}　走法：` +
+      routeList(task, round).map(tokName).join(" → ");
+    hr.className = "pill";
+  }
+  syncLayerBoxes();
+}
+
+/* token → 给人看的名字 */
+function tokName(t) {
+  if (isAreaTok(t)) {
+    const a = t.slice(1);
+    return "@" + (a === "middle" ? "中线" : a === "arc" ? "弧线" : "深场");
+  }
+  if (isWaypoint(t)) return `途经(${fmt(t[0])},${fmt(t[1])})`;
+  return NODE_LABEL[t] || t;
+}
+
+document.getElementById("cbGrid").onchange = e => { showGrid = e.target.checked; draw(); };
+document.getElementById("cbSnap").onchange = e => { snap = e.target.checked; };
+document.getElementById("cbOrtho").onchange = e => { ortho = e.target.checked; };
+document.getElementById("cbRoute").onchange = e => { showRoute = e.target.checked; draw(); };
+document.getElementById("cbArrows").onchange = e => { showArrows = e.target.checked; draw(); };
+document.getElementById("cbSteps").onchange = e => { showSteps = e.target.checked; draw(); };
+document.getElementById("ly_wp").onchange = e => { LAYERS.wp = e.target.checked; draw(); };
+for (const k of Object.keys(LAYERS)) {
+  const cb = document.getElementById("ly_" + k);
+  if (cb && !cb.onchange) cb.onchange = e => { LAYERS[k] = e.target.checked; draw(); };
+}
+/* 地图空白处点击 → 加点 */
+svg.addEventListener("click", onSvgClick);
+/* 快捷键：Esc 退出模式 / Delete 删选中点 */
+window.addEventListener("keydown", onModeKey);
+/* 按住 Shift 时给个视觉提示 */
+window.addEventListener("keydown", e => {
+  if (e.key === "Shift") {
+    const lab = document.getElementById("cbOrtho").parentElement;
+    if (lab) lab.style.color = "#2f6fd0";
+  }
+});
+window.addEventListener("keyup", e => {
+  if (e.key === "Shift") {
+    const lab = document.getElementById("cbOrtho").parentElement;
+    if (lab) lab.style.color = "";
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   保存 / 打开 / 自动保存
+   ═══════════════════════════════════════════════════════════════════
+   「保存进度」存的是【整个编辑器状态】(S)，一个文件装下所有东西：
+       match_rounds.json + mission.yaml + landmarks + 传球/投篮走法
+   下次用「打开」读回来，接着编。
+   ※ 导出才是"粘回仓库文件"，两件事分开，不用每次都导出。
+*/
+/* ⚠️ 存储键带版本号：改了默认坐标就换一个键，
+   这样"上一次用旧键存的、没有 base 的老存档"不会再来捣乱。
+   v2 = 最初的整体覆盖版（有 bug：会盖掉新默认值）
+   v3 = 带 base 的三方合并版 */
+const LS_KEY = "field_editor_state_v3";
+const LS_KEY_OLD = ["field_editor_state_v2"];   /* 老键，只做备份不自动用 */
+
+function saveState() {
+  const payload = {
+    _what: "场地坐标编辑器 · 进度文件",
+    _when: new Date().toISOString(),
+    _note: "用编辑器右下「打开」读回；这不是要粘进仓库的配置，导出才用「导出…」",
+    state: S
+  };
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const name = `场地坐标进度_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}` +
+               `_${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  downloadText(name, JSON.stringify(payload, null, 2));
+  markSaved();
+}
+
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+function loadState(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const o = JSON.parse(String(rd.result));
+      const st = o && o.state ? o.state : o;      // 兼容直接存 S 的文件
+      if (!st || !st.match) throw new Error("文件里没有 match 数据");
+      /* 如果打开的是仓库里那份 match_rounds.json（带 coordinate_y_offset_m），
+         它是【新帧】；换回内部用的旧帧再合并。 */
+      if (st.match && typeof st.match.coordinate_y_offset_m === "number") {
+        const off = st.match.coordinate_y_offset_m;
+        shiftMatchY(st.match, -off);
+        delete st.match.coordinate_y_offset_m;
+        if (st.route) st.route = shiftRouteY(st.route, -off);
+        if (o.base && o.base.match && typeof o.base.match.coordinate_y_offset_m === "number") {
+          const bo = o.base.match.coordinate_y_offset_m;
+          shiftMatchY(o.base.match, -bo); delete o.base.match.coordinate_y_offset_m;
+        }
+      }
+      pushHistory();
+      const base = o && o.base ? o.base : null;
+      if (base && JSON.stringify(base) !== JSON.stringify(DEFAULTS)) {
+        /* 文件是旧默认值时存的 → 三方合并，别把新版默认值盖掉 */
+        const ch = {};
+        collectChanges(base, st, "", ch);
+        S = deepClone(DEFAULTS);
+        applyChanges(S, ch);
+        markSaved(`已打开：${f.name}（默认值更新过，已合并你的 ${Object.keys(ch).length} 处改动）`);
+      } else if (base) {
+        S = deepClone(st);
+        markSaved("已打开：" + f.name);
+      } else {
+        /* 老文件（没存 base）：只能整体恢复，但缺的键用新默认值补 */
+        S = deepClone(DEFAULTS);
+        applyChanges(S, (() => { const c = {}; collectChanges({}, st, "", c); return c; })());
+        markSaved(`已打开：${f.name}（旧格式文件，缺的项已用新默认值补齐）`);
+      }
+      round = 2; task = "pass";
+      selId = null; addMode = false; linkMode = false; linkBuf = [];
+      setModeUI(); syncTabs(); draw();
+    } catch (e) {
+      alert("这个文件读不了：\n" + e.message);
+    }
+    input.value = "";
+  };
+  rd.readAsText(f, "utf-8");
+}
+
+/* ── 三方合并：把「用户改过的」盖到「新默认值」上 ───────────────
+   问题背景：编辑器更新了默认走法/坐标后，如果直接整体恢复浏览器里
+   存的旧状态，新默认值就被盖掉了 —— 用户看不到任何更新。
+   做法：存的时候连当时的默认值一起存；恢复时算出「用户相对旧默认值
+   改了哪些叶子」，再把这份改动贴到新默认值上。
+*/
+function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+
+/* 收集 base→cur 的叶子级差异，path 形如 "match.middle.left_x" */
+function collectChanges(base, cur, path, out) {
+  const isObj = v => v && typeof v === "object" && !Array.isArray(v);
+  if (Array.isArray(base) || Array.isArray(cur) || !isObj(base) || !isObj(cur)) {
+    if (JSON.stringify(base) !== JSON.stringify(cur)) out[path] = deepClone(cur);
+    return;
+  }
+  const keys = new Set([...Object.keys(base), ...Object.keys(cur)]);
+  for (const k of keys)
+    collectChanges(base[k], cur[k], path ? path + "." + k : k, out);
+}
+function applyChanges(target, out) {
+  for (const p of Object.keys(out)) {
+    const parts = p.split(".");
+    let o = target;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!o[parts[i]] || typeof o[parts[i]] !== "object") o[parts[i]] = {};
+      o = o[parts[i]];
+    }
+    o[parts[parts.length - 1]] = deepClone(out[p]);
+  }
+}
+
+/* 自动存到浏览器本地，刷新页面不丢；连同"当时的默认值"一起存 */
+function autoSave() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      v: 3, state: S, base: DEFAULTS, when: new Date().toISOString()
+    }));
+  } catch (e) {}
+}
+/* 恢复。返回 {ok, merged, kept, old}
+   ⚠️ 只认 v3 格式（带 base）。老格式没有 base，无法判断"哪些是你改的"，
+      硬合等于整体覆盖 → 你会看不到新默认值。所以老存档【只备份、不使用】。 */
+function autoRestore() {
+  try {
+    const t = localStorage.getItem(LS_KEY);
+    if (!t) return { ok: false, merged: false };
+    const p = JSON.parse(t);
+    /* 没有 base 的存档：不自动应用，只留个备份，用新默认值 */
+    if (!p || !p.state || !p.state.match || !p.base) {
+      try { localStorage.setItem(LS_KEY + "_orphan", t); } catch (e) {}
+      return { ok: false, orphan: true };
+    }
+    if (JSON.stringify(p.base) === JSON.stringify(DEFAULTS)) {
+      S = deepClone(p.state);                  /* 默认值没变 → 整体恢复 */
+      return { ok: true, merged: false };
+    }
+    /* 默认值变了 → 三方合并：你改过的保留，我的新默认值生效 */
+    const ch = {};
+    collectChanges(p.base, p.state, "", ch);
+    S = deepClone(DEFAULTS);
+    applyChanges(S, ch);
+    return { ok: true, merged: true, kept: Object.keys(ch).length };
+  } catch (e) { return { ok: false, merged: false }; }
+}
+function clearAutoSave() {
+  try { localStorage.removeItem(LS_KEY); } catch (e) {}
+}
+
+/* 拖动时 draw() 会被调很多次，写本地要防抖，别每次都写 */
+let _saveT = null;
+function scheduleSave() {
+  if (_saveT) clearTimeout(_saveT);
+  _saveT = setTimeout(() => { autoSave(); refreshSaveInfo(); }, 250);
+}
+
+/* 底部那行小字：告诉你【到底有哪些文件真的改了】 */
+function markSaved(msg) {
+  const el = document.getElementById("saveInfo");
+  if (!el) return;
+  if (msg) { el.dataset.msg = msg; }
+  refreshSaveInfo();
+}
+
+function refreshSaveInfo() {
+  const el = document.getElementById("saveInfo");
+  if (!el) return;
+  const t = hiddenTargets();          // 看哪些目标跟原始值不一样了
+  const msg = el.dataset.msg ? `<b>${el.dataset.msg}</b><br>` : "";
+  if (!t.length) {
+    el.innerHTML = msg +
+      `还没改任何东西 —— 现在<b>不需要覆盖任何文件</b>。` +
+      `要改就去图上拖点；想留个底就点 <b>💾 保存进度</b>。`;
+    return;
+  }
+  el.innerHTML = msg +
+    `改动落在 <b>${t.length}</b> 个文件上，只有这几个需要覆盖：` +
+    `<span class="chg">${t.map(x => x.file).join("　")}</span><br>` +
+    `点 <b>导出…</b> 取出对应的那一段就行，没列出来的**不用动**。`;
+}
+
+/* 哪些导出目标跟仓库原始值不一样了 */
+function hiddenTargets() {
+  const out = [];
+  const orig = DEFAULTS;
+  const saved = S;
+  try {
+    S = JSON.parse(JSON.stringify(orig));
+    const oJson = exportMatch(), oYaml = exportYaml(), oLm = exportLm();
+    S = saved;
+    if (exportMatch() !== oJson) out.push({ k: "json", file: "match_rounds.json" });
+    if (exportYaml() !== oYaml)  out.push({ k: "yaml", file: "mission.yaml" });
+    if (exportLm()   !== oLm)    out.push({ k: "lm",   file: "localization.yaml" });
+  } catch (e) { S = saved; }
+  return out;
+}
+
+/* ── 导出下拉 ─────────────────────────────────────────────── */
+function toggleDD(ev) {
+  if (ev) ev.stopPropagation();
+  const m = document.getElementById("ddmenu");
+  const open = m.classList.toggle("open");
+  if (open) buildDD();
+}
+function buildDD() {
+  const m = document.getElementById("ddmenu");
+  const changed = hiddenTargets();
+  const isChg = k => changed.some(c => c.k === k);
+  const items = [
+    ["json", "match_rounds.json", "路线 / 速度 / 出球点 / 走法", isChg("json")],
+    ["yaml", "mission.yaml", "场地几何：篮筐、三分线、传球区…", isChg("yaml")],
+    ["lm",   "localization.yaml", "定位柱坐标", isChg("lm")],
+  ];
+  let h = "";
+  for (const [k, name, desc, chg] of items) {
+    h += `<button onclick="showExport('${k}');closeDD()">` +
+         `<span class="t">${chg ? "● " : "　"}${name}</span>` +
+         `<span class="d">${desc}${chg ? " —— 已改动" : "（跟原值一样）"}</span></button>`;
+  }
+  h += `<hr><button onclick="showExport('py');closeDD()">` +
+       `<span class="t">　Python 片段</span>` +
+       `<span class="d">只是核对/写文档用，不用粘回仓库</span></button>`;
+  m.innerHTML = h;
+  const badge = document.getElementById("ddBadge");
+  badge.textContent = changed.length ? `(${changed.length})` : "";
+  badge.className = changed.length ? "some" : "";
+}
+function closeDD() { document.getElementById("ddmenu").classList.remove("open"); }
+document.addEventListener("click", () => closeDD());
+
+/* ═══════════════════════════════════════════════════════════════════
+   导出
+   ═══════════════════════════════════════════════════════════════════ */
+const dlg = document.getElementById("dlg");
+const dout = document.getElementById("dout");
+
+function jnum(v) { return typeof v === "number" ? r2(v) : v; }
+
+/* 递归把所有数字四舍五入到 3 位小数，不动结构 ——
+   这样导出等于"原文件 + 被改过的值"，不会漏掉任何键。 */
+function roundDeep(o) {
+  if (Array.isArray(o)) return o.map(roundDeep);
+  if (o && typeof o === "object") {
+    const r = {};
+    for (const k of Object.keys(o)) r[k] = roundDeep(o[k]);
+    return r;
+  }
+  return typeof o === "number" ? r2(o) : o;
+}
+
+/* 把 match 配置里所有 y 坐标平移 dy（新 = 旧 + dy）。
+   ⚠️ 只动【坐标】，不动半径/角度/速度/时间。 */
+function shiftMatchY(o, dy) {
+  const P = a => { if (Array.isArray(a) && a.length === 2 && typeof a[1] === "number")
+                     a[1] = r2(a[1] + dy); return a; };
+  P(o.start); P(o.entry); P(o.corridor);
+  if (o.middle) o.middle.y = r2(o.middle.y + dy);
+  if (o.arc && Array.isArray(o.arc.center)) o.arc.center[1] = r2(o.arc.center[1] + dy);
+  if (o.inner) { o.inner.top_y = r2(o.inner.top_y + dy);
+                 o.inner.bottom_y = r2(o.inner.bottom_y + dy); }
+  if (o.release) for (const tk of Object.keys(o.release)) {
+    const a = o.release[tk]; if (a && a.point) P(a.point); if (a && a.aim) P(a.aim);
+  }
+  if (o.pass_ring && typeof o.pass_ring.y === "number") o.pass_ring.y = r2(o.pass_ring.y + dy);
+  if (o.pass_ring && Array.isArray(o.pass_ring.point)) P(o.pass_ring.point);
+  return o;
+}
+
+/* 走法列表里的 [x,y] 途经点也要跟着平移 */
+function shiftRouteY(route, dy) {
+  const go = v => {
+    if (Array.isArray(v)) { if (v.length === 2 && typeof v[1] === "number") return [v[0], r2(v[1] + dy)]; return v; }
+    if (v && typeof v === "object") { const o = {}; for (const k in v) o[k] = go(v[k]); return o; }
+    return v;
+  };
+  return go(route);
+}
+
+function exportMatch() {
+  /* 导出的就是【新帧】（coordinate_y_offset_m = −3.75），可以直接丢给小车跑。
+     内部模型仍是旧帧（图纸不变），这里平移出去。 */
+  const o = shiftMatchY(roundDeep(S.match), Y0);
+  o.coordinate_y_offset_m = r2(Y0);
+  /* 路线（走法）也一起导出：传球/投篮 × 三轮，元素是节点名或 [x,y] 途经点。
+     现有代码不认识 route 键会直接忽略，不影响解析。 */
+  o.route = shiftRouteY(roundDeep(S.route), Y0);
+  return JSON.stringify(o, null, 2);
+}
+
+function exportYaml() {
+  const F = S.mission;
+  const n = v => { const s = r2(v).toString(); return s.includes(".") ? s : s + ".0"; };
+  const L = [];
+  L.push("# src/rb_mission/config/mission.yaml → field:");
+  L.push(`  length_m: ${n(F.length_m)}`);
+  L.push(`  width_m: ${n(F.width_m)}`);
+  L.push("");
+  L.push(`  hoop: {x: ${n(F.hoop[0])}, y: ${n(F.hoop[1])}}`);
+  L.push("");
+  L.push(`  front_zone_circle:`);
+  L.push(`    name: "中线置球区"`);
+  L.push(`    x: ${n(F.front_zone_circle.x)}`);
+  L.push(`    y: ${n(F.front_zone_circle.y)}`);
+  L.push(`    radius_m: ${n(F.front_zone_circle.radius_m)}`);
+  L.push(`  shoot_line_radius_m: ${n(F.shoot_line_radius_m)}`);
+  L.push("");
+  L.push(`  three_point_radius_m: ${n(F.three_point_radius_m)}`);
+  L.push(`  three_point_center: {x: ${n(F.three_point_center[0])}, y: ${n(F.three_point_center[1])}}`);
+  L.push("");
+  L.push(`  pass_zone:`);
+  L.push(`    polygon:`);
+  for (const p of F.pass_zone) L.push(`      - [${n(p[0])}, ${n(p[1])}]`);
+  L.push("");
+  L.push(`  shoot_zone_target: {x: ${n(F.shoot_zone_target[0])}, y: ${n(F.shoot_zone_target[1])}}`);
+  L.push(`  shoot_zone_target_30: {x: ${n(F.shoot_zone_target_30[0])}, y: ${n(F.shoot_zone_target_30[1])}}`);
+  L.push(`  pass_zone_target: {x: ${n(F.pass_zone_target[0])}, y: ${n(F.pass_zone_target[1])}}`);
+  L.push("");
+  L.push(`  start_zone_size_m: ${n(F.start_zone_size_m)}`);
+  L.push(`  start_zone_offset_m: ${n(F.start_zone_offset_m)}`);
+  L.push(`  start_zones:`);
+  L.push(`    A: {x: ${n(F.start_zones.A[0])}, y: ${n(F.start_zones.A[1])}}`);
+  L.push(`    B: {x: ${n(F.start_zones.B[0])}, y: ${n(F.start_zones.B[1])}}`);
+  L.push(`  home: {x: ${n(F.home[0])}, y: ${n(F.home[1])}}`);
+  return L.join("\n");
+}
+
+function exportLm() {
+  const L = ["# src/rb_localization/config/localization.yaml → landmarks:"];
+  if (!S.landmarks || !Object.keys(S.landmarks).length) {
+    L.push("# （空）jituo/main 已删除该段：定位柱不再参与位姿修正。");
+    L.push("# 仍保留 match.pillar_alignment 作出球前的视觉微调。");
+    return L.join("\n");
+  }
+  for (const [name, lm] of Object.entries(S.landmarks)) {
+    L.push(`  - name: ${name}`);
+    L.push(`    enabled: ${lm.enabled}`);
+    L.push(`    x: ${r2(lm.x)}`);
+    L.push(`    y: ${r2(lm.y)}`);
+    L.push("");
+  }
+  return L.join("\n");
+}
+
+function exportPy() {
+  const M = S.match;
+  const pts = arcPoints();
+  const L = [];
+  L.push("# 由场地坐标编辑器导出 —— 供核对 / 写文档用");
+  L.push("PASS_SEARCH_ORDER = {");
+  for (let r = 1; r <= 3; r++)
+    L.push(`    ${r}: ${JSON.stringify(activeAreasOf(r, task))},`);
+  L.push("}");
+  L.push("");
+  L.push(`# 传球点  ${JSON.stringify(M.release.pass.point)}  朝向 ${M.release.pass.search_heading_deg} 度`);
+  L.push(`# 投篮点  ${JSON.stringify(M.release.shoot.point)}  瞄准 ${JSON.stringify(M.release.shoot.aim)}`);
+  L.push("");
+  L.push("# 各区域扫描点");
+  for (const [name, pts2] of [
+    ["middle", [[M.middle.right_x, M.middle.y], [M.middle.left_x, M.middle.y]]],
+    ["arc", pts],
+    ["inner", [[M.inner.x, M.inner.top_y], [M.inner.x, M.inner.bottom_y]]],
+  ]) {
+    L.push(`${name} = [`);
+    for (const p of pts2) L.push(`    (${r2(p[0])}, ${r2(p[1])}),`);
+    L.push("]");
+    L.push("");
+  }
+  return L.join("\n");
+}
+
+function showExport(kind) {
+  const map = {
+    json: ["tools/match_rounds.json（整份替换）", exportMatch()],
+    yaml: ["mission.yaml → field:（替换该段）", exportYaml()],
+    lm:   ["localization.yaml → landmarks:（替换该段）", exportLm()],
+    py:   ["Python 片段（核对用）", exportPy()],
+  }[kind];
+  document.getElementById("dtitle").textContent = map[0];
+  dout.value = map[1];
+  dlg.showModal();
+}
+function copyOut() {
+  dout.select();
+  navigator.clipboard.writeText(dout.value).then(
+    () => { document.getElementById("dtitle").textContent = "已复制 ✓"; },
+    () => { document.execCommand("copy"); }
+  );
+}
+function resetAll() {
+  if (!confirm("恢复成仓库原始值？\n（未保存的改动会丢；点完还能用「撤回」找回来）")) return;
+  pushHistory();                             // ← 重置也能撤回
+  S = JSON.parse(JSON.stringify(DEFAULTS));
+  round = 2; task = "pass";
+  selId = null; addMode = false; linkMode = false; linkBuf = [];
+  clearAutoSave();
+  setModeUI();
+  syncTabs();
+  draw();
+  markSaved("已重置成仓库原始值");
+}
+
+/* 启动 */
+/* 地址栏可以带初始轮次：#r1 / #r2 / #r3 / #all（方便存书签）
+   也可以 #tip=<键名> 直接把某条解释显示出来（看样式 / 截图用） */
+let bootTip = null;
+try {
+  const hash = (typeof location !== "undefined" && location.hash) || "";
+  const m = /#(?:r)?(1|2|3|all)/.exec(hash);
+  if (m) round = m[1] === "all" ? "all" : parseInt(m[1], 10);
+  const mtk = /task=(pass|shoot)/.exec(hash);
+  if (mtk) task = mtk[1];
+  const mt = /[#&?]tip=([A-Za-z_][\w.]*)/.exec(hash);
+  if (mt) bootTip = mt[1];
+} catch (e) { /* 无 location 时忽略 */ }
+syncTabs();
+syncUndoBtn();
+/* ⚠️ 顺序要紧：必须先 autoRestore() 再 draw()。
+   因为 draw() 末尾会 scheduleSave()（自动保存），
+   若先 draw 就可能把"上一次的进度"直接覆盖掉。 */
+const _rest = autoRestore();
+draw();
+if (_rest.ok && _rest.merged)
+  markSaved(`编辑器默认值更新过 —— 已把你的 ${_rest.kept} 处改动<b>合并</b>到新默认值上`);
+else if (_rest.ok)
+  markSaved("已自动恢复上次的编辑进度（存在浏览器本地）");
+else
+  markSaved();
+if (bootTip && typeof TIP_TEXT !== "undefined" && TIP_TEXT[bootTip]) {
+  const el = document.getElementById("tip");
+  el.innerHTML = `<b>演示：${bootTip}</b>${TIP_TEXT[bootTip]}`;
+  el.classList.add("on");
+  el.style.left = "560px";
+  el.style.top = "170px";
+}
+window.addEventListener("resize", () => draw());
+</script>
+</body>
+</html>

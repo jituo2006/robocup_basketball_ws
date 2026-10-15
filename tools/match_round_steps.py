@@ -183,7 +183,21 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                     # 机构关闭则只靠近；实际负vx见 rear_distance_scoop。
                     ok = runner.aligned_intake_approach()
             elif kind == 'carry':
-                ok = plan.unwind() and plan.action_point()
+                # 取球后回动作点：
+                #   默认（exit_after_pickup="direct"）：直接去，但先经 carry_via()
+                #       的途经点（弧线/深场时 = 上侧通道 + 通道上 x=4.8 的点），
+                #       和场地图编辑器里的路线一致。
+                #   旧行为（"unwind"）：沿走过的折线原路退回，再 action_point()。
+                if cfg.get('exit_after_pickup', 'direct') == 'unwind':
+                    ok = plan.unwind() and plan.action_point()
+                else:
+                    ok = True
+                    for _wp in plan.carry_via():
+                        if not plan.move(_wp):
+                            ok = False
+                            break
+                    if ok:
+                        ok = plan.action_point()
             elif kind == 'release':
                 # 重试会新建 plan，须恢复出球朝向；同次 carry 已完成则不重复走动作点。
                 if (release_kind == 'match' and getattr(runner.args, 'route_intake', True)

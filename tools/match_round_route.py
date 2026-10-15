@@ -283,23 +283,78 @@ class RoundRoute:
     def turn(self, heading):
         return self.r.rotate_to(self.frame.yaw(heading), timeout=45.)
 
-    def scan(self, target, heading, detect=True, centered=True):
-        """复用固定路线的横移控制；中线遇球即停，其余区域保留中心触发。"""
+    def scan(self, target, heading, detect=True, centered=False):
+        # centered=False（默认）：球出现在画面【任意位置】就停车，随后由
+        #     face_detected() 把车头转正对着球 —— 即"找到球 → 正对 → 停"。
+        # centered=True：只认画面中心带（0.5±route_center_tolerance）里的球，
+        #     即旧行为（车横移时球要自己扫进中心带才停）。
         # found=目标触发停车，empty=到线端没找到，failed=运动异常/超时。
         target, heading = self.frame.point(target), self.frame.yaw(heading)
         distance = math.hypot(target[0]-self.r.pose[0], target[1]-self.r.pose[1])
         speed = self.speed_profile.get('scan_mps', self.cfg['speed_mps'])
-        status, _det = self.r.scan_to(*target, heading,
+        status, det = self.r.scan_to(*target, heading,
                                      timeout=max(15., distance/speed+10.),
                                      speed=speed, detect=detect, centered=centered)
+        self.last_det = det          # 留给 face_detected() 用
         if status == 'found':
             # 记下实际停车点，不把尚未到达的右端点加入返程路线。
             self.search_origin = tuple(self.r.pose)
             self.trail.append(self.search_origin[:2])
-            self.say('识别到目标球，停车 → 转180° → 后摄横移对正')
+            self.say('识别到目标球，停车 → 正对球 → 转180° → 后摄横移对正')
         elif status == 'empty':
             self.trail.append(tuple(target))
         return status
+
+    def face_detected(self, timeout=20.):
+        # 把车头转向刚检测到的球，让它落到画面中心（"正对着球"）。
+        # 符号：Detection.bearing_rad 是相机约定【右正左负】；
+        #       cmd_vel.angular.z 是 ROS 约定【逆时针为正】，两者相反
+        #       ⇒ 目标朝向 = 当前朝向 − bearing。
+        #       （与 geometry.face_bearing_command 的 err = −bearing 同一约定。）
+        if self.cfg.get('face_ball_before_turn', True) is False:
+            return True
+        det = getattr(self, 'last_det', None)
+        if det is None:
+            return True
+        try:
+            bearing = float(getattr(det, 'bearing_rad', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return True
+        if not math.isfinite(bearing):
+            return True
+        if abs(bearing) < math.radians(2.0):
+            self.say('球已在正前方（偏差 <2°），不用转')
+            return True
+        if abs(bearing) > math.radians(120.0):
+            # 球在侧面/后方：转过去会把车带离搜索线，宁可不停
+            self.say('⚠️ 球的方位角 %+.0f° 超过 120°，放弃正对，继续搜索'
+                     % math.degrees(bearing))
+            return False
+        target_yaw = wrap(self.r.pose[2] - bearing)
+        self.say('正对球：方位角 %+.1f° ⇒ 车头转到 %+.1f°'
+                 % (math.degrees(bearing), math.degrees(target_yaw)))
+        return self.r.rotate_to(target_yaw, timeout=timeout)
+
+    def carry_via(self):
+        """取球后【回动作点之前】要经过的点，和场地图编辑器里的路线一致。
+
+        编辑器路线：
+          中线      @middle  → 传球点          （直接去，不绕）
+          弧线/深场 @arc/@inner → corridor → [4.8, 通道y] → 传球点
+                    ↑ 先回到上侧通道、再沿通道走到 x=4.8 才下去，
+                      避免从右侧直接斜穿半场置球区（绿色竖线）。
+        exit_after_pickup="unwind"（旧行为）时不返回途经点，
+        由 unwind() 沿走过的折线原路退回。
+        """
+        if self.cfg.get('exit_after_pickup', 'direct') == 'unwind':
+            return []
+        if getattr(self, 'area', None) not in ('arc', 'inner'):
+            return []
+        corridor = self.cfg.get('corridor')
+        if not corridor:
+            return []
+        cross_x = float(self.cfg.get('carry_cross_x_m', 4.8))
+        return [corridor, [cross_x, corridor[1]]]
 
     def unwind(self):
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
@@ -342,12 +397,19 @@ class RoundRoute:
         for p, yaw in points:
             if not self.turn(yaw):
                 return 'failed'
-            status = self.scan(p, yaw, detect=self.mode != 'drive', centered=area != 'middle')
+            # 球出现在画面任意位置就停；随后 face_detected() 把车头转正对球。
+            # 想回到旧行为（必须自己扫进中心带才停）把 scan_centered 设 true。
+            status = self.scan(p, yaw, detect=self.mode != 'drive',
+                               centered=bool(cfg.get('scan_centered', False)))
             if status != 'empty':
                 if status == 'found':
                     self.area = area
                     if search_only:
                         return status
+                    # ① 先把车头转成正对球（球框进画面中心）
+                    if not self.face_detected():
+                        continue          # 球在侧面/后方 → 当作没找到，接着扫
+                    # ② 再转身 180°，让球落到【后摄】视野里
                     # 单次 collect 的入口则在这里继续转180°、后摄对正和后退。
                     before = self.r.pose[2]
                     if not self.r.rotate_to(wrap(before+math.pi), timeout=45.):
@@ -364,10 +426,15 @@ class RoundRoute:
                     finally:
                         self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout = saved_distance, saved_timeout
                     self.say('取球动作完成，实际入仓仍需实物/传感器确认')
-                if not self.unwind():
-                    return 'failed'
+                # ③ 取球后：默认【直接去下一个点】，不原路退回。
+                #    配 exit_after_pickup="unwind" 可回到旧行为（沿走过折线退出）。
+                if cfg.get('exit_after_pickup', 'direct') == 'unwind':
+                    if not self.unwind():
+                        return 'failed'
                 return status
-        return 'empty' if self.unwind() else 'failed'
+        if cfg.get('exit_after_pickup', 'direct') == 'unwind':
+            return 'empty' if self.unwind() else 'failed'
+        return 'empty'
 
     def needs_pillar_alignment(self):
         return (self.cfg['release'][self.task].get('aim_mode') != 'fixed'
@@ -382,8 +449,11 @@ class RoundRoute:
                 if not self.move(p):
                     return False
         else:
-            if not self.move([cfg['start'][0], cfg['middle']['y']]):
-                return False
+            # 传球：默认直接去传球点（与编辑器路线一致）。
+            # pass_action_via_middle=true 时先绕到 (start.x, 中线y) —— 旧行为。
+            if self.cfg.get('pass_action_via_middle', False):
+                if not self.move([cfg['start'][0], cfg['middle']['y']]):
+                    return False
         action = cfg['release'][self.task]
         if not self.move(action['point']):
             return False
