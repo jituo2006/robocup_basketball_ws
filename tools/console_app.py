@@ -2400,12 +2400,15 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
             if name == "LAUNCH_PASS":
                 action = load_round_config()['release']['pass']
                 replies = []
-                for command in action['commands']:
+                waits = action.get('command_waits_s', [])
+                for index, command in enumerate(action['commands']):
                     ok, msg = bridge.launcher_text(command)
                     replies.append(f'{command}: {msg}')
                     if not ok:
                         return jsonify({'ok': False, 'msg': ' / '.join(replies)})
-                    time.sleep(action['wait_s'])
+                    wait = waits[index] if index < len(waits) else action['wait_s']
+                    if wait:
+                        time.sleep(wait)
                 return jsonify({'ok': bool(replies), 'msg': ' / '.join(replies)})
             if name == "LAUNCH_PLACE":
                 ok, msg = bridge.launcher_text("dji_move 1 0 5")

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 第3回合完整传球流程：无预装球，取两颗篮球、分别传球，再回位。
-# 默认关闭机构；--mechanism 开启机构。固定角度由 match_rounds.json
+# 默认开启机构；--no-mechanism 可关闭机构。固定角度由 match_rounds.json
 # release.pass.aim_mode=fixed / search_heading_deg 配置，不要求 aim 坐标。
 set -euo pipefail
-round_mechanism=--no-mechanism
+round_mechanism=--mechanism
 round_args=()
 for option in "$@"; do
   case "$option" in

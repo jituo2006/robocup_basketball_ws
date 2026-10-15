@@ -24,8 +24,16 @@ def test_formal_pass_two_releases_use_configured_start_relative_heading_and_retu
     cfg['release']['pass']['search_heading_deg'] = heading
     r, events = fake_runner(); origin = r.pose; r.args.route_intake = True
     launch_yaws = []
+    elapsed = [0.]
+    sent_at = []
+    original_spin = r.spin
+    def spin(seconds):
+        original_spin(seconds)
+        elapsed[0] += seconds
+    r.spin = spin
     def send(command):
         events.append(('text', command))
+        sent_at.append(elapsed[0])
         if command == 'vesc_shoot 3':
             launch_yaws.append(r.pose[2])
         return True, 'mock'
@@ -34,6 +42,8 @@ def test_formal_pass_two_releases_use_configured_start_relative_heading_and_retu
     assert launch_yaws == pytest.approx([StartFrame(origin, cfg['start']).yaw(math.radians(heading))]*2)
     commands = [e[1] for e in events if e[0] == 'text']
     assert commands == cfg['release']['pass']['commands']*2
+    for offset in (0, 5):
+        assert [sent_at[i+1]-sent_at[i] for i in range(offset, offset+4)] == pytest.approx([1., 1., 2., 0.])
     assert len([e for e in events if e[0] == 'scoop']) == (1 if number == 1 else 2)
     assert r.pose == pytest.approx(origin)
     assert stages.workflow_state(number, 'pass')['finished']
@@ -99,7 +109,7 @@ def test_round_shell_preflight_accepts_fixed_heading_without_target_coordinate(t
     script = (source / 'run_round_test.sh').read_text().replace('source /opt/ros/humble/setup.bash', ':')
     (tools / 'run_round_test.sh').write_text(script)
     (tools / 'test_perimeter_ball.py').write_text('import sys,json\nprint(json.dumps(sys.argv[1:]))\n')
-    result = subprocess.run(['bash', str(tools / f'run_round{number}.sh'), '--mechanism'],
+    result = subprocess.run(['bash', str(tools / f'run_round{number}.sh')],
                             capture_output=True, text=True, check=True)
     args = json.loads(result.stdout.splitlines()[-1])
     assert args[args.index('--route')+1] == f'round{number}'
@@ -121,4 +131,4 @@ def test_fixed_heading_release_retry_restores_angle_before_sending(tmp_path, mon
     r.intake_text = lambda command: yaws.append(r.pose[2]) or (True, 'mock')
     assert stages.execute_step(r, cfg, 1, 'pass', 1, 'match', emit=lambda msg: None)
     expected = StartFrame(origin, cfg['start']).yaw(math.radians(49))
-    assert yaws == pytest.approx([expected]*3)
+    assert yaws == pytest.approx([expected]*len(cfg['release']['pass']['commands']))

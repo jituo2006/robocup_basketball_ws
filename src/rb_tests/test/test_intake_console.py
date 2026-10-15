@@ -89,10 +89,11 @@ def test_fixed_route_ui_enables_automatic_scoop_by_default_but_retains_skip_swit
     assert "start_intake: $('routeIntake').checked" in ui
 
 
-@pytest.mark.parametrize('failed_command', [None, 'vesc_status', 'vesc_home'])
+@pytest.mark.parametrize('failed_command', [None, 'vesc_stop', 'vesc_home'])
 def test_manual_pass_sends_configured_sequence_and_aborts_on_failure(failed_command, monkeypatch):
     mod = console(); events = []
-    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    waits = []
+    monkeypatch.setattr(mod.time, "sleep", waits.append)
     def send(command):
         events.append(command)
         return command != failed_command, 'result'
@@ -100,10 +101,12 @@ def test_manual_pass_sends_configured_sequence_and_aborts_on_failure(failed_comm
     unused = NS()
     client = mod.make_app(bridge, unused, unused, unused, unused, unused, {}).test_client()
     response = client.post('/api/action', json={'name': 'LAUNCH_PASS'}).get_json()
-    expected = ['vesc_status', 'vesc_home', 'vesc_shoot 3']
+    expected = ['vesc_stop', 'vesc_home', 'vesc_shoot 3', 'vesc_stop', 'vesc_reset']
     assert mod.load_round_config()['release']['pass']['commands'] == expected
     assert response['ok'] == (failed_command is None)
     assert events == (expected if failed_command is None else expected[:expected.index(failed_command)+1])
+    if failed_command is None:
+        assert waits == [1., 1., 2.]
 
 
 def test_manual_lift_sends_full_initialization_before_move():

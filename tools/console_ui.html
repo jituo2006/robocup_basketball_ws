@@ -258,7 +258,7 @@
         <button data-guard="LAUNCH_TEXT" onclick="act('LAUNCH_PLACE')">👐 放下 dji_move 1 0 5</button>
       </div>
       <button class="primary" onclick="act('LAUNCH_PASS')">🏀 传球 vesc_shoot 3</button>
-      <div class="hint">传球：vesc_status → vesc_home → vesc_shoot 3。</div>
+      <div class="hint">传球：vesc_stop → 等1秒 → vesc_home → 等1秒 → vesc_shoot 3 → 等2秒 → vesc_stop → vesc_reset。</div>
       <label style="margin-top:6px">自由输入（不含换行，节点会补）
         <input type="text" id="stCmd" placeholder="例如 dji_move 1 90 5">
       </label>

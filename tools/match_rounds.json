@@ -88,11 +88,14 @@
       ],
       "aim": null,
       "commands": [
-        "vesc_status",
+        "vesc_stop",
         "vesc_home",
-        "vesc_shoot 3"
+        "vesc_shoot 3",
+        "vesc_stop",
+        "vesc_reset"
       ],
-      "wait_s": 2.0,
+      "command_waits_s": [1.0, 1.0, 2.0, 0.0, 0.0],
+      "wait_s": 1.0,
       "search_heading_deg": 49.0
     },
     "shoot": {
@@ -111,8 +114,8 @@
         "vesc_stop",
         "vesc_reset"
       ],
-      "command_waits_s": [2.0, 2.0, 3.0, 0.0, 0.0],
-      "wait_s": 2.0
+      "command_waits_s": [1.0, 1.0, 2.0, 0.0, 0.0],
+      "wait_s": 1.0
     }
   },
   "pillar_alignment": {
