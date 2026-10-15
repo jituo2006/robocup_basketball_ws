@@ -961,7 +961,13 @@ class Runner:
             return False
         self.stop()
         # 关闭机构仍完成底盘靠近，跳过下面全部串口指令。
+        # ⚠️ 这里必须打日志：出口球那边（RoundRoute.release）机构关闭时会打印
+        #    “机构开关关闭：跳过全部吸球/发射/放球指令”，而吸球这里原来一个字
+        #    都不打 —— 车照样后退到位、照样继续走，现场完全看不出机构被跳过，
+        #    表现就是“有时候吸球没有响应”。
         if not getattr(self.args, 'route_intake', False):
+            log('吸球跳过', '机构开关关闭（--no-route-intake / 控制台未勾选），'
+                          '本次只完成底盘靠近，不发任何串口指令', C_WARN)
             return True
         raised = False
         try:

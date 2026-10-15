@@ -93,9 +93,11 @@ def mirror_to_b(cfg):
     for k in ('top_y', 'bottom_y'):
         if isinstance(inner.get(k), (int, float)):
             inner[k] = -inner[k]
-    for k in ('dir_pass', 'dir_shoot'):
-        if inner.get(k) in ('bt', 'tb'):
-            inner[k] = 'tb' if inner[k] == 'bt' else 'bt'
+    # dir_pass / dir_shoot 【不能】互换。
+    # 它们的含义是"先扫 bottom_y 还是先扫 top_y"（见 search_plan 的 inner 分支），
+    # 而 top_y / bottom_y 上面已经取过负了 —— 变量本身就代表镜像后的两端，
+    # 所以 'bt' 仍然表示"从 bottom_y 扫到 top_y"。
+    # 再换一次方向等于【双重翻转】，B 出发的深场扫描顺序会反掉。
     arc = o.get('arc') or {}
     flip_pair(arc.get('center'))
     if isinstance(arc.get('angles_deg'), list):
@@ -326,7 +328,12 @@ def search_plan(cfg, area, cycle=0, round_number=None, task=None):
         m = cfg[area]
         direction = pick(m.get('scan_dir')) or 'lr'
         xs = (m['right_x'], m['left_x']) if direction == 'rl' else (m['left_x'], m['right_x'])
-        return [((x, m['y']), -math.pi/2) for x in xs]
+        # 【方向】前摄要朝【球线 y=0】看，不是死朝 -y：
+        #   车在 y>0（A 出发）⇒ 球线在 -y 侧 ⇒ 朝 -π/2
+        #   车在 y<0（B 出发）⇒ 球线在 +y 侧 ⇒ 朝 +π/2
+        # 写死 -π/2 的话，B 出发时前摄背对球线，整段中线扫描都看不到球。
+        face = -math.pi/2 if m['y'] >= 0 else math.pi/2
+        return [((x, m['y']), face) for x in xs]
 
     if area == 'inner':
         i = cfg[area]
@@ -481,8 +488,16 @@ class RoundRoute:
         if (cur_x - half) * (float(target_x) - half) >= 0:
             return []                                  # 同侧，直接去
         cross = [float(cfg.get('carry_cross_x_m', 4.8)), corridor[1]]
+        # 【方向】"车已经在通道高度（或更外侧）"这件事是有方向的：
+        #   通道在 y>0（A 出发）⇒ 更外侧是 y 更大，判 cur_y >= 通道y - 0.15
+        #   通道在 y<0（B 出发，整份路线镜像过）⇒ 更外侧是 y 更小，
+        #   必须判 cur_y <= 通道y + 0.15。
+        # 写成单向的话，B 出发时这个条件几乎永远成立，就【不会加横穿点】，
+        # 车会从球区中间直接斜穿半场置球线。
+        out = 1.0 if corridor[1] >= 0 else -1.0
+        at_corridor = out * cur_y >= abs(corridor[1]) - 0.15
         if cur_x < half:
-            lift = [] if cur_y >= corridor[1] - 0.15 else [cross]
+            lift = [] if at_corridor else [cross]
             return lift + [corridor]
         return [corridor, cross]
 
