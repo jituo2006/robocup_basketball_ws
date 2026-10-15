@@ -18,7 +18,7 @@
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.85,
+      "turn_rad_s": 1.0,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
@@ -27,7 +27,7 @@
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.85,
+      "turn_rad_s": 1.0,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
@@ -36,7 +36,7 @@
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 0.85,
+      "turn_rad_s": 1.0,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     }
