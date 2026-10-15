@@ -23,7 +23,7 @@ def test_intake_sequence_waits_for_initialization_and_never_uses_binary_commands
     ok,_=start_intake(lambda cmd:events.append(cmd) or (True,'sent'),
                       wait=lambda sec:events.append(sec))
     assert ok
-    assert events==['dji_stop',.3,'dji_zero',.8,'dji_move 1 90 5']
+    assert events==['dji_stop',.3,'dji_zero',.3,'dji_move 1 90 5']
 
 
 def test_intake_sequence_stops_on_failed_initialization():

@@ -43,6 +43,7 @@ import time
 WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
+from intake_control import start_intake, stop_intake
 from mechanism_control import RosMechanismClient
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
@@ -946,8 +947,7 @@ class Runner:
         return self.mechanism_client.controller.release(commands, waits, default_wait)
 
     def aligned_intake_approach(self, *, approach=True):
-        self.mechanism_last_error = ''
-        # 已完成180°转身和后摄旋转对正；先按距离向球后退，再动作机构。
+        # 已完成180°转身和后摄横移对正；先按距离向球后退，再动作机构。
         # 分阶段续跑若已走够距离，用 approach=False 只完成尚未执行的铲球。
         if approach and not self.rear_distance_scoop():
             self.stop()
@@ -962,13 +962,26 @@ class Runner:
             log('吸球跳过', '机构开关关闭（--no-route-intake / 控制台未勾选），'
                           '本次只完成底盘靠近，不发任何串口指令', C_WARN)
             return True
-        settle = getattr(self.args, 'route_intake_settle', None)
-        hold_s = 5. if settle is None else float(settle)
-        ok, message = self.mechanism_client.controller.pickup(hold_s)
-        self.mechanism_last_error = '' if ok else message
-        log('铲球动作确认', message, C_OK if ok else C_BAD)
+        # 用户指定的原始指令时序；不查询dji_status，不等待位置/速度状态。
+        raised, message = start_intake(self.intake_text,
+                                      wait=lambda delay: self.spin(delay))
+        log('自动铲球', message, C_OK if raised else C_BAD)
+        if not raised:
+            return False
+        # 抬起指令发出后明确停底盘；两个5秒均从指令发送后开始计时。
         self.stop()
-        return ok
+        self.spin(5.)
+        lowered, message = stop_intake(self.intake_text)
+        log('铲球后放下', message, C_OK if lowered else C_BAD)
+        if not lowered:
+            return False
+        self.spin(5.)
+        stopped, message = self.intake_text('dji_stop')
+        log('捡球末尾停止', message, C_OK if stopped else C_BAD)
+        if not stopped:
+            return False
+        log('捡球流程', '固定时序已发送完成，交回后续路线继续底盘运动；未检测球是否入仓')
+        return True
 
     def _rear_visual_scoop(self, approach=True):
         """Search left then right; rotate the rear camera onto the ball."""

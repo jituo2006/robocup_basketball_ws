@@ -1,7 +1,6 @@
-"""Legacy raw manual presets; automatic routes use mechanism_control.
+"""Raw intake command presets used by the automatic timed pickup.
 
-These helpers only write commands. They do not prove acceptance or completion.
-Do not use start_intake to re-zero an automatic pickup on every ball.
+Only serial writes are checked; no DJI status polling or physical-arrival claim.
 """
 import time
 
@@ -21,7 +20,7 @@ def _sequence(send, steps, wait, finish_on_error=False):
 
 
 def start_intake(send, wait=time.sleep):
-    return _sequence(send, [('dji_stop', .3), ('dji_zero', .8), ('dji_move 1 90 5', 0.)], wait)
+    return _sequence(send, [('dji_stop', .3), ('dji_zero', .3), ('dji_move 1 90 5', 0.)], wait)
 
 
 def stop_intake(send, wait=time.sleep):
