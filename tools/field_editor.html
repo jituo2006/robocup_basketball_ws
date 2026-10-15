@@ -300,7 +300,7 @@ const DEFAULTS = {
        穷举过：第2轮 lr 比 rl 省 3.4 m（传球）/ 3.9 m（投篮）。 */
     /* y=4.45 是【旧帧】；导出成新帧就是 0.7（0.7 = 到球线的距离，正好等于 scoop_m），
        面板/悬停里看到的就是 0.7。 */
-    middle: { y: 4.45, left_x: 0.6, right_x: 4.4, scoop_m: 0.7,
+    middle: { y: 4.45, left_x: 0.6, right_x: 4.4, scoop_m: 0.5,
               scan_dir: { "1": "rl", "2": "lr", "3": "lr" } },
     /* 三分弧。传球走【外侧】R=4.65（扫完往左回传球点）；
        投篮走【内侧】R=2.85（2026 规则允许进三分线取球；内侧离投篮点近得多）。
@@ -355,7 +355,7 @@ const DEFAULTS = {
        代码位置：tools/match_round_route.py 的 scan() / face_detected() / search_area() */
     face_ball_before_turn: true,
     exit_after_pickup: "direct",
-    scan_centered: false,
+    scan_centered: true,
     /* 取球后回动作点的绕行：弧线/深场时先经【上侧通道 + 通道上 x=carry_cross_x_m 的点】
        —— 对应编辑器路线里的 corridor → [4.8, 6.8]（旧帧）。中线不绕，直接去传球点。 */
     carry_cross_x_m: 4.8,

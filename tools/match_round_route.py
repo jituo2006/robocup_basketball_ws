@@ -386,12 +386,21 @@ class RoundRoute:
                 return 'failed'
         points = search_plan(cfg, area, cycle, self.round, self.task)
         if area == 'middle':
-            # 先朝黄线到 C，再按本回合方向横移；第一遍就启用识球。
+            # 直接到【本回合方向的第一扫描点】，再从那里扫向另一端。
+            # ⚠️ 原来写的是 move([start.x, middle.y])，x 被硬编码成出发点的 1.5，
+            #    于是第1轮（scan_dir=rl）会：先进场 → 到 (1.5, 中线y) → 向右到 4.4
+            #    → 再向左扫。多了一趟"向右"，看上去就是从【左往右】找。
+            #    改成 points[0] 后：
+            #      第1轮 rl → 直接去 x=4.4（右端），再向左扫到 0.6  ✔
+            #      第2轮 lr → 直接去 x=0.6（左端），再向右扫到 4.4  ✔
+            #    到底点用 goto（不认球）；随后循环里的 scan 会先在 points[0] 查一次球，
+            #    没有就继续扫到 points[1] —— 整条线仍然全程认球。
             if not self.turn(points[0][1]):
                 return 'failed'
-            if not self.move([cfg['start'][0], cfg['middle']['y']], remember=True):
+            if not self.move(points[0][0], remember=True):
                 return 'failed'
-            self.say(f"中线先扫至 X={points[0][0][0]:.2f}，再扫至 X={points[1][0][0]:.2f}，遇球即停")
+            self.say(f"中线到本回合起扫点 X={points[0][0][0]:.2f}，"
+                     f"再扫至 X={points[1][0][0]:.2f}，遇球即停")
         elif not self.move(points[0][0], remember=True):
             return 'failed'
         for p, yaw in points:
