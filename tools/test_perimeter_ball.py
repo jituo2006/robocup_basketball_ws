@@ -692,9 +692,11 @@ class Runner:
 
     # -- 基本动作 -----------------------------------------------------------
     def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
-        """按新鲜定位到目标容差内即停车，不附加测速和停稳确认等待。"""
+        """保持进入本段时的朝向，持续控制至目标容差内。"""
         tol = self.args.tol if tolerance is None else tolerance
         last_log = 0.0
+        heading = self.pose[2]
+        log('到点开始', f'起点={self.pose} 目标=({tx:.3f},{ty:.3f}) 保持朝向={math.degrees(heading):.1f}°')
         try:
             if not all(math.isfinite(v) for v in (tx, ty, tol)) or tol <= 0:
                 raise ValueError('到点目标和容差必须有效且有限')
@@ -713,36 +715,51 @@ class Runner:
                     approach_speed=self.args.approach_speed)
                 t = self._Twist()
                 t.linear.x, t.linear.y = vx, vy
+                # goto_command(face_travel=False)只转换平移，不会保持车头方向。
+                # 入场右转之后若朝向漂移，先修正再继续该段，不能一直横着跑。
+                heading_error = wrap_pi(heading-yaw)
+                rate = self.yaw_rate if math.isfinite(self.yaw_rate) else 0.
+                t.angular.z = max(-self.args.max_ang, min(self.args.max_ang,
+                    self.args.kp_yaw*heading_error-self.args.kd_yaw*rate))
+                if abs(heading_error) > self.args.route_heading_tol:
+                    t.linear.x = t.linear.y = 0.
                 self.publish_command(t)
                 if time.monotonic()-last_log > 1.:
                     last_log = time.monotonic()
-                    log('移动', f'→({tx:.2f},{ty:.2f}) 剩余 {dist:.2f}m')
+                    log('移动', f'→({tx:.2f},{ty:.2f}) 剩余 {dist:.2f}m 位姿=({x:.2f},{y:.2f},{math.degrees(yaw):.1f}°) cmd=({t.linear.x:.3f},{t.linear.y:.3f},{t.angular.z:.3f})')
         finally:
             self.stop()
 
     def rotate_to(self, target_yaw: float, timeout: float) -> bool:
         # target_yaw 是定位坐标中的绝对朝向（弧度），不是“再转多少度”。
         # 【后续动作的关口】调用者只有收到 True 才进入横移/后退。
-        while True:
-            self.spin(0.05)
-            if self.pose is None:
-                self.stop()
-                return False
-            err = wrap_pi(target_yaw - self.pose[2])
-            if abs(err) < self.args.yaw_tol:
-                self.stop()
-                log('转向到位', f'yaw 误差 {math.degrees(err):+.1f}°', C_OK)
-                return True
-            t = self._Twist()
-            # PD 转向：角度误差给动力，实测角速度给阻尼；最大 0.3rad/s。
-            # yaw_rate 尚未有效时可能为 inf，下面会发零速等新定位，而不转。
-            wz = self.args.kp_yaw * err - self.args.kd_yaw * self.yaw_rate
-            if not math.isfinite(wz):
-                self.stop()
-                continue
-            t.angular.z = max(-self.args.max_ang, min(self.args.max_ang, wz))
-            trace("rotation", target_yaw=target_yaw, error=err)
-            self.publish_command(t)
+        if self.pose is None or not math.isfinite(target_yaw):
+            self.stop()
+            return False
+        origin = self.pose
+        last_log = 0.
+        log('转向开始', f'当前={math.degrees(origin[2]):.1f}° 目标={math.degrees(target_yaw):.1f}°')
+        try:
+            while True:
+                self.spin(0.05)
+                self.require_fresh_pose()
+                err = wrap_pi(target_yaw-self.pose[2])
+                moment = time.monotonic()
+                if abs(err) < self.args.yaw_tol:
+                    log('转向到位', f'目标={math.degrees(target_yaw):.1f}° 实际={math.degrees(self.pose[2]):.1f}° 误差={math.degrees(err):+.1f}°', C_OK)
+                    return True
+                t = self._Twist()
+                wz = self.args.kp_yaw*err-self.args.kd_yaw*self.yaw_rate
+                if not math.isfinite(wz):
+                    self.stop()
+                    continue
+                t.angular.z = max(-self.args.max_ang, min(self.args.max_ang, wz))
+                self.publish_command(t)
+                if moment-last_log > 1.:
+                    last_log = moment
+                    log('转向执行', f'当前={math.degrees(self.pose[2]):.1f}° 误差={math.degrees(err):+.1f}° wz={t.angular.z:.3f}')
+        finally:
+            self.stop()
 
     # -- 视觉 ---------------------------------------------------------------
     def best_ball(self):

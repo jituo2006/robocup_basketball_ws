@@ -27,6 +27,8 @@ for option in "$@"; do
 done
 round_test_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$round_test_root"
+# 三个回合及上电自动入口共用当前坐标参数，避免依赖启动目录。
+round_test_config="$round_test_root/tools/match_rounds.json"
 set +u
 source /opt/ros/humble/setup.bash
 source install/setup.bash
@@ -38,5 +40,6 @@ else
   echo "整轮测试：第${round_number}轮 ${round_task}，两次处理球后回位。首球默认场上取球，规则模式加 --round-first-ball preloaded。"
 fi
 exec python3 tools/test_perimeter_ball.py --route "round${round_number}" \
+  --round-config "$round_test_config" \
   --round-task "$round_task" --round-mode "$round_mode" --round-release-kind drop \
   --round-first-ball search --takeover --yes ${round_extra_args[@]+"${round_extra_args[@]}"}

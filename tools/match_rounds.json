@@ -1,15 +1,15 @@
 {
   "start": [
     1.5,
-    8.0
+    4.25
   ],
   "entry": [
     1.5,
-    6.8
+    3.05
   ],
   "corridor": [
     6.4,
-    6.8
+    3.05
   ],
   "speed_mps": 0.25,
   "speed_profiles": {
@@ -28,7 +28,7 @@
     "dji_move 1 0 5"
   ],
   "middle": {
-    "y": 4.8,
+    "y": 1.05,
     "left_x": 0.6,
     "right_x": 4.4,
     "scoop_m": 0.7,
@@ -41,7 +41,7 @@
   "arc": {
     "center": [
       11.0,
-      3.75
+      0.0
     ],
     "radius": 4.65,
     "angles_deg": [
@@ -72,8 +72,8 @@
   },
   "inner": {
     "x": 8.2,
-    "top_y": 6.9,
-    "bottom_y": 4.4,
+    "top_y": 3.15,
+    "bottom_y": 0.65,
     "scoop_m": 0.15,
     "x_shoot": 9.8,
     "dir_pass": "bt",
@@ -84,7 +84,7 @@
       "aim_mode": "fixed",
       "point": [
         3.55,
-        4.95
+        1.2
       ],
       "aim": null,
       "commands": [
@@ -98,11 +98,11 @@
     "shoot": {
       "point": [
         10.45,
-        4.55
+        0.8
       ],
       "aim": [
         12.425,
-        3.75
+        0.0
       ],
       "commands": [],
       "wait_s": 2.0
@@ -120,5 +120,6 @@
     "camera_yaw_offset_rad": 0.0,
     "launcher_yaw_offset_deg": 0.0
   },
-  "round1_first_ball": "preloaded"
+  "round1_first_ball": "preloaded",
+  "coordinate_y_offset_m": -3.75
 }

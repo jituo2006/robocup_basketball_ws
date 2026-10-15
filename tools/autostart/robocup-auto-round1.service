@@ -2,6 +2,7 @@
 Description=RoboCup first passing round on shared chassis/sensor power
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +13,7 @@ ExecStart=/usr/bin/python3 @WORKSPACE@/tools/auto_round1.py --config @WORKSPACE@
 StateDirectory=robocup-auto-round1
 KillMode=control-group
 TimeoutStopSec=30
-Restart=on-failure
+Restart=always
 RestartSec=2
 
 [Install]

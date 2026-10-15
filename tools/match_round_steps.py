@@ -128,7 +128,13 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             if kind == 'entry':
                 # 起步默认先静止5秒，随后右转并进场；等待期间也会处理定位回调。
                 runner.spin(start_wait_seconds(cfg, runner.args))
-                ok = plan.turn(-math.pi/2) and plan.move(cfg['entry'])
+                plan.say(f"入场1/2：右转90°，当前定位={runner.pose}，目标朝向={math.degrees(plan.frame.yaw(-math.pi/2)):.1f}°")
+                ok = plan.turn(-math.pi/2)
+                if ok:
+                    plan.say(f"入场2/2：前往E，名义坐标={cfg['entry']}，定位目标={plan.frame.point(cfg['entry'])}")
+                    ok = plan.move(cfg['entry'])
+                if ok:
+                    plan.say(f'入场完成：定位={runner.pose}；开始下一动作')
             elif kind == 'action':
                 ok = plan.action_point()
             elif kind == 'search':

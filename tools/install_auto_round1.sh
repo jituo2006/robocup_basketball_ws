@@ -26,6 +26,9 @@ PY
 systemctl daemon-reload
 if [[ "$auto_enable" == 1 ]]; then
   systemctl enable --now robocup-auto-round1.service
+  systemctl is-enabled --quiet robocup-auto-round1.service
+  systemctl is-active --quiet robocup-auto-round1.service
+  echo '已启用开机启动和后台监视；完成或失败后自动恢复等待新的断电→上电。'
 else
   echo '服务已安装，尚未启用：sudo systemctl enable --now robocup-auto-round1.service'
 fi

@@ -57,11 +57,14 @@ def load_config(path=CONFIG):
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
+    # Y 原点平移时，场地边界与动作区域校验使用同一偏移。
+    y_offset = cfg.get('coordinate_y_offset_m', 0.)
+    number(y_offset, -math.inf, math.inf)
     def point(value, start=False):
         if not isinstance(value, list) or len(value) != 2:
             raise ValueError('路线坐标须为 [x,y]')
         number(value[0], 0, 14)
-        number(value[1], 0, 8.5 if start else 7.5)
+        number(value[1], y_offset, (8.5 if start else 7.5)+y_offset)
     point(cfg['start'], start=True)
     for key in ('entry', 'corridor'):
         point(cfg[key])
@@ -94,7 +97,7 @@ def load_config(path=CONFIG):
         if not isinstance(vision['stable_frames'], int):
             raise ValueError('定位柱稳定帧数须为整数')
     m, a, i = cfg['middle'], cfg['arc'], cfg['inner']
-    number(m['y'], 0, 7.5)
+    number(m['y'], y_offset, 7.5+y_offset)
     number(m['left_x'], 0, 14)
     number(m['right_x'], 0, 14)
     if m['left_x'] >= m['right_x']:
@@ -108,8 +111,8 @@ def load_config(path=CONFIG):
     for p, _ in search_plan(cfg, 'arc'):
         point(list(p))
     number(i['x'], 0, 14)
-    number(i['top_y'], 0, 7.5)
-    number(i['bottom_y'], 0, 7.5)
+    number(i['top_y'], y_offset, 7.5+y_offset)
+    number(i['bottom_y'], y_offset, 7.5+y_offset)
     if i['bottom_y'] >= i['top_y']:
         raise ValueError('内侧搜索下端须小于上端')
     for area in (m, a, i):
@@ -140,9 +143,9 @@ def load_config(path=CONFIG):
     # 点的合法性只检查规划中心，不代替整机包络的实测。
     p = cfg['release']['pass']['point']
     q = cfg['release']['shoot']['point']
-    if math.hypot(p[0]-2.5, p[1]-3.75) >= 2.5:
+    if math.hypot(p[0]-2.5, p[1]-(3.75+y_offset)) >= 2.5:
         raise ValueError('传球动作点须在传球圆内')
-    if math.hypot(q[0]-12.425, q[1]-3.75) <= 2:
+    if math.hypot(q[0]-12.425, q[1]-(3.75+y_offset)) <= 2:
         raise ValueError('投篮动作点须在投篮边界外')
     return cfg
 
