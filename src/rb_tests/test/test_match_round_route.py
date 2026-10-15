@@ -93,9 +93,10 @@ def test_rule_target_regions_differ_by_round_and_task():
 
 
 @pytest.mark.parametrize('cycle', [0, 1])
-def test_middle_always_starts_at_diagram_right_end_before_scanning_left(cycle):
-    points = search_plan(load_config(), 'middle', cycle)
-    assert [p for p, yaw in points] == [(4.4, 4.8), (.6, 4.8)]
+@pytest.mark.parametrize('number,xs', [(1, (4.4, .6)), (2, (.6, 4.4)), (3, (.6, 4.4))])
+def test_middle_direction_uses_selected_round_for_each_ball(cycle, number, xs):
+    points = search_plan(load_config(), 'middle', cycle, number, 'pass')
+    assert [p for p, yaw in points] == [(x, 4.8) for x in xs]
     assert all(yaw == pytest.approx(-math.pi/2) for p, yaw in points)
 
 
@@ -114,21 +115,21 @@ def test_middle_first_outward_sweep_stops_before_right_end_and_remembers_actual_
     assert plan.trail[:3] == [(1.5, 6.8), (1.5, 4.8), (1.5, 4.8)]
 
 
-def test_middle_scan_velocity_is_towards_diagram_left_after_preposition():
+def test_round2_middle_scans_left_then_right():
     cfg = load_config(); r, events = fake_runner(); r.pose = (1.5, 8., 0.)
     plan = RoundRoute(r, cfg, 2, 'pass', 'collect', emit=lambda msg: None)
     commands = []; publish = r.publish_command
-    searching_left = [False]
+    searching_right = [False]
     def command(tw):
         commands.append((tw.linear.x, tw.linear.y))
-        if tw.linear.y < 0:
-            searching_left[0] = True
+        if tw.linear.y > 0:
+            searching_right[0] = True
         publish(tw)
     r.publish_command = command
-    r.centered_target_candidates = lambda dets, **kwargs: NS() if searching_left[0] else None
+    r.centered_target_candidates = lambda dets, **kwargs: NS() if searching_right[0] else None
     assert plan.search_area('middle', 1, search_only=True) == 'found'
-    assert commands[0] == pytest.approx((0., .25))
-    assert any(c == pytest.approx((0., -.25)) for c in commands)
+    assert commands[0] == pytest.approx((0., -.25))
+    assert any(c == pytest.approx((0., .25)) for c in commands)
     assert plan.search_origin[0] < 4.4
 
 
@@ -204,7 +205,7 @@ def test_wrong_heading_does_not_translate_when_recovery_fails():
 def test_cycle_requires_real_release_configuration_before_motion():
     r, events = fake_runner()
     with pytest.raises(ValueError, match='出球'):
-        RoundRoute(r, load_config(), 2, 'pass', 'cycle')
+        RoundRoute(r, load_config(), 2, 'shoot', 'cycle')
     assert events == []
 
 
@@ -235,7 +236,7 @@ def test_frontend_reads_current_config_defaults_without_actuating():
     client=mod.make_app(unused,unused,unused,unused,unused,unused,{}).test_client()
     cfg=client.get('/api/round-config').get_json()
     assert cfg['ok'] and cfg['scoop_m']=={'middle':.70,'arc':.25,'inner':.15}
-    assert cfg['release_ready']=={'pass':False,'shoot':False}
+    assert cfg['release_ready']=={'pass':True,'shoot':False}
     assert cfg['forward_m']==pytest.approx(3.2)
     assert cfg['middle_scan']==pytest.approx({'start_x':4.4, 'end_x':.6,
                                              'preposition_m':2.9, 'distance_m':3.8})
@@ -258,7 +259,7 @@ def test_frontend_routes_call_tool_with_task_mode_and_distances(name):
 
 @pytest.mark.parametrize('args', [{'task':'basketball'}, {'mode':'arbitrary'},
     {'inner_scoop':float('nan')}, {'arc_scoop':-1}, {'scoop_speed':0},
-    {'mode':'cycle','release_kind':'match'}])
+    {'task':'shoot','mode':'cycle','release_kind':'match'}])
 def test_bad_ui_parameters_never_launch_motion(args):
     mod=console();tool=NS(start=lambda *args:pytest.fail('invalid settings cannot start'))
     unused=NS()

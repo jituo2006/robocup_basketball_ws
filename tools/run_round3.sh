@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# 第3轮比赛流程（pass）：无中线球 → 三分弧/内线取2球 → 传球点 → 回位
-#
-# ⚠️ 与第1轮的区别（照 run_first_round.sh 的样板，只改这几处）：
-#   * 【没有预装球】—— preloaded 分支只在 round==1 生效
-#     （match_round_route.py:354），所以第3轮第1阶段就要完整
-#     走 search → align → approach → carry → release
-#   * 【搜索顺序】search_order(3, pass) = ['arc', 'inner']
-#     （match_round_route.py:132-139，已按规则用球表写好）
-#
-# ⚠️ 机构开关默认【关闭】：先用 --no-mechanism 把整条路线跑通
-#    （只走位姿，不发任何串口）。要真出球用 --mechanism。
-#    但注意：真出球（match 模式）需要 match_rounds.json 里
-#        release.pass.commands 非空 且 aim 非 null
-#    否则 match_round_route.py:126-129 会直接抛
-#        ValueError('双次流程须先配置真实出球 commands 和 aim')
+# 第3回合完整传球流程：无预装球，取两颗篮球、分别传球，再回位。
+# 默认关闭机构；--mechanism 开启机构。固定角度由 match_rounds.json
+# release.pass.aim_mode=fixed / search_heading_deg 配置，不要求 aim 坐标。
 set -euo pipefail
 round_mechanism=--no-mechanism
 round_args=()
@@ -29,20 +17,14 @@ done
 if [[ "$round_mechanism" == --mechanism ]]; then
   _rounds_json="$(dirname "${BASH_SOURCE[0]}")/match_rounds.json"
   python3 - "$_rounds_json" <<'PYCHECK'
-import json, sys, pathlib
-# ⚠️ heredoc 里没有 __file__ ✗，路径必须由 shell 传进来 ✓
-p = pathlib.Path(sys.argv[1])
-cfg = json.loads(p.read_text(encoding='utf-8'))
-rel = cfg['release']['pass']
-missing = []
-if not rel.get('commands'):
-    missing.append(f"release.pass.commands 为空")
-if rel.get('aim') is None:
-    missing.append(f"release.pass.aim 为 null")
-if missing:
-    print('无法启动 match 模式（真出球）：' + '；'.join(missing), file=sys.stderr)
-    print('请先在 tools/match_rounds.json 里填好这两项；', file=sys.stderr)
-    print('或先用 --no-mechanism 跑通路线。', file=sys.stderr)
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parent))
+from match_round_route import load_config, validate_mode
+try:
+    validate_mode(load_config(sys.argv[1]), 'pass', 'cycle', 'match', mechanism_enabled=True)
+except (ValueError, KeyError, TypeError) as exc:
+    print(f'无法启动正式传球：{exc}', file=sys.stderr)
     sys.exit(2)
 PYCHECK
 fi

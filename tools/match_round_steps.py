@@ -176,9 +176,10 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             elif kind == 'carry':
                 ok = plan.unwind() and plan.action_point()
             elif kind == 'release':
-                # 失败后重试 release 会新建 plan，补做对准；同次 carry 已完成则不重复走动作点。
+                # 重试会新建 plan，须恢复出球朝向；同次 carry 已完成则不重复走动作点。
                 if (release_kind == 'match' and getattr(runner.args, 'route_intake', True)
-                        and not plan.target_aligned and not plan.action_point()):
+                        and (not plan.heading_ready or (plan.needs_pillar_alignment() and not plan.target_aligned))
+                        and not plan.action_point()):
                     raise RuntimeError('动作点对准未完成')
                 ok = plan.release()
             elif kind == 'home':

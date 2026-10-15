@@ -24,7 +24,7 @@ def test_round1_pickup_stops_in_passing_zone_without_zone_release(monkeypatch):
     import match_round_route
     monkeypatch.setattr(match_round_route, 'align_pillar', lambda *a, **k: pytest.fail('先测取球到位，不等待柱对准'))
     assert RoundRoute(r, cfg, 1, 'pass', 'collect', release_kind='drop', emit=lambda m: None).execute()
-    assert r.pose[:2] == pytest.approx((3.6, 4.5))
+    assert r.pose[:2] == pytest.approx((3.55, 4.95))
     assert ('scoop', 'ball_basketball', .70) in events
     assert not any(e[0] == 'text' for e in events)
     assert events[-1] == ('stop',)
@@ -96,16 +96,15 @@ def test_first_competition_round_can_skip_all_mechanisms_but_complete_entire_rou
     assert not [e for e in events if e[0] == 'text']
 
 
-def test_first_competition_button_with_mechanism_off_accepts_unconfigured_release():
+@pytest.mark.parametrize('mechanism', [False, True])
+def test_first_competition_button_accepts_fixed_heading_with_mechanism_on_or_off(mechanism):
     mod = console(); calls = []; unused = NS(log_line=lambda *args: None)
     tool = NS(start=lambda key, args: calls.append(args) or (True, 'started'))
     client = mod.make_app(unused, unused, tool, unused, unused, unused, {}).test_client()
-    args = {'whole_round': True, 'first_ball': 'preloaded', 'release_kind': 'match', 'start_intake': False}
+    args = {'whole_round': True, 'first_ball': 'preloaded', 'release_kind': 'match', 'start_intake': mechanism}
     assert client.post('/api/action', json={'name': 'TEST_ROUND1', 'args': args}).get_json()['ok']
-    assert '--no-route-intake' in calls[0]
+    assert ('--route-intake' if mechanism else '--no-route-intake') in calls[0]
     assert calls[0][calls[0].index('--round-first-ball')+1] == 'preloaded'
-    args['start_intake'] = True
-    assert not client.post('/api/action', json={'name': 'TEST_ROUND1', 'args': args}).get_json()['ok']
 
 
 @pytest.mark.parametrize('number', [1, 2, 3])

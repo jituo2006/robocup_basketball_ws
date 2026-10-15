@@ -97,6 +97,10 @@ def load_config(path=CONFIG):
     for task, action in cfg['release'].items():
         if task not in TASK_LABELS:
             raise ValueError('动作类型须为 pass/shoot')
+        if action.get('aim_mode', 'target') not in ('target', 'fixed'):
+            raise ValueError('出球朝向模式须为 target/fixed')
+        if action.get('aim_mode') == 'fixed':
+            number(action['search_heading_deg'], -math.inf, math.inf)
         point(action['point'])
         if action['aim'] is not None:
             point(action['aim'])
@@ -120,6 +124,10 @@ def load_config(path=CONFIG):
     return cfg
 
 
+def release_ready(action):
+    return bool(action['commands']) and (action.get('aim_mode') == 'fixed' or action['aim'] is not None)
+
+
 def validate_mode(cfg, task, mode, release_kind='match', mechanism_enabled=True):
     if task not in TASK_LABELS or mode not in ('drive', 'collect', 'cycle'):
         raise ValueError('任务/实验模式无效')
@@ -129,8 +137,8 @@ def validate_mode(cfg, task, mode, release_kind='match', mechanism_enabled=True)
         raise ValueError('机构开关须为布尔值')
     if mode == 'cycle' and release_kind == 'match' and mechanism_enabled:
         action = cfg['release'][task]
-        if not action['commands'] or action['aim'] is None:
-            raise ValueError('双次流程须先在 tools/match_rounds.json 配置真实出球 commands 和 aim；可先用取球实验')
+        if not release_ready(action):
+            raise ValueError('双次流程须配置真实出球 commands；朝向须配置 aim 或使用 fixed 模式的 search_heading_deg')
 
 
 def search_order(round_number, task):
@@ -213,6 +221,7 @@ class RoundRoute:
         self.trail = []
         self.search_origin = None
         self.target_aligned = False
+        self.heading_ready = False
         self.last_error = ''
         if round_number == 1 and release_kind == 'match' and cfg.get('round1_first_ball', 'preloaded') != 'preloaded':
             raise ValueError('规则第1轮首球须预装；场上取首球仅用于放球联调')
@@ -279,14 +288,14 @@ class RoundRoute:
         for p in transit:
             if not self.move(p, remember=True):
                 return 'failed'
-        points = search_plan(cfg, area, cycle, self.round_number, self.task)
+        points = search_plan(cfg, area, cycle, self.round, self.task)
         if area == 'middle':
-            # 先朝黄线到 C，再向图右端横移；中线横移的第一遍就启用识球。
+            # 先朝黄线到 C，再按本回合方向横移；第一遍就启用识球。
             if not self.turn(points[0][1]):
                 return 'failed'
             if not self.move([cfg['start'][0], cfg['middle']['y']], remember=True):
                 return 'failed'
-            self.say(f"中线向图右端 X={cfg['middle']['right_x']:.2f} 横移，遇球即停；没球再向左搜索")
+            self.say(f"中线先扫至 X={points[0][0][0]:.2f}，再扫至 X={points[1][0][0]:.2f}，遇球即停")
         elif not self.move(points[0][0], remember=True):
             return 'failed'
         for p, yaw in points:
@@ -318,8 +327,13 @@ class RoundRoute:
                 return status
         return 'empty' if self.unwind() else 'failed'
 
+    def needs_pillar_alignment(self):
+        return (self.cfg['release'][self.task].get('aim_mode') != 'fixed'
+                and self.cfg.get('pillar_alignment', {}).get('enabled', False))
+
     def action_point(self, aim=True):
         cfg = self.cfg
+        self.heading_ready = False
         # 投篮点在绿线右边，过半场仍走上侧通道；传球点位于左侧传球圆内。
         if self.task == 'shoot':
             for p in (cfg['entry'], cfg['corridor']):
@@ -334,7 +348,7 @@ class RoundRoute:
         if not aim:
             self.r.stop()
             return True
-        if action['aim'] is not None:
+        if action.get('aim_mode') != 'fixed' and action['aim'] is not None:
             target = self.frame.point(action['aim'])
             heading = math.atan2(target[1]-self.r.pose[1], target[0]-self.r.pose[0])
         else:
@@ -342,10 +356,13 @@ class RoundRoute:
         if not self.r.rotate_to(heading, timeout=45.):
             return False
         self.r.stop()
+        self.heading_ready = True
+        if action.get('aim_mode') == 'fixed':
+            self.say(f"按本轮起始朝向旋转至配置角度 {action['search_heading_deg']:.1f}°，不做前摄对柱微调")
         self.target_aligned = False
         vision = cfg.get('pillar_alignment', {})
         if (self.mode != 'drive' and getattr(self.r.args, 'route_intake', True)
-                and vision.get('enabled', False)):
+                and self.needs_pillar_alignment()):
             self.say('雷达到动作点，前摄用定位柱微调出球方向')
             self.target_aligned = align_pillar(self.r, vision, heading, emit=self.say)
             if not self.target_aligned and self.release_kind == 'match':
@@ -358,7 +375,10 @@ class RoundRoute:
         if not getattr(self.r.args, 'route_intake', True):
             self.say('机构开关关闭：跳过全部吸球/发射/放球指令，继续本轮后续路线')
             return True
-        if (self.release_kind == 'match' and self.cfg.get('pillar_alignment', {}).get('enabled')
+        if self.release_kind == 'match' and action.get('aim_mode') == 'fixed' and not self.heading_ready:
+            self.say('尚未转到配置的传球角度，本次不发射')
+            return False
+        if (self.release_kind == 'match' and self.needs_pillar_alignment()
                 and not self.target_aligned):
             self.say('尚未对准定位柱，先完成动作点对准')
             return False

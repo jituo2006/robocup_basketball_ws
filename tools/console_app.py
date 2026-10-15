@@ -45,7 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from intake_control import start_intake, stop_intake
-from match_round_route import load_config as load_round_config, validate_mode as validate_round_mode
+from match_round_route import load_config as load_round_config, validate_mode as validate_round_mode, release_ready
 from match_round_steps import validate_step as validate_round_step, workflow_state
 
 import numpy as np
@@ -2198,8 +2198,11 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                                             'distance_m': cfg['middle']['right_x']-cfg['middle']['left_x']},
                             'scoop_m': {area: cfg[area]['scoop_m'] for area in ('middle', 'arc', 'inner')},
                             'pillar_alignment': cfg.get('pillar_alignment', {}),
+                            'release_heading': {task: {'mode': action.get('aim_mode', 'target'),
+                                                       'degrees': action.get('search_heading_deg', 0)}
+                                                for task, action in cfg['release'].items()},
                             'vision_classes': ['篮球', '排球', '定位柱'],
-                            'release_ready': {task: bool(action['commands']) and action['aim'] is not None
+                            'release_ready': {task: release_ready(action)
                                               for task, action in cfg['release'].items()}})
         except (ValueError, KeyError, TypeError, OSError) as exc:
             return jsonify({'ok': False, 'msg': str(exc)})

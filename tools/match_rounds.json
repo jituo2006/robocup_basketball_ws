@@ -70,6 +70,7 @@
   },
   "release": {
     "pass": {
+      "aim_mode": "fixed",
       "point": [
         3.55,
         4.95
