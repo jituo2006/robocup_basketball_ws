@@ -64,7 +64,7 @@ def test_launch_failure_never_counts(mission, mode):
     mission._phase_launch()
     if mission.phase == "LAUNCH":
         mission._phase_launch()
-    assert mission.phase == "FAULT"
+    assert mission.phase == ("LAUNCH" if mode == "unavailable" else "FAULT")
     assert mission.actions_done == 0 and mission.has_ball
 
 
@@ -100,10 +100,14 @@ def test_stop_rejection_does_not_count(mission):
     assert mission.phase == "FAULT" and mission.actions_done == 0
 
 
-def test_launch_timeout_faults_instead_of_retrying_shot(mission):
-    mission.launch_called = True
-    mission.retry_or_fault()
-    assert mission.phase == "FAULT" and mission.actions_done == 0
+def test_delayed_launch_confirmation_keeps_one_request(mission):
+    calls=[]
+    mission._call_launcher=lambda:calls.append(True) or mission.request
+    mission._phase_launch()
+    mission.now+=10000
+    mission._phase_launch()
+    assert mission.phase=="LAUNCH" and mission.actions_done==0
+    assert calls==[True] and mission.launch_future is mission.request
 
 
 def test_action_limit_prevents_another_service_request(mission):
@@ -150,17 +154,19 @@ def test_task_cannot_arm_on_stale_localization(mission):
     assert not response.accepted and mission.phase == "IDLE"
 
 
-def test_localization_loss_during_launch_stops_instead_of_waiting(mission):
-    mission.launch_called = True
+def test_localization_delay_preserves_pending_launch(mission):
+    mission._phase_launch()
     mission.max_ball_count = 2
     mission._refresh_tuning = lambda: None
     mission._localization_ready = lambda: False
     mission.publish_outputs = lambda: None
     mission.tick()
-    assert mission.phase == "FAULT" and mission.actions_done == 0
+    assert mission.phase == "LAUNCH" and mission.actions_done == 0
+
+    assert mission.launch_future is mission.request
 
 
-def test_delay_with_lost_localization_cannot_resume_late(mission):
+def test_start_delay_waits_for_localization_without_terminal_deadline(mission):
     mission.phase = "START_DELAY"
     mission.start_delay_s = 8
     mission.elapsed = lambda: 8
@@ -169,4 +175,4 @@ def test_delay_with_lost_localization_cannot_resume_late(mission):
     mission._localization_ready = lambda: False
     mission.publish_outputs = lambda: None
     mission.tick()
-    assert mission.phase == "FAULT" and mission.commands[-1] == (0, 0, 0)
+    assert mission.phase == "START_DELAY" and mission.commands[-1] == (0, 0, 0)

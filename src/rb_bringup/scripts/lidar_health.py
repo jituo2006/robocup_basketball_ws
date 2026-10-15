@@ -59,9 +59,10 @@ class LidarHealth:
         stream = getattr(self, name)
         previous = stream.stamp
         if not stream.observe(stamp, wall, mono):
-            if previous is not None and stamp != previous:
+            if (previous is not None and math.isfinite(stamp) and stamp < previous
+                    and -.05 <= wall-stamp <= 1.):
                 self.fault_serial += 1
-                self.reason = name+' 时间不连续'
+                self.reason = name+' 源时间倒退'
             return False
         if name == 'odom' and position is not None:
             if not all(math.isfinite(v) for v in position):

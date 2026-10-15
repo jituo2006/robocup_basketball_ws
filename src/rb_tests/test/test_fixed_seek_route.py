@@ -476,7 +476,7 @@ def test_distance_scoop_finishes_with_simulated_low_speed_deadzone(monkeypatch, 
     assert math.hypot(*run.pose[:2]) == pytest.approx(.68, abs=.003)
 
 
-def test_distance_scoop_respects_low_speed_cap_and_reports_stalled_timeout(monkeypatch):
+def test_distance_scoop_respects_low_speed_cap_and_does_not_abort_stationary_feedback(monkeypatch):
     mod = load(); run = make_runner(mod)
     run.pose = (0., 0., 0.); run.pose_stamp = 10.; run.yaw_rate = 0.
     run.args.route_scoop_speed = .02
@@ -485,17 +485,20 @@ def test_distance_scoop_respects_low_speed_cap_and_reports_stalled_timeout(monke
     now, commands, stops, messages = [0.], [], [], []
     monkeypatch.setattr(mod.time, 'monotonic', lambda: now[0])
     monkeypatch.setattr(mod, 'log', lambda tag, msg, *a: messages.append(msg))
-    run.spin = lambda dt: now.__setitem__(0, now[0]+dt)
+    def spin(dt):
+        now[0]+=dt
+        if now[0]>30:
+            raise KeyboardInterrupt
+    run.spin = spin
     run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     run.stop = lambda: stops.append(now[0])
     run.publish_command = lambda tw: commands.append(tw.linear.x)
-    assert not run.rear_distance_scoop()
+    with pytest.raises(KeyboardInterrupt):
+        run.rear_distance_scoop()
+    assert now[0]>30
     assert commands and all(v == -.02 for v in commands)
-    assert stops[-1] == now[0]
-    assert '后退距离持续无进展' in messages[-1]
-    assert float(messages[-1].split('已走 ')[1].split('m')[0]) == 0.
-    assert '剩余 0.200m' in messages[-1]
-    assert '最后指令速度 0.020m/s' in messages[-1]
+    assert not any('持续无进展' in message for message in messages)
+
 
 
 def test_rear_accepts_observed_two_percent_offset_then_starts_approach():

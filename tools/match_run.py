@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="跳过确认")
     ap.add_argument("--dry", action="store_true", help="只检查，不起任务")
     ap.add_argument("--practice", action="store_true", help="调试模式；允许未完成参赛验收的工程调试")
-    ap.add_argument("--timeout", type=float, default=420.0, help="监控最长时间(s)")
+    ap.add_argument("--timeout", type=float, default=420.0, help="兼容旧参数，监控不再因时长退出")
     args = ap.parse_args(argv)
 
     os.chdir(WS)
@@ -189,16 +189,15 @@ def main(argv: list[str] | None = None) -> int:
     from rb_msgs.msg import MissionStatus
 
     cli = node.create_client(SetMission, "/rb_mission/set_mission")
-    if not cli.wait_for_service(timeout_sec=8.0):
-        print(f"      {C_BAD}✗{C_OFF} /rb_mission/set_mission 服务不在")
-        rclpy.shutdown()
-        node.destroy_node()
-        return 1
+    while not cli.wait_for_service(timeout_sec=.2):
+        if not rclpy.ok():
+            return 1
+        rclpy.spin_once(node, timeout_sec=.05)
 
     req = SetMission.Request()
     req.mission = mission
     fut = cli.call_async(req)
-    rclpy.spin_until_future_complete(node, fut, timeout_sec=10.0)
+    rclpy.spin_until_future_complete(node, fut)
     res = fut.result()
     if res is None or not getattr(res, "accepted", False):
         msg = getattr(res, "message", "无响应")
@@ -220,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     last_phase = None
     t_start = time.time()
     try:
-        while time.time() - t_start < args.timeout:
+        while rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.1)
             if not status_box:
                 continue
@@ -238,8 +237,6 @@ def main(argv: list[str] | None = None) -> int:
             if m.phase in ("FAULT", "ESTOP"):
                 print(f"\n  {C_BAD}⚠️ 任务中止：{m.phase} —— {m.detail}{C_OFF}")
                 break
-        else:
-            print(f"\n  {C_WARN}监控超时（{args.timeout:.0f}s）—— 任务可能还在跑{C_OFF}")
     except KeyboardInterrupt:
         print(f"\n  {C_WARN}已停止监听（任务仍在车上跑）。停车：{C_OFF}")
         print('      ros2 service call /rb_mission/set_mission rb_msgs/srv/SetMission '

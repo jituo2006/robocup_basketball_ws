@@ -1011,12 +1011,14 @@ class Bridge:
                 time.sleep(1.0)             # 退避，别刷屏也别死循环
 
     # -- 动作 ---------------------------------------------------------------
-    def _call(self, cli, req, timeout=3.0):
-        if not cli.wait_for_service(timeout_sec=timeout):
-            return False, "服务不可用"
+    def _call(self, cli, req):
+        while not cli.wait_for_service(timeout_sec=.2):
+            if not self.rclpy.ok():
+                return False, "ROS 已停止"
         fut = cli.call_async(req)
-        t0 = time.time()
-        while not fut.done() and time.time() - t0 < timeout:
+        while not fut.done():
+            if not self.rclpy.ok():
+                return False, "ROS 已停止；请求结果未确认"
             time.sleep(0.02)
         r = fut.result()
         if r is None:
@@ -1625,10 +1627,9 @@ class SystemChecks:
                         self.state["flow"] = "failed"
                         self.state["flow_step"] = msg
                     return
-                # 等关键就绪标志（最多 120s）
-                deadline = time.time() + 120
+                # 等关键就绪标志；没有固定总等待期限。
                 seen = {"chassis": False, "mission": False}
-                while time.time() < deadline:
+                while True:
                     txt = "\n".join(m for (_, _, _, m) in list(stack.log)[-200:])
                     if "底盘已使能" in txt:
                         seen["chassis"] = True
@@ -1642,11 +1643,6 @@ class SystemChecks:
                             self.state["flow_step"] = "boot.sh 退出了（看日志）"
                         return
                     time.sleep(1.5)
-                else:
-                    with self.lock:
-                        self.state["flow"] = "failed"
-                        self.state["flow_step"] = "等就绪标志超时（看日志）"
-                    return
 
                 self.log.append((time.time(), "TOOL", "一键流程",
                                  "底盘已使能 + mission 就绪 → 开始就绪检查"))
@@ -1871,8 +1867,7 @@ class ChassisManager:
         threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
 
         # ③ 等使能日志
-        deadline = time.time() + wait_s
-        while time.time() < deadline:
+        while True:
             with self.lock:
                 if self.state["flow"] == "failed":
                     return False, self.state["step"]
@@ -1883,9 +1878,6 @@ class ChassisManager:
                     self.state.update(flow="failed", step="底盘节点退出了")
                     return False, "底盘节点启动后就退出了（看日志）"
             time.sleep(0.4)
-        with self.lock:
-            self.state.update(flow="failed", step="等使能日志超时")
-        return False, f"{wait_s:.0f}s 内没有使能指令入队日志，请检查节点和 CAN 日志"
 
     def stop(self):
         if not self.running:

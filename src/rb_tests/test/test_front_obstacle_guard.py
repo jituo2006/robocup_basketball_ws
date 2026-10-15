@@ -129,11 +129,11 @@ class TestGuard(unittest.TestCase):
 
     def test_stale_camera_stops_even_with_no_detections(self):
         r=self.runner();r.det_stamp=8
-        with self.assertRaises(RuntimeError):r.check_obstacle(NS(linear=NS(x=.15,y=0)))
+        self.assertFalse(r.check_obstacle(NS(linear=NS(x=.15,y=0))))
 
     def test_lateral_motion_requires_usable_lidar(self):
         r=self.runner()
-        with self.assertRaises(RuntimeError):r.check_obstacle(NS(linear=NS(x=0,y=.08)))
+        self.assertFalse(r.check_obstacle(NS(linear=NS(x=0,y=.08))))
         r.obstacle_body_cloud=cloud();r.obstacle_cloud_stamp=10
         r.check_obstacle(NS(linear=NS(x=0,y=.08)))
 

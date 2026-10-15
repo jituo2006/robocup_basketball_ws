@@ -43,10 +43,7 @@ def main():
     parser.add_argument('--lidar-root', default='/home/user/lidar_360')
     parser.add_argument('--interface', default='enp114s0')
     parser.add_argument('--stable-seconds', type=float, default=1.)
-    parser.add_argument('--driver-silence-seconds', type=float, default=2.)
     args = parser.parse_args()
-    if args.driver_silence_seconds <= 0:
-        parser.error('driver-silence-seconds 必须大于零')
     if args.stable_seconds <= 0:
         parser.error('stable-seconds 必须大于零')
     rclpy.init()
@@ -59,7 +56,6 @@ def main():
     cutoff = 0.
     serial = 0
     next_driver = next_mapping = 0.
-    driver_received = mapping_received = False
     subscriptions = []
 
     def announce():
@@ -102,18 +98,12 @@ def main():
                 link = Path('/sys/class/net', args.interface, 'carrier').read_text().strip() == '1'
             except OSError:
                 link = False
-            # 源时间倒退、长间隔、断网、点云/IMU不同步、位置跳变都使旧会话作废。
+            # Temporary delivery gaps only withdraw readiness; keep estimator state.
             fault = health.fault_serial != serial
-            # 没有首帧之前属于初始化，不用固定秒数中断它。
-            # 曾经收到数据后再断流，才按既有连续性检查重建会话。
-            # 源帧暂时不同步只能阻止定位，不能因此反复打断驱动初始化。
-            if driver is not None and all(t is not None for t in health.input_received.values()):
-                driver_received = True
-            if mapping is not None and health.odom.stamp is not None:
-                mapping_received = True
-            if mapping is not None and (mapping.poll() is not None or not link
-                    or not health.inputs_live(wall, mono) or fault
-                    or mapping_received and not health.odom.live(wall, mono)):
+            if ready and (not health.inputs_live(wall, mono) or not health.odom.live(wall, mono)):
+                ready = False
+                announce()
+            if mapping is not None and (mapping.poll() is not None or not link or fault):
                 ready = False
                 generation += 1
                 cutoff = 0.
@@ -124,8 +114,7 @@ def main():
                 health.reset_odom()
                 next_mapping = time.monotonic()+1.
             serial = health.fault_serial
-            if driver is not None and (driver.poll() is not None or not link
-                    or driver_received and not health.inputs_receiving(mono, args.driver_silence_seconds)):
+            if driver is not None and (driver.poll() is not None or not link):
                 stop_process(driver)
                 driver = None
                 health.reset_inputs()
@@ -133,15 +122,14 @@ def main():
             if link and driver is None and mono >= next_driver:
                 driver = subprocess.Popen(['ros2', 'launch', 'livox_ros_driver2',
                                            'msg_MID360_launch.py'], start_new_session=True)
-                driver_received = False
             if mapping is None and mono >= next_mapping and health.inputs_stable(wall, mono):
                 health.reset_odom()
                 mapping = subprocess.Popen(['ros2', 'launch', 'fast_lio', 'mapping.launch.py',
                     'config_path:='+args.lidar_root+'/fast_prop_ws/src/FAST_LIO_WITH_PROPAGATE/config',
                     'config_file:=mid360.yaml', 'rviz:=false'], start_new_session=True)
-                mapping_received = False
                 node.get_logger().info('雷达/IMU 已连续稳定，启动全新 FAST-LIO 会话')
-            if mapping is not None and not ready and health.odom_stable(wall, mono):
+            if (mapping is not None and not ready and health.inputs_live(wall, mono)
+                    and health.odom_stable(wall, mono)):
                 cutoff = health.odom.stamp
                 ready = True
                 announce()

@@ -233,8 +233,6 @@ class LocalizationNode(Node):
             self.lidar_session_generation = generation
             self.lidar_session_blocked = None
             self.lidar_session_ready = False
-        if not ready and self.lidar_session_ready:
-            self._reset_lidar_session()
         self.lidar_session_ready = ready and generation != self.lidar_session_blocked
         self.lidar_session_cutoff = cutoff
         self.lidar_session_received = time.monotonic()
@@ -243,10 +241,6 @@ class LocalizationNode(Node):
         if not getattr(self, 'require_lidar_session', False):
             return True
         live = self.lidar_session_ready and time.monotonic()-self.lidar_session_received <= 1.
-        if not live and self.lidar_session_ready:
-            self._reset_lidar_session()
-            self.lidar_session_ready = False
-            self.lidar_session_blocked = self.lidar_session_generation
         return live
 
     def _accept_source(self, msg, source):
@@ -337,8 +331,7 @@ class LocalizationNode(Node):
         if self.use_odom_pose_as_abs:
             current = self.odom_to_field(pos.x, pos.y, yaw)
             if (getattr(self, 'require_lidar_session', False) and self.last_odom_field_pose is not None
-                    and (dt > self.source_timeout_s
-                         or math.dist(current[:2], self.last_odom_field_pose[:2]) > .25+dt)):
+                    and math.dist(current[:2], self.last_odom_field_pose[:2]) > .25+max(0.,dt)):
                 # 本节点也检查跳变，避免管理器与定位订阅回调的先后顺序影响结果。
                 self._reset_lidar_session()
                 self.lidar_session_ready = False
@@ -376,14 +369,14 @@ class LocalizationNode(Node):
 
     # -- 输出 --------------------------------------------------------------
     def publish_state(self, stamp) -> None:
-        self._lidar_session_live()
+        session_live = self._lidar_session_live()
         self._refresh_tuning()
         x, y, yaw = self.ekf.pose
         sx, sy, syaw = self.ekf.std
 
         out = PoseWithCovarianceStamped()
         # 保留最近一次真实位置输入的时间，定时器不能给旧位姿续期。
-        if self.last_source_stamp is not None:
+        if self.last_source_stamp is not None and session_live:
             out.header.stamp = self.last_source_stamp
         out.header.frame_id = self.field_frame
         out.pose.pose.position.x = x
@@ -400,7 +393,7 @@ class LocalizationNode(Node):
         self.pose_pub.publish(out)
 
         ok = Bool()
-        source_ok = self.source_freshness.valid(
+        source_ok = session_live and self.source_freshness.valid(
             self.get_clock().now().nanoseconds * 1e-9, self.source_timeout_s)
         ok.data = bool(not self.relative_mode and source_ok
                        and math.hypot(sx, sy) <= self.ok_std_threshold)

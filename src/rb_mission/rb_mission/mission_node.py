@@ -97,12 +97,6 @@ class MissionNode(Node):
 
         tm = self.cfg.get("timeouts", {}) or {}
         self.start_delay_s = float(tm.get("start_delay_s", 8.0))
-        self.state_timeout_s = float(tm.get("state_timeout_s", 25.0))
-        # 导航类阶段（找球/去动作区/回位）要跨越整个场地，距离可能接近 10m，
-        # 用同一个 25s 超时必然误触发 —— 实测就踩到过（10m ÷ 0.4m/s ≈ 25s）。
-        # 所以给导航阶段一个单独、更宽松的超时。
-        self.nav_timeout_s = float(tm.get("nav_timeout_s", 0.0))
-        self.mission_timeout_s = float(tm.get("mission_timeout_s", 0.0))
         self.acquire_s = float(tm.get("acquire_seconds", 2.5))
         self.launch_hold_s = float(tm.get("launch_hold_s", 1.5))
 
@@ -218,9 +212,6 @@ class MissionNode(Node):
                 raise ValueError(f"{name} 必须是有限正数（exit_margin_m/settle_timeout_s 可为 0）")
         if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
             raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
-        if (values["navigation.settle_timeout_s"] > 0
-                and values["navigation.settle_time_s"] >= values["navigation.settle_timeout_s"]):
-            raise ValueError("settle_time_s 必须小于 settle_timeout_s")
 
     def _apply_tuning(self, values):
         for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
@@ -395,7 +386,6 @@ class MissionNode(Node):
         if phase != self.phase:
             self.get_logger().info(f"[{self.mission}] {self.phase} -> {phase}  {detail}")
         self.arrival.reset()
-        self._progress_goal = None
         self.phase = phase
         self.phase_enter_time = self.get_clock().now()
         self.detail = detail
@@ -449,28 +439,8 @@ class MissionNode(Node):
 
         if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
             self.arrival.reset()
-            self._progress_goal = None
             self.publish_zero()
-            if self.phase == P_LAUNCH:
-                self.set_phase(P_FAULT, "发射期间定位失效，已请求停止重复帧，动作未计数")
-                self.publish_outputs()
-                return
-            if self.phase == P_START_DELAY and self.elapsed() >= self.start_delay_s:
-                self.set_phase(P_FAULT, "启动延迟结束时定位失效，拒绝稍后自动启动")
-                self.publish_outputs()
-                return
-            self.detail = "定位无效或过期，已停车；目标保留等待恢复"
-            # 仍保留导航超时，避免失联后无限等待或自动重启旧目标。
-            if self.elapsed() > float(self.cfg.get('timeouts', {}).get('localization_wait_s', 90.)):
-                self.goto_goal = None
-                self.set_phase(P_FAULT, "定位失效等待超时")
-            self.publish_outputs()
-            return
-
-        if (self.mission != "IDLE" and self.mission_timeout_s > 0
-                and self.mission_elapsed() > self.mission_timeout_s):
-            self.set_phase(P_FAULT, f"任务总超时 {self.mission_timeout_s}s")
-            self.publish_zero()
+            self.detail = "定位暂缺或延迟，已停车；目标与机构请求保留等待恢复"
             self.publish_outputs()
             return
 
@@ -478,31 +448,8 @@ class MissionNode(Node):
         if handler is None:
             self.publish_zero()
         else:
-            # 正常动作不再用固定时长强制重试；发射确认仍保留独立期限。
-            limit = self.nav_timeout_s if self.phase in (P_SEEK_BALL, P_NAV_ZONE, P_RETURN, P_GOTO) \
-                else self.state_timeout_s if self.phase == P_LAUNCH else 0.
-            if limit > 0 and self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and self.elapsed() > limit:
-                self.get_logger().warn(f"阶段 {self.phase} 超时 {limit:.0f}s，重试")
-                self.retry_or_fault()
-            else:
-                handler()
+            handler()
         self.publish_outputs()
-
-    def retry_or_fault(self) -> None:
-        if self.phase == P_LAUNCH:
-            # 未确认发射结果不能作为普通找球重试，否则可能重复发射。
-            self.publish_zero()
-            self.set_phase(P_FAULT, "发射确认超时，已请求停止重复帧；需检查机构")
-        elif self.phase == P_GOTO:
-            self.goto_goal = None
-            self.publish_zero()
-            self.set_phase(P_IDLE, "GOTO 超时，已取消")
-        elif self.actions_done >= self.actions_per_mission:
-            self.set_phase(P_RETURN, "动作已做完，回位")
-        elif self.mission == "IDLE":
-            self.set_phase(P_IDLE)
-        else:
-            self.set_phase(P_SEEK_BALL, "重试找球")
 
     # -- 各阶段 ------------------------------------------------------------
     def _phase_idle(self) -> None:
@@ -624,8 +571,9 @@ class MissionNode(Node):
         if not self.launch_called:      # 每次进入 LAUNCH 只发一次，避免连发
             self.launch_called = True
             self.launch_future = self._call_launcher()
-            if self.launch_future is None:
-                self.set_phase(P_FAULT, f"发射未执行，动作未计数；{self.detail}")
+            if self.launch_future is None and self.phase != P_FAULT:
+                self.launch_called = False
+                self.detail = f"等待发射服务或有效输入；{self.detail}"
             return
 
         if self.launch_ack_time is None:
@@ -648,7 +596,7 @@ class MissionNode(Node):
         if self.launch_stop_future is None:
             self.launch_stop_future = self._stop_launcher()
             if self.launch_stop_future is None:
-                self.set_phase(P_FAULT, "停止重复发射帧失败，动作未计数")
+                self.detail = "等待停止重复发射帧服务，动作未计数"
             return
         if not self.launch_stop_future.done():
             self.detail = "等待停止重复发射帧确认，尚未计数"
@@ -710,7 +658,6 @@ class MissionNode(Node):
     def _navigate_to(self, gx, gy, goal_yaw=None):
         if not self._localization_ready():
             self.arrival.reset()
-            self._progress_goal = None
             self.publish_zero()
             return False
         x, y, yaw = self.last_pose
@@ -721,27 +668,9 @@ class MissionNode(Node):
                             self.settle_time_s, self.settle_timeout_s)
         mode = self.arrival.update(self._now_seconds(), distance, yaw_error,
                                    self.feedback.linear_speed, self.feedback.angular_speed, cfg, self.feedback.stamp)
-        from rb_mission.navigation import ProgressWatchdog
-        progress_goal = (self.phase, gx, gy, goal_yaw)
-        if getattr(self, '_progress_goal', None) != progress_goal:
-            self._progress_goal = progress_goal
-            self._progress_watchdog = ProgressWatchdog(
-                self._now_seconds(), float(self.cfg.get('timeouts', {}).get('motion_stall_s', 10.)))
-        if mode in ('complete', 'settling'):
-            self._progress_watchdog.reset(self._now_seconds())
-        elif self._progress_watchdog.stalled(self._now_seconds(), distance + .1*abs(yaw_error)):
-            self.publish_zero()
-            self.goto_goal = None
-            self.set_phase(P_FAULT, '导航目标误差持续无进展，已停车')
-            return False
         self.detail = (f"导航 {mode} 距离={distance:.3f}m "
                        f"实测v={self.feedback.linear_speed:.3f}m/s "
                        f"w={self.feedback.angular_speed:.3f}rad/s")
-        if mode == "timeout":
-            self.publish_zero()
-            self.goto_goal = None
-            self.set_phase(P_FAULT, "到位确认超时，已停车")
-            return False
         if mode == "complete":
             self.publish_zero()
             return True
@@ -834,7 +763,7 @@ class MissionNode(Node):
             action = LAUNCH_FAST_SHOOT
 
         if not self.launch_client.service_is_ready():
-            self.get_logger().warn("发射服务未就绪，本次动作跳过（请检查 rb_launcher）")
+            self.get_logger().warn("发射服务未就绪，停车等待服务上线")
             return None
         settings = self.cfg.get("launcher", {}) or {}
         automatic = settings.get("automatic", {}) or {}
@@ -874,6 +803,7 @@ class MissionNode(Node):
             future = self.launch_client.call_async(req)
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f"发射请求失败：{exc}")
+            self.set_phase(P_FAULT, "发射请求异常，结果不确定；不重发指令")
             return None
         self.get_logger().info(f"已调用发射: action={action} speed={req.speed} angle={req.angle}")
         return future

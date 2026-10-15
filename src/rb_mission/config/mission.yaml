@@ -128,11 +128,6 @@ limits:
 
 timeouts:
   start_delay_s: 8.0        # §2.3-7 规则要求 5~15s，且期间不得有任何动作
-  state_timeout_s: 25.0     # 仅保留发射确认看门狗，避免未确认时重复发射
-  nav_timeout_s: 0.0        # 0取消固定导航/搜索总时限；可显式设正值启用
-  mission_timeout_s: 0.0    # 0取消固定任务总时限
-  localization_wait_s: 90.0 # 已停车的定位失效等待，与正常导航时长分开
-  motion_stall_s: 10.0      # 导航有指令但目标误差持续无进展时停车
   acquire_seconds: 2.5      # 没有持球传感器时，按时间假定吸取完成
   launch_hold_s: 1.5        # 一次动作持续多久
 

@@ -56,8 +56,8 @@ def test_goal_tolerance_stops_without_velocity_confirmation_or_dwell(motion):
 def test_stale_pose_at_goal_still_stops_instead_of_reporting_arrival(motion):
     r, clock, commands, stops = motion
     r.pose, r.pose_stamp = (1., 0., 0.), 99.
-    with pytest.raises(RuntimeError, match='时间戳过期'):
-        r.goto(1., 0., timeout=2.)
+    r.rclpy = NS(ok=lambda:True, spin_once=lambda *a,**kw:sample(r,clock,(1.,0.,0.)))
+    assert r.goto(1., 0., timeout=.01)
     assert stops and not commands
 
 
@@ -72,9 +72,13 @@ def test_world_velocity_is_rotated_once_and_approach_is_limited(motion):
     r, clock, commands, stops = motion
     def spin(seconds):
         clock[0] += seconds
+        if clock[0]>30:
+            raise KeyboardInterrupt
         sample(r, clock, (0., 0., math.pi/2))
     r.spin = spin
-    assert not r.goto(.2, 0., timeout=.2)
+    with pytest.raises(KeyboardInterrupt):
+        r.goto(.2, 0., timeout=.2)
+    assert clock[0]>30
     assert commands
     for vx, vy, wz in commands:
         assert abs(vx) < 1e-9 and vy == pytest.approx(-.12) and wz == 0.
@@ -115,3 +119,15 @@ def test_scaled_quaternion_yaw_is_normalized(motion):
     r._on_pose(NS(header=NS(stamp=stamp),
                   pose=NS(pose=NS(position=NS(x=0., y=0., z=123.), orientation=q))))
     assert r.pose[2] == pytest.approx(math.pi/2)
+
+
+def test_command_computed_before_feedback_pause_is_not_sent(motion):
+    r, clock, commands, stops = motion
+    r.motion_guard = True
+    r.pose_stamp = 98.
+    r.rclpy = NS(ok=lambda:True, spin_once=lambda *a,**kw:sample(r,clock,(.5,0.,0.)))
+    r.cmd_pub = NS(publish=lambda msg:commands.append(msg))
+    tw = r._Twist();tw.linear.x=.25
+    type(r).publish_command(r,tw)
+    assert stops and not commands
+    assert r.pose == (.5,0.,0.)

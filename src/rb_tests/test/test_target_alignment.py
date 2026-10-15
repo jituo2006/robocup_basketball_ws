@@ -29,10 +29,15 @@ def test_pillar_on_camera_right_commands_clockwise_rotation_only():
 
 def test_cached_frame_does_not_count_as_three_stable_observations(monkeypatch):
     r, events = fake_runner(); r.pose = (1., 2., 0.)
-    r.spin = lambda seconds: None
-    clock = iter([0., .1, .2, .3, 10.])
-    monkeypatch.setattr('visual_target_alignment.time.monotonic', lambda: next(clock))
-    assert not align_pillar(r, load_config()['pillar_alignment'], 0., emit=lambda msg: None)
+    iterations=[0]
+    def spin(seconds):
+        iterations[0]+=1
+        if iterations[0]>1000:
+            raise KeyboardInterrupt
+    r.spin=spin
+    with pytest.raises(KeyboardInterrupt):
+        align_pillar(r, load_config()['pillar_alignment'], 0., emit=lambda msg: None)
+    assert iterations[0]>1000
 
 
 def test_wrong_class_stale_or_multiple_pillars_are_never_chosen():

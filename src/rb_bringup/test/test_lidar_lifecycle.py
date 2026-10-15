@@ -89,10 +89,13 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     lidar_session.main()
     starts=[t for action,kind,t in runtime.events if action=='start' and kind=='mapping']
     ready=[(t,s) for t,s in runtime.messages if s['ready']]
-    if fault.startswith('slow_') or fault=='batch_delay':
+    if fault.startswith('slow_') or fault in ('batch_delay','driver_silence','imu_gap','sync_skew'):
         assert len(starts)==1
         assert sum(action=='start' and kind=='driver' for action,kind,t in runtime.events)==1
         assert ready
+        if fault in ('driver_silence','imu_gap','sync_skew'):
+            assert any(t<102 for t,s in ready) and any(t>=(104.3 if fault=='driver_silence' else 103.3 if fault=='imu_gap' else 102.7) for t,s in ready)
+            assert ready[-1][1]['generation']==ready[0][1]['generation']
         if fault.startswith('slow_'):
             assert ready[0][0]>112
         assert all(p.stopped for p in runtime.processes)

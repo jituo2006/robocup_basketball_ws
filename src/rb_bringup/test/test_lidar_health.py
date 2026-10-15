@@ -54,7 +54,7 @@ def test_power_cycle_cannot_reuse_old_stable_period():
     assert h.inputs_stable(t,t)
     assert not h.inputs_live(t+20,t+20)
     t=feed(h,start=t+20,duration=.5)
-    assert h.fault_serial >= 2
+    assert h.fault_serial == 0  # Delivery gap pauses readiness; never resets the estimator.
     assert not h.inputs_stable(t,t)
     t=feed(h,start=t+.01)
     assert h.inputs_stable(t,t)

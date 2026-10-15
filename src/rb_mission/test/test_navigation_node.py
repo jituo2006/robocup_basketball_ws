@@ -111,14 +111,14 @@ def test_heading_must_be_correct_and_rotation_stopped(node):
     assert node.goto_goal is None
 
 
-def test_confirm_timeout_faults_without_resuming_old_goal(node):
+def test_old_confirmation_timeout_cannot_cancel_goal(node):
     node.settle_timeout_s = 5.
     measurement(node,100,.94,speed=.15)
     node._phase_goto()
     measurement(node,105.1,1.14,speed=.15)
     node._phase_goto()
-    assert node.phase == 'FAULT' and node.goto_goal is None
-    assert node.commands[-1] == (0,0,0)
+    assert node.phase == 'GOTO' and node.goto_goal is not None
+    assert node.commands[-1] != (0,0,0)
 
 
 def test_default_arrival_wait_has_no_fixed_confirmation_deadline(node):
@@ -135,13 +135,13 @@ def test_default_arrival_wait_has_no_fixed_confirmation_deadline(node):
     assert node.phase == 'IDLE' and node.goto_goal is None
 
 
-def test_stalled_navigation_faults_instead_of_driving_forever(node):
+def test_stationary_feedback_does_not_trigger_timed_fault(node):
     measurement(node,100,0.)
     node._phase_goto()
     measurement(node,111,0.)
     node._phase_goto()
-    assert node.phase == 'FAULT' and node.goto_goal is None
-    assert node.commands[-1] == (0,0,0)
+    assert node.phase == 'GOTO' and node.goto_goal is not None
+    assert node.commands[-1] != (0,0,0)
 
 
 def test_parameters_validate_whole_request_and_take_effect(node):

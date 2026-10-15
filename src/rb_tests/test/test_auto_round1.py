@@ -34,7 +34,7 @@ def test_bad_power_clock_rejected(powered):
 @pytest.fixture
 def simulation(tmp_path,monkeypatch):
     cfg=dict(workspace=str(WS),state_dir=str(tmp_path),power_probe_ip='192.168.1.138',
-             can_interface='can0',poll_seconds=.25,power_loss_seconds=2.,power_off_seconds=.5,delay_seconds=5.)
+             can_interface='can0',poll_seconds=.25,power_off_seconds=.5,delay_seconds=5.)
     clock=[0.]; launches=[]; stops=[]; saved=[]
     class Process:
         def __init__(self,kind): self.kind=kind;self.returncode=None;self.pid=12345
@@ -61,7 +61,9 @@ def test_full_round_launches_once_after_five_seconds_then_stops_controller_befor
     assert '--mechanism' in args and args[-2]=='--power-on-monotonic' and float(args[-1])==1
     assert saved==['power_seen','running'] and stops==['route','stack']
     assert json.loads((Path(cfg['state_dir'])/'state.json').read_text())['status']=='complete'
-    assert auto.monitor(cfg,probe=lambda ip:pytest.fail('锁定后不再探测/发车'),popen=popen)==0
+    # Historical state is diagnostic, not an execution latch.
+    assert auto.monitor(cfg,probe=lambda ip:True,now=lambda:clock[0],sleep=sleep,
+                        popen=popen,stopping=lambda:clock[0]>10)==0
     assert len(launches)==2
 
 
@@ -77,13 +79,21 @@ def test_waits_for_can_and_startup_without_restarting_or_adding_second_five_seco
     assert start_wait_seconds({'start_delay_s':5},NS(power_on_monotonic=1),10)==0
 
 
-def test_power_loss_aborts_without_launching_route_or_retrying(simulation):
+def test_ping_loss_after_trigger_never_aborts_active_round(simulation):
     cfg,clock,launches,stops,saved,popen=simulation
-    assert auto.monitor(cfg,probe=lambda ip:1<=clock[0]<2,now=lambda:clock[0],
-                        sleep=lambda sec:clock.__setitem__(0,clock[0]+sec),
-                        popen=popen,ready=lambda:True,busy=lambda:False,can_present=lambda:True)==1
-    assert len(launches)==1 and stops==['stack']
-    assert json.loads((Path(cfg['state_dir'])/'state.json').read_text())['status']=='failed'
+    probes=[]
+    def probe(ip):
+        probes.append(clock[0])
+        return 1<=clock[0]<2
+    def sleep(seconds):
+        clock[0]+=seconds
+        if clock[0]>30 and len(launches)==2:
+            launches[-1][2].returncode=0
+    assert auto.monitor(cfg,probe=probe,now=lambda:clock[0],sleep=sleep,
+                        popen=popen,ready=lambda:True,busy=lambda:False,can_present=lambda:True)==0
+    assert len(launches)==2 and max(probes)==1
+    assert clock[0]>30 and stops==['route','stack']
+    assert json.loads((Path(cfg['state_dir'])/'state.json').read_text())['status']=='complete'
 
 
 def test_busy_controller_prevents_stack_cleanup_or_motion(simulation):
@@ -129,7 +139,7 @@ def test_launch_mission_default_remains_enabled_but_auto_command_disables_it():
     assert '--mechanism' in auto.route_command({'workspace':str(WS)},10)
 
 
-def test_route_failure_is_latched_and_never_retries_same_power(simulation):
+def test_route_failure_history_does_not_latch_future_power_cycle(simulation):
     cfg,clock,launches,stops,saved,popen=simulation
     def sleep(seconds):
         clock[0]+=seconds
@@ -137,7 +147,10 @@ def test_route_failure_is_latched_and_never_retries_same_power(simulation):
     assert auto.monitor(cfg,probe=lambda ip:clock[0]>=1,now=lambda:clock[0],sleep=sleep,
                         popen=popen,ready=lambda:True,busy=lambda:False,can_present=lambda:True)==7
     assert len(launches)==2
-    assert auto.monitor(cfg,probe=lambda ip:pytest.fail('不应自动重试'))==0
+    launches.clear();clock[0]=0.
+    assert auto.monitor(cfg,probe=lambda ip:clock[0]>=1,now=lambda:clock[0],sleep=sleep,
+                        popen=popen,ready=lambda:True,busy=lambda:False,can_present=lambda:True)==7
+    assert len(launches)==2
 
 
 def test_stop_before_power_event_leaves_no_latch_and_sends_no_commands(simulation):

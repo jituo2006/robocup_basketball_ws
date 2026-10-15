@@ -25,7 +25,7 @@ def log(message):
 def load_config(path):
     cfg = json.loads(Path(path).read_text())
     ipaddress.IPv4Address(cfg['power_probe_ip'])
-    for key in ('poll_seconds', 'power_loss_seconds', 'power_off_seconds'):
+    for key in ('poll_seconds', 'power_off_seconds'):
         value = cfg[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f'{key}须为正有限数')
@@ -126,36 +126,29 @@ def monitor(cfg, *, probe=power_online, now=time.monotonic, sleep=time.sleep,
             popen=subprocess.Popen, ready=nodes_started, busy=controller_busy,
             can_present=None, stopping=lambda: False):
     directory = Path(cfg['state_dir'])
-    if (directory/'inhibit').exists() or (directory/'state.json').exists():
-        log('本次自动执行已锁定或急停禁止；须先停止服务并复位，当前不启动任何动作。')
+    if (directory/'inhibit').exists():
+        log('急停禁止自动执行；解除急停后复位。')
         return 0
     edge = PowerEdge(cfg['power_off_seconds'])
     stack = route = None
-    powered_at = lost_at = None
+    powered_at = None
     can_present = can_present or (lambda: Path('/sys/class/net', cfg['can_interface']).exists())
     log('等待总开关：先观测雷达离线，再观测上线。启动时已经在线不会触发。')
     try:
         while not stopping() and not (directory/'inhibit').exists():
-            online = probe(cfg['power_probe_ip'])
+            # Ping only detects the initial power edge; it never aborts an active round.
+            online = probe(cfg['power_probe_ip']) if powered_at is None else True
             moment = now()
             if powered_at is None:
                 if not edge.update(online, moment):
                     sleep(cfg['poll_seconds'])
                     continue
                 powered_at = moment
-                # Persist BEFORE any process launch; crashes/restarts never replay a round.
+                # Diagnostic record only; restarting still requires a newly observed power edge.
                 save_state(directory, 'power_seen', power_on_monotonic=powered_at)
                 log('检测到共电雷达上线；开始准备软件，上电等待与准备同时计时。')
                 if busy():
                     save_state(directory, 'failed', reason='已有其它运动控制程序')
-                    return 1
-            if online:
-                lost_at = None
-            else:
-                lost_at = moment if lost_at is None else lost_at
-                if moment-lost_at >= cfg['power_loss_seconds']:
-                    save_state(directory, 'failed', reason='总开关代理信号离线')
-                    log('上电代理信号离线，终止本次自动任务，不自动重跑。')
                     return 1
             if stack is None and online and can_present():
                 stack = popen(['bash', str(Path(cfg['workspace'])/'tools/boot.sh'), 'start_mission:=false'],
@@ -175,7 +168,7 @@ def monitor(cfg, *, probe=power_online, now=time.monotonic, sleep=time.sleep,
             if route is not None and route.poll() is not None:
                 code = route.returncode
                 save_state(directory, 'complete' if code == 0 else 'failed', code=code)
-                log(f'第一回合退出 code={code}；已锁定，不因网络恢复/服务重启重复发车。')
+                log(f'第一回合退出 code={code}；下次服务启动仍需重新观测断电→上电。')
                 return code
             sleep(cfg['poll_seconds'])
         if powered_at is not None:
@@ -191,13 +184,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=CONFIG)
     parser.add_argument('--check', action='store_true', help='只读检查配置和代理信号，不启动软件')
-    parser.add_argument('--reset', action='store_true', help='停止服务后清除单次锁定，下次必须先断电再上电')
+    parser.add_argument('--reset', action='store_true', help='停止服务后清除记录和急停禁止，下次须先断电再上电')
     args = parser.parse_args(argv)
     cfg = load_config(args.config)
     directory = Path(cfg['state_dir'])
     if args.check:
         print(json.dumps({'config':cfg, 'power_proxy_online':power_online(cfg['power_probe_ip']),
-                          'latched':(directory/'state.json').exists(),
+                          'has_history':(directory/'state.json').exists(),
                           'inhibited':(directory/'inhibit').exists()}, ensure_ascii=False, indent=2))
         return 0
     directory.mkdir(parents=True, exist_ok=True)

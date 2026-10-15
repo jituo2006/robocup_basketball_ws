@@ -70,18 +70,32 @@ def test_jump_is_rejected_even_if_supervisor_callback_arrives_late():
     assert n.lidar_session_ready
 
 
-def test_manager_disappearance_expires_session_and_old_pose():
+def test_manager_delay_pauses_and_recovers_without_reanchoring():
     n=supervised();status(n,1,True)
     feed_field(n,(1.5,8.,.4),100)
     n.lidar_session_received=time.monotonic()-1.1
     n.publish_state(None)
     assert not n.ok_messages[-1].data
-    assert n.last_source_stamp is None
+    assert n.last_source_stamp.sec == 100
+    status(n,1,True)
+    assert n._lidar_session_live()
+    assert n.last_source_stamp.sec == 100
 
 
-def test_long_source_gap_does_not_integrate_old_state():
+def test_long_source_gap_preserves_field_displacement():
     n=supervised();status(n,1,True)
     feed_field(n,(1.5,8.,.4),100)
     feed_field(n,(2.5,8.,.4),102)
-    assert n.ekf.pose==pytest.approx((1.5,8.,.4))
-    assert not n.lidar_session_ready
+    assert n.ekf.pose==pytest.approx((2.5,8.,.4))
+    assert n.lidar_session_ready
+
+
+def test_temporarily_unready_manager_preserves_coordinate_baseline():
+    n=supervised();status(n,1,True)
+    feed_field(n,(1.5,8.,.4),100)
+    baseline=n.last_odom_field_pose
+    status(n,1,False)
+    assert n.last_odom_field_pose==baseline and not n._lidar_session_live()
+    status(n,1,True,102)
+    feed_field(n,(2.5,8.,.4),102)
+    assert n.ekf.pose==pytest.approx((2.5,8.,.4))

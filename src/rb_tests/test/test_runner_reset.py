@@ -19,22 +19,22 @@ def test_reset_clears_cache_only_after_success_and_stays_stopped(monkeypatch, mo
     mod = load(); run = mod.Runner.__new__(mod.Runner)
     srv = ModuleType('std_srvs.srv'); srv.Trigger = NS(Request=lambda: NS())
     monkeypatch.setitem(sys.modules, 'std_srvs.srv', srv)
-    result = NS(success=mode == 'success', message='reset')
-    client = NS(wait_for_service=lambda **kw: mode != 'missing',
-                call_async=lambda req: NS(done=lambda: mode != 'timeout', result=lambda: result))
+    result = NS(success=mode != 'failure', message='reset')
+    ticks=[0]
+    client = NS(wait_for_service=lambda **kw: mode != 'missing' or ticks[0]>=200,
+                call_async=lambda req: NS(done=lambda: mode != 'timeout' or ticks[0]>=200, result=lambda: result))
     destroyed = []; stops = []
     run.node = NS(create_client=lambda *a: client, destroy_client=destroyed.append,
                   get_clock=lambda: NS(now=lambda: NS(nanoseconds=101000000000)))
-    ticks = iter([0., 6.])
-    monkeypatch.setattr(mod.time, 'monotonic', lambda: next(ticks))
-    run.rclpy = NS(ok=lambda: True, spin_once=lambda *a, **kw: None)
+
+    run.rclpy = NS(ok=lambda: True, spin_once=lambda *a, **kw:ticks.__setitem__(0,ticks[0]+1))
     run.stop = lambda: stops.append(True)
     run.pose = (3., 4., 1.); run.odom_cam = run.cloud = object()
     run.pose_history = deque([(100., run.pose)])
     run.obstacle_cloud_history = deque([object()])
     run.dets = [object()]; run.dets_rear = [object()]
     run.motion_fault = 'old jump'
-    if mode == 'success':
+    if mode != 'failure':
         run.reset_experiment_start()
         assert run.pose is run.cloud is run.odom_cam is None
         assert not run.pose_history and not run.obstacle_cloud_history
@@ -51,3 +51,17 @@ def test_reset_clears_cache_only_after_success_and_stays_stopped(monkeypatch, mo
         with pytest.raises(RuntimeError):
             run.reset_experiment_start()
     assert stops == [True] and destroyed == [client]
+
+
+def test_late_mechanism_reply_waits_on_same_request(monkeypatch):
+    mod=load();run=mod.Runner.__new__(mod.Runner)
+    srv=ModuleType('rb_msgs.srv');srv.SerialText=NS(Request=lambda:NS())
+    monkeypatch.setitem(sys.modules,'rb_msgs.srv',srv)
+    ticks=[0];sent=[]
+    future=NS(done=lambda:ticks[0]>=200,result=lambda:NS(success=True,message='sent'))
+    run.intake_client=NS(wait_for_service=lambda **kw:True,
+                         call_async=lambda req:sent.append(req.command) or future)
+    run.rclpy=NS(ok=lambda:True,spin_once=lambda *a,**kw:ticks.__setitem__(0,ticks[0]+1))
+    run.node=NS()
+    assert run.intake_text('vesc_shoot 3')==(True,'sent')
+    assert sent==['vesc_shoot 3'] and ticks[0]==200  # 6 seconds, beyond the old 3-second deadline.

@@ -83,12 +83,14 @@ def measurement(sequence):
     run.observation_pose = lambda det: (0.0, 0.0, 0.0)
     def spin(sec):
         clock.t += sec
-        run.current = next(queue, run.current) if sec == 0.05 else run.current
+        run.current = next(queue) if sec == 0.05 else run.current
     run.current = None
     run.spin = spin
     run.best_ball = lambda: run.current
-    result = run.measure_ball_stable(timeout=1.0)
-    return result
+    try:
+        return run.measure_ball_stable(timeout=1.0)
+    except StopIteration:
+        return None  # End of replay simulates explicit cancellation, not a deadline.
 
 
 def test_duplicate_cached_frames_cannot_confirm_target():
@@ -114,8 +116,7 @@ def test_lost_visual_observation_stops_before_nonzero_command():
     stops, sent = [], []
     run.stop = lambda: stops.append(True)
     run.cmd_pub = NS(publish=lambda msg: sent.append(msg))
-    with pytest.raises(RuntimeError, match='观测失效'):
-        run.publish_command(NS())
+    run.publish_command(NS())
     assert stops == [True] and sent == []
 
 
@@ -161,3 +162,7 @@ def test_rotation_finishes_at_angle_without_low_rate_or_dwell_gate(monkeypatch):
     assert run.rotate_to(0, timeout=2)
     assert clock.t == pytest.approx(100.1)  # 角度到位即停，不等待低转速和额外稳定时间。
     assert speeds and max(abs(v) for v in speeds) <= .3
+
+
+def test_observation_can_arrive_after_former_deadline():
+    assert measurement([None]*200+[detection(111),detection(111.1),detection(111.2)]) == pytest.approx((.02,1.,3))

@@ -47,8 +47,14 @@ def test_motion_accepts_point_eight_second_old_pose_with_new_budget():
     r.stop=lambda:None
     r.require_fresh_pose()
     r.pose_stamp=98.99
-    with pytest.raises(RuntimeError,match='时间戳过期'):
-        r.require_fresh_pose()
+    ticks=[0]
+    def recover(*a,**kw):
+        ticks[0]+=1
+        if ticks[0]>100:
+            r.pose_stamp=100.
+    r.rclpy=NS(ok=lambda:True,spin_once=recover)
+    assert r.require_fresh_pose() is True
+    assert ticks[0]>100
 
 
 def test_wait_pose_accepts_initialisation_longer_than_eight_seconds():

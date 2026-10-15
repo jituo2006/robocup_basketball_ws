@@ -1,23 +1,6 @@
 import math
 import pytest
-from rb_mission.navigation import ArrivalConfig, ArrivalGate, PoseFeedback, ProgressWatchdog
-
-
-def test_progress_watchdog_allows_long_running_motion_but_rejects_stalls():
-    watch = ProgressWatchdog(0., timeout=2., epsilon=.005)
-    for second in range(100):
-        assert not watch.stalled(float(second), 1.-second*.006)
-    assert watch.stalled(102., watch.best)
-
-
-def test_progress_watchdog_clock_reset_and_nonfinite_input():
-    watch = ProgressWatchdog(100.)
-    assert not watch.stalled(101., 1.)
-    assert not watch.stalled(1., 1.)
-    assert watch.stalled(11., 1.)
-    assert watch.stalled(12., math.nan)
-    with pytest.raises(ValueError):
-        ProgressWatchdog(0., timeout=math.inf)
+from rb_mission.navigation import ArrivalConfig, ArrivalGate, PoseFeedback
 
 
 def test_pass_through_is_not_arrival_and_drift_recovers():
@@ -53,12 +36,12 @@ def test_republishing_old_measurement_does_not_advance_confirmation():
     assert gate.update(2.1, .06, 0, 0, 0, cfg, sample_time=1.6) == 'complete'
 
 
-def test_confirmation_deadline_survives_repeated_excursions():
+def test_old_deadline_cannot_abort_repeated_excursions():
     gate, cfg = ArrivalGate(), ArrivalConfig(settle_timeout_s=2)
     gate.update(1, .06, 0, .1, 0, cfg)
     gate.update(1.1, .14, 0, .1, 0, cfg)
     gate.update(2, .06, 0, .1, 0, cfg)
-    assert gate.update(3, .14, 0, .1, 0, cfg) == 'timeout'
+    assert gate.update(300, .14, 0, .1, 0, cfg) == 'approach'
 
 
 def test_feedback_rejects_stale_future_nan_and_repeated_samples():

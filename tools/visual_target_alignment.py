@@ -31,13 +31,12 @@ def pillar_candidate(runner, cfg, reference_yaw):
 
 def align_pillar(runner, cfg, reference_yaw, emit=print):
     origin_yaw = runner.pose[2]
-    deadline = time.monotonic() + cfg['timeout_s']
     last_stamp, stable = None, 0
     tolerance = math.radians(cfg['tolerance_deg'])
     launcher_offset = math.radians(cfg['launcher_yaw_offset_deg'])
     reason = '未看到唯一的新鲜定位柱'
     try:
-        while time.monotonic() < deadline:
+        while True:
             runner.spin(.03)
             if abs(wrap(runner.pose[2] - origin_yaw)) > math.radians(cfg['max_turn_deg']):
                 reason = '定位柱对准旋转已到配置范围'

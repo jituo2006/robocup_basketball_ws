@@ -463,8 +463,7 @@ class Runner:
         want = max(3, int(n or self.args.stable_frames))
         got = []
         last_stamp = None
-        t0 = time.time()
-        while len(got) < want and time.time() - t0 < timeout:
+        while len(got) < want:
             d = self.best_ball_rear()
             stamp = stamp_seconds(d.stamp) if d is not None else 0.0
             if d is not None and stamp > cutoff and stamp != last_stamp:
@@ -488,33 +487,42 @@ class Runner:
 
     def spin(self, sec: float) -> None:
         # 处理 ROS 回调，更新定位/前后摄缓存；本函数本身不发送行驶速度。
-        # motion_guard 开启时，等待结束还会检查定位；异常会向调用者传递。
+        # motion_guard 开启时，定位延迟只停车等待恢复，不终止路线。
         t0 = time.time()
         while time.time() - t0 < sec:
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
         if self.motion_guard:
             self.require_fresh_pose()
 
-    def require_fresh_pose(self) -> None:
-        # 【所有实际移动共用的前置检查】下面任一失败都会 stop() + 抛异常，
-        # 不是仅等待下一帧；调用者会结束当前动作/阶段。
-        now = self.node.get_clock().now().nanoseconds * 1e-9
-        if getattr(self,"motion_fault",None):
+    def require_fresh_pose(self) -> bool:
+        """Pause on delayed feedback; return True if callers must recompute a command."""
+        waited = False
+        while True:
+            if getattr(self, "motion_fault", None):
+                self.stop()
+                raise RuntimeError(self.motion_fault)
+            if self.pose is not None and not all(math.isfinite(v) for v in self.pose):
+                self.stop()
+                raise RuntimeError("位姿包含非有限数，已请求停车")
+            now = self.node.get_clock().now().nanoseconds * 1e-9
+            stamp = self.pose_stamp
+            if (self.pose is not None and math.isfinite(stamp) and stamp > 0
+                    and -.05 <= now-stamp <= self.args.pose_timeout):
+                return waited
+            if not waited:
+                log('定位等待', '反馈暂缺或延迟，停车等待；恢复后继续原目标', C_WARN)
+            waited = True
             self.stop()
-            raise RuntimeError(self.motion_fault)
-        if self.pose is None or not all(math.isfinite(v) for v in self.pose):
-            self.stop()
-            raise RuntimeError("位姿缺失或非有限数，已请求停车")
-        # 行驶闭环只使用 localization/pose；原始雷达里程计不再重复卡住路线。
-        stamp = self.pose_stamp
-        if not math.isfinite(stamp) or stamp <= 0 or not -0.05 <= now-stamp <= self.args.pose_timeout:
-            self.stop()
-            raise RuntimeError('定位源时间戳过期，已请求停车')
+            if not self.rclpy.ok():
+                raise KeyboardInterrupt
+            self.rclpy.spin_once(self.node, timeout_sec=.05)
 
     def stop(self) -> None:
         # 连发 5 次全零 Twist，请求底盘停止平移和旋转；这里没有机构指令。
         # 是否已在实物上完全停稳，要看底盘执行，发零速本身不是到位确认。
         trace("stop")
+        if not self.rclpy.ok():
+            return
         for _ in range(5):
             self.cmd_pub.publish(self._Twist())
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
@@ -524,14 +532,15 @@ class Runner:
         self.stop()
         client = self.node.create_client(Trigger, '/localization/reset_start')
         try:
-            if not client.wait_for_service(timeout_sec=5.):
-                raise RuntimeError('定位起点重置服务不可用，请更新并重启定位节点')
+            while not client.wait_for_service(timeout_sec=.2):
+                if not self.rclpy.ok():
+                    raise KeyboardInterrupt
+                self.rclpy.spin_once(self.node, timeout_sec=.05)
             future = client.call_async(Trigger.Request())
-            deadline = time.monotonic()+5.
-            while self.rclpy.ok() and not future.done() and time.monotonic()<deadline:
+            while self.rclpy.ok() and not future.done():
                 self.rclpy.spin_once(self.node, timeout_sec=.05)
             if not future.done():
-                raise RuntimeError('定位起点重置超时，保持停车')
+                raise KeyboardInterrupt
             result = future.result()
             if result is None or not result.success:
                 raise RuntimeError('定位起点重置失败：'+(result.message if result else '无响应'))
@@ -605,14 +614,17 @@ class Runner:
         # 【速度发送出口】先过下面三个开关，再发布 /cmd_vel。
         # 1. motion_guard：固定/整轮运动开启，可能因源时间戳或定位故障停车。
         if getattr(self, "motion_guard", False):
-            self.require_fresh_pose()
+            if self.require_fresh_pose():
+                return  # Recompute from the recovered pose before sending velocity.
         if getattr(self, "visual_guard", False) and self.best_ball() is None:
             # 2. visual_guard：旧版视觉伺服专用；固定/整轮距离后退不启用。
             self.stop()
-            raise RuntimeError("接近期间球观测失效，已停车；需要重新确认")
+            self.spin(.05)
+            return  # Recompute the target command on the next loop.
         if getattr(self.args, "obstacle_guard", False) and not getattr(self, "obstacle_scoop", False):
             # 3. 避障：默认关闭；rear_visual_scoop 包装内也跳过此检查。
-            self.check_obstacle(msg)
+            if self.check_obstacle(msg) is False:
+                return
         self.cmd_pub.publish(msg)
         # trace 记录发出的命令，不参与“是否允许后退”的条件判断。
         trace("command", pose=list(self.pose) if self.pose else None,
@@ -670,6 +682,9 @@ class Runner:
         trace("obstacle_guard", reason=reason, lidar_status=lidar_status,
               cloud_stamp=self.obstacle_cloud_stamp, tf_error=getattr(self,"last_obstacle_tf_error",""),
               camera_age=now-self.det_stamp, vx=vx, vy=vy)
+        if reason in ("camera:stale_stream", "lidar:lateral_coverage_unavailable"):
+            self.stop()
+            return False  # Missing feedback pauses this command; next loop retries with fresh data.
         if reason:
             self.stop()
             log("避障停车", reason+"；本次运动中止，清障后重新启动", C_WARN)
@@ -679,7 +694,6 @@ class Runner:
     def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
         """按新鲜定位到目标容差内即停车，不附加测速和停稳确认等待。"""
         tol = self.args.tol if tolerance is None else tolerance
-        watchdog = self.progress_watchdog()
         last_log = 0.0
         try:
             if not all(math.isfinite(v) for v in (tx, ty, tol)) or tol <= 0:
@@ -692,9 +706,6 @@ class Runner:
                 if dist <= tol:
                     log('到点', f'({tx:.2f},{ty:.2f}) 剩余 {dist*100:.1f}cm', C_OK)
                     return True
-                if watchdog.stalled(time.monotonic(), dist):
-                    log('运动故障', '到点距离持续无进展，保持停车', C_BAD)
-                    return False
                 vx, vy, _, _ = self._goto_command(
                     x, y, yaw, tx, ty, self.args.kp, self.args.kp_yaw,
                     self.args.speed, self.args.max_ang, face_travel=False,
@@ -709,15 +720,9 @@ class Runner:
         finally:
             self.stop()
 
-    def progress_watchdog(self, epsilon=.005):
-        from rb_mission.navigation import ProgressWatchdog
-        return ProgressWatchdog(time.monotonic(),
-                                getattr(self.args, 'motion_stall_seconds', 10.), epsilon)
-
     def rotate_to(self, target_yaw: float, timeout: float) -> bool:
         # target_yaw 是定位坐标中的绝对朝向（弧度），不是“再转多少度”。
         # 【后续动作的关口】调用者只有收到 True 才进入横移/后退。
-        watchdog = self.progress_watchdog(epsilon=.005)
         while True:
             self.spin(0.05)
             if self.pose is None:
@@ -728,10 +733,6 @@ class Runner:
                 self.stop()
                 log('转向到位', f'yaw 误差 {math.degrees(err):+.1f}°', C_OK)
                 return True
-            if watchdog.stalled(time.monotonic(), abs(err)):
-                self.stop()
-                log('运动故障', '转向误差持续无进展，保持停车', C_WARN)
-                return False
             t = self._Twist()
             # PD 转向：角度误差给动力，实测角速度给阻尼；最大 0.3rad/s。
             # yaw_rate 尚未有效时可能为 inf，下面会发零速等新定位，而不转。
@@ -784,8 +785,7 @@ class Runner:
         got, stamps = [], set()
         previous = None
         last_observation = cutoff
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < timeout:
+        while True:
             self.spin(0.05)
             d = self.best_ball()
             if d is None or abs(self.yaw_rate) > self.args.settle_yaw_rate:
@@ -933,17 +933,17 @@ class Runner:
         from rb_msgs.srv import SerialText
         if not hasattr(self, 'intake_client'):
             self.intake_client = self.node.create_client(SerialText, '/rb_launcher/text')
-        if not self.intake_client.wait_for_service(timeout_sec=1.):
-            return False, '机构服务未启动'
+        while not self.intake_client.wait_for_service(timeout_sec=.2):
+            if not self.rclpy.ok():
+                raise KeyboardInterrupt
+            self.rclpy.spin_once(self.node, timeout_sec=.03)
         req = SerialText.Request()
         req.command = command
         future = self.intake_client.call_async(req)
-        deadline = time.monotonic()+3.
-        while not future.done() and time.monotonic() < deadline:
+        while self.rclpy.ok() and not future.done():
             self.rclpy.spin_once(self.node, timeout_sec=.03)
         if not future.done():
-            self.intake_client.remove_pending_request(future)
-            return False, '机构指令无响应'
+            raise KeyboardInterrupt
         response = future.result()
         return bool(response.success), response.message
 
@@ -978,7 +978,6 @@ class Runner:
         # 这一段只发左右横移速度；没有前后移动。对正成功才进入下一段后退。
         self.stop()
         # 没球框时停车等待；对正不再受固定总时间/净横移40cm限制。
-        watchdog = self.progress_watchdog(epsilon=.002)
         waiting_for_target = False
         while True:
             self.spin(.03)
@@ -987,7 +986,6 @@ class Runner:
                 # 没有满足类别/置信度/时间戳条件的后摄框：发零速，继续等。
                 # 漏检时等待，恢复后继续；没有固定等待总时限。
                 self.stop()
-                watchdog.reset(time.monotonic())
                 if not waiting_for_target:
                     log('后摄等待', '暂时没有新鲜球框，停车等待重新识别；恢复后继续对正', C_WARN)
                     waiting_for_target = True
@@ -999,14 +997,9 @@ class Runner:
             trace('rear_align', cx=error+.5,
                   confidence=float(d.confidence), stamp=stamp_seconds(d.stamp))
             if abs(error) <= self.args.route_rear_center_tolerance:
-                watchdog.reset(time.monotonic())
                 self.stop()
                 log('后摄对准', '有效目标已居中，切换定位距离后退；接近期间不再要求YOLO')
                 return self.aligned_intake_approach() if approach else True
-            if watchdog.stalled(time.monotonic(), abs(error)):
-                self.stop()
-                log('后摄停车', '横移指令下球框误差持续无进展', C_WARN)
-                return False
             tw = self._Twist()
             # Rear image right corresponds to body +y.
             # 5 mm/s often cannot overcome chassis friction near the centre.
@@ -1028,7 +1021,6 @@ class Runner:
         log('靠近目标球', f'后摄已对正，向目标球方向后退 {self.args.route_scoop_distance:.2f}m，'
                         f'速度 {self.args.route_scoop_speed:.2f}m/s；不再读取YOLO')
         started = time.monotonic()
-        watchdog = self.progress_watchdog()
         travelled = 0.
         remaining = self.args.route_scoop_distance
         last_vx = 0.
@@ -1055,14 +1047,7 @@ class Runner:
                 self.stop()
                 if not self.rotate_to(heading, timeout=45.):
                     return False
-                watchdog.reset(time.monotonic())
                 continue
-            if watchdog.stalled(time.monotonic(), remaining):
-                self.stop()
-                log('铲球停车', f'后退距离持续无进展：已走 {travelled:.3f}m / '
-                               f'{self.args.route_scoop_distance:.3f}m，剩余 {remaining:.3f}m，'
-                               f'最后指令速度 {abs(last_vx):.3f}m/s', C_WARN)
-                return False
             tw = self._Twist()
             # 唯一的前后行驶指令：负 vx 表示后退，默认最大 0.08m/s。
             # 末段保留可调最低速度，防止比例控制降到摩擦死区；
@@ -1085,7 +1070,6 @@ class Runner:
         # 中线向右端的第一次横移、向左搜索共用这里，不再用不看球的 goto。
         # centered=False：有效目标球一出现就停，不等前摄球框进入中心带。
         # 类别、置信度和源时间戳筛选仍由 centered_target_candidates 处理。
-        watchdog = self.progress_watchdog()
         while True:
             self.spin(.03)
             det = self.centered_target_candidates(self.dets, centered=centered) if detect else None
@@ -1109,12 +1093,7 @@ class Runner:
                 self.stop()
                 if not self.rotate_to(heading, timeout=45.):
                     return 'failed', None
-                watchdog.reset(time.monotonic())
                 continue
-            if watchdog.stalled(time.monotonic(), remaining):
-                self.stop()
-                log('运动故障', '横移目标距离持续无进展，保持停车', C_WARN)
-                return 'failed', None
             # 世界方向固定；车体系转换，保留小角度朝向纠偏。
             velocity = min(speed, self.args.kp*remaining)
             vx, vy = velocity*dx/remaining, velocity*dy/remaining
@@ -1272,13 +1251,11 @@ class Runner:
                      f"再顺时针旋转找球 {self.args.cw_scan_sec:.0f}s")
         self.move_into_field(self.args.into_field)
         self.spin(0.3)
-        det = self._scan_for_ball(self.args.cw_scan_sec, self.args.cw_wz, "顺时针")
-        if det is not None:
-            return det
-
-        self.stop()
-        log("找球失败", "三级都试过：前摄转圈 / 雷达 360° / 进场顺时针 —— 都没找到球", C_BAD)
-        return None
+        while True:
+            det = self._scan_for_ball(self.args.cw_scan_sec, self.args.cw_wz, "顺时针")
+            if det is not None:
+                return det
+            log("继续找球", "本段搜索未发现目标，保持当前位置继续分段搜索", C_WARN)
 
     def close(self) -> None:
         try:
@@ -1336,8 +1313,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-perimeter", action="store_true", help="跳过绕场，直接找球")
     ap.add_argument("--ball-label", default="ball_basketball", help="目标球标签")
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
-    ap.add_argument('--motion-stall-seconds', type=float, default=10.,
-                    help='有运动指令但目标误差持续不改善时停车；不是动作总时限')
     # 运动公共参数：源数据1s、位置跳变、到点/朝向容差均会影响后续能否执行。
     ap.add_argument("--pose-timeout", type=float, default=1.0,
                     help="行驶定位源时间戳最大年龄 s，过期即停车")
@@ -1579,7 +1554,7 @@ def main(argv: list[str] | None = None) -> int:
                 'yaw_tol', 'detection_timeout', 'step_tol', 'kp', 'kp_yaw',
                 'route_forward', 'route_forward_speed', 'route_scan_distance', 'route_scan_speed',
                 'route_heading_tol', 'route_scoop_distance', 'route_scoop_speed',
-                'route_scoop_min_speed', 'motion_stall_seconds')
+                'route_scoop_min_speed')
     # legacy伺服的参数不再拦截固定路线、first-pass和三个回合的启动。
     if args.route == 'legacy':
         positive += ('pose_match_gap', 'track_bearing_deg', 'track_distance', 'scan_step_seconds',

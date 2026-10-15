@@ -35,7 +35,6 @@ def fake_runner():
            args=NS(speed=.25, step_tol=.02, route_scoop_distance=.4,
                    route_scoop_timeout=15., route_scoop_speed=.08,
                    route_heading_tol=.1, kp=1.5, kp_yaw=2., kd_yaw=.25, max_ang=.3))
-    r.progress_watchdog = MethodType(Runner.progress_watchdog, r)
     def goto(x, y, **kw):
         events.append(('move', x, y))
         r.pose = (x, y, r.pose[2])
