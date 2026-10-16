@@ -28,6 +28,16 @@ def make_round_fixture(tmp_path, monkeypatch, side='A', number=3, enabled=True):
     real_budget = stages.RoundReturnBudget
     monkeypatch.setattr(stages, 'RoundReturnBudget', lambda *a, **kw: real_budget(*a, **kw, clock=lambda: clock[0]))
     r.intake_text = lambda command: r.events.append(('text', command)) or (True, 'simulated')
+    from serial_actions import ActionReport, StepResult
+    def shoot(commands):
+        report = ActionReport()
+        for command in commands:
+            ok, message = r.intake_text(command)
+            report.steps.append(StepResult(command, ok, message))
+            if not ok:
+                break
+        return report
+    r.serial_actions = NS(controller=NS(shoot=shoot))
     def scan(x, y, yaw, **kwargs):
         r.pose = (x, y, yaw)
         return 'found', NS(bearing_rad=0.)
@@ -106,19 +116,22 @@ def test_pickup_finishes_exact_fixed_sequence_before_return(tmp_path, monkeypatc
     budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     r.round_return_budget = budget
     r.rear_distance_scoop = lambda: True
-    r.spin = lambda seconds: (clock.__setitem__(0, clock[0]+seconds), check_runner(r))
-    send = r.intake_text
-    def slow_send(command):
-        if command == 'dji_move 1 90 5':
-            clock[0] = 84.
-        return send(command)
-    r.intake_text = slow_send
+    from serial_actions import ActionReport, StepResult
+    def pickup():
+        for command in ['dji_stop', 'dji_zero', 'dji_move 1 90 5', 'dji_move 1 0 5', 'dji_stop']:
+            r.intake_text(command)
+            if command == 'dji_move 1 90 5':
+                clock[0] = 84.
+                check_runner(r)  # deferred until the entire bounded action completes
+        clock[0] += 1.
+        return ActionReport([StepResult('pickup', True, 'DONE')])
+    r.serial_actions.controller.pickup = pickup
     with pytest.raises(ReturnRequested):
         Runner.aligned_intake_approach(r)
     assert [e[1] for e in r.events if e[0] == 'text'] == [
         'dji_stop', 'dji_zero', 'dji_move 1 90 5', 'dji_move 1 0 5', 'dji_stop']
     assert r.round_pickup_completed
-    assert clock[0] == pytest.approx(94.)
+    assert clock[0] == pytest.approx(85.)
     assert budget.deferred == 0
 
 
@@ -138,8 +151,8 @@ def test_shot_finishes_reset_before_return(tmp_path, monkeypatch):
     r.spin = lambda seconds: (clock.__setitem__(0, clock[0]+seconds), check_runner(r))
     send = r.intake_text
     def slow_send(command):
-        if command == 'vesc_shoot 3':
-            clock[0] = 84.
+        if command == 'vesc_shoot2 3':
+            clock[0] = 86.
         return send(command)
     r.intake_text = slow_send
     with pytest.raises(ReturnRequested):

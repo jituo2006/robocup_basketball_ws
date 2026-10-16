@@ -45,6 +45,7 @@ WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
 from intake_control import start_intake, stop_intake
+from serial_actions import runner_actions, PICKUP_RESERVE_SECONDS
 from round_return_budget import check_runner
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
@@ -339,6 +340,8 @@ class Runner:
         sys.path.insert(0, f"{WS}/build/rb_mission")
         from rb_mission.geometry import goto_command
         self._goto_command = goto_command
+
+        runner_actions(self)  # 初始化完成后提前订阅；不发送机构指令。
 
     # -- 回调 ---------------------------------------------------------------
     def _on_chassis_ready(self, msg) -> None:
@@ -1031,7 +1034,7 @@ class Runner:
                           '本次只完成底盘靠近，不发任何串口指令', C_WARN)
             return True
         budget = getattr(self, 'round_return_budget', None)
-        section = budget.mechanism(10.6) if budget is not None else nullcontext()
+        section = budget.mechanism(PICKUP_RESERVE_SECONDS) if budget is not None else nullcontext()
         with section:
             ok = Runner._timed_pickup_sequence(self)
         if ok and budget is not None:
@@ -1039,26 +1042,14 @@ class Runner:
         return ok
 
     def _timed_pickup_sequence(self):
-        # 用户指定的原始指令时序；不查询dji_status，不等待位置/速度状态。
-        raised, message = start_intake(self.intake_text,
-                                      wait=lambda delay: self.spin(delay))
-        log('自动铲球', message, C_OK if raised else C_BAD)
-        if not raised:
-            return False
-        # 抬起指令发出后明确停底盘；两个5秒均从指令发送后开始计时。
-        self.stop()
-        self.spin(5.)
-        lowered, message = stop_intake(self.intake_text)
-        log('铲球后放下', message, C_OK if lowered else C_BAD)
-        if not lowered:
-            return False
-        self.spin(5.)
-        stopped, message = self.intake_text('dji_stop')
-        log('捡球末尾停止', message, C_OK if stopped else C_BAD)
-        if not stopped:
-            return False
+        # 50 ms/最多20次只用于确认命令；收到ACK后不重发运动，独立等待DONE。
+        self.round_pickup_confirmed = False
+        report = runner_actions(self).pickup()
+        self.pickup_report = report
+        self.round_pickup_confirmed = report.confirmed
+        # 用户指定：超时/错误跳过当前步骤并继续；此标志只表示流程已走完。
         self.round_pickup_completed = True
-        log('捡球流程', '固定时序已发送完成，交回后续路线继续底盘运动；未检测球是否入仓')
+        log('捡球流程', report.message, C_OK if report.confirmed else C_WARN)
         return True
 
     def _rear_visual_scoop(self, approach=True):

@@ -160,6 +160,12 @@ def test_complete_cycles_mirror_motion_and_keep_serial_commands(tmp_path, monkey
         r.scan_to, r.rear_visual_scoop = scan, scoop
         r.aligned_intake_approach, r.intake_text = scoop, send
         r.mechanism_release = mechanism_release
+        from serial_actions import ActionReport, StepResult
+        def shoot(commands):
+            for command in commands:
+                send(command)
+            return ActionReport([StepResult(c, True, 'simulated') for c in commands])
+        r.serial_actions = NS(controller=NS(shoot=shoot))
         plan = RoundRoute(r, cfg, number, task, 'cycle', emit=lambda m: None)
         assert plan.execute()
         assert r.pose == pytest.approx(origin)

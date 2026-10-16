@@ -178,8 +178,8 @@ def test_whole_round_uses_post_approach_lift_hold_and_lower_for_each_collected_b
     r, events = fake_runner(); r.args.route_intake = True
     r.rear_distance_scoop = r.aligned_intake_approach
     r.aligned_intake_approach = MethodType(Runner.aligned_intake_approach, r)
-    from test_mechanism_control import FakeMCU
-    m=FakeMCU();r.mechanism_client=NS(controller=m.c)
+    from test_serial_actions import MCU
+    m=MCU();r.serial_actions=NS(controller=m.c)
     assert RoundRoute(r,cfg,number,'pass','cycle',release_kind='drop',emit=lambda msg:None).execute()
     expected=1 if number==1 else 2
     assert len([e for e in events if e[0]=='scoop'])==expected

@@ -516,29 +516,39 @@ def test_rear_accepts_observed_two_percent_offset_then_starts_approach():
 
 
 def intake_runner():
+    from types import SimpleNamespace as NS
+    from test_serial_actions import MCU
     mod = load()
     run = make_runner(mod)
     run.args.route_intake = True
     events = []
-    run.intake_text = lambda cmd: events.append(cmd) or (True, 'sent')
-    run.spin = lambda sec: events.append(('wait', sec))
+    m = MCU()
+    send = m.c.send
+    def record(command, deadline):
+        events.append(command)
+        return send(command, deadline)
+    m.c.send = record
+    run.serial_actions = NS(controller=m.c)
+    run.sim_mcu = m
     run.stop = lambda: events.append('chassis_stop')
     run.rear_distance_scoop = lambda: events.append('approach') or True
     return run, events
 
 
 def expected_timed_pickup():
-    return ['chassis_stop', 'dji_stop', ('wait', .3), 'dji_zero', ('wait', .3),
-            'dji_move 1 90 5', 'chassis_stop', ('wait', 5.),
-            'dji_move 1 0 5', ('wait', 5.), 'dji_stop']
+    return ['chassis_stop', 'dji_stop', 'dji_zero',
+            'dji_move 1 90 5', 'dji_move 1 0 5', 'dji_stop']
 
 
-def test_automatic_pickup_uses_exact_requested_sequence_then_returns_to_route():
+def test_automatic_pickup_uses_requested_handshake_then_returns_to_route():
     run, events = intake_runner()
-    run.args.route_intake_settle = .01  # 旧保持时间不能改变本次明确指定的两个5秒。
+    run.args.route_intake_settle = .01
     assert run.aligned_intake_approach()
     events.append('next_route_motion')
     assert events == ['approach'] + expected_timed_pickup() + ['next_route_motion']
+    assert run.round_pickup_confirmed and run.round_pickup_completed
+    times = {c: t for t, c in run.sim_mcu.sent}
+    assert times['dji_move 1 0 5'] - times['dji_move 1 90 5'] == pytest.approx(1.2, abs=.015)
     assert 'dji_status' not in events
 
 
@@ -556,39 +566,42 @@ def test_mechanism_switch_off_keeps_approach_but_skips_every_serial_command():
     assert events == ['approach', 'chassis_stop']
 
 
-@pytest.mark.parametrize('failed_command',['dji_stop','dji_zero','dji_move 1 90 5','dji_move 1 0 5'])
-def test_write_failure_does_not_continue_pickup_or_route(failed_command):
+@pytest.mark.parametrize('failed_command', ['dji_stop', 'dji_zero', 'dji_move 1 90 5', 'dji_move 1 0 5'])
+def test_ack_failure_is_recorded_and_later_pickup_steps_still_run(failed_command):
     run, events = intake_runner()
-    run.intake_text = lambda cmd: events.append(cmd) or (cmd != failed_command, 'write result')
-    assert not run.aligned_intake_approach()
-    assert events[-1] == failed_command
+    run.sim_mcu.overrides[failed_command] = lambda: run.sim_mcu.rx('ERR BUSY')
+    assert run.aligned_intake_approach()
+    assert run.round_pickup_completed and not run.round_pickup_confirmed
+    assert 'dji_move 1 0 5' in events and events[-1] == 'dji_stop'
     assert 'dji_status' not in events
 
 
-def test_final_stop_write_failure_does_not_resume_route():
-    run, events = intake_runner(); stops=[0]
-    def send(cmd):
-        events.append(cmd)
-        if cmd == 'dji_stop':stops[0]+=1
-        return stops[0]<2,'write result'
-    run.intake_text=send
-    assert not run.aligned_intake_approach()
-    assert events == ['approach'] + expected_timed_pickup()
+def test_final_stop_failure_is_not_reported_as_all_confirmed():
+    run, events = intake_runner()
+    def stop():
+        if len([c for _, c in run.sim_mcu.sent if c == 'dji_stop']) == 1:
+            run.sim_mcu.rx('ACK DJI_STOP')
+    run.sim_mcu.overrides['dji_stop'] = stop
+    assert run.aligned_intake_approach()
+    assert not run.round_pickup_confirmed
+    assert not run.pickup_report.steps[-1].confirmed
 
 
 def test_interrupted_hold_does_not_start_a_new_mechanism_motion():
     run, events = intake_runner()
+    pump = run.sim_mcu.pump
     def wait(sec):
-        events.append(('wait', sec))
-        if sec == 5.:raise KeyboardInterrupt()
-    run.spin=wait
-    with pytest.raises(KeyboardInterrupt):run.aligned_intake_approach()
-    assert events[-1] == ('wait',5.)
+        pump(sec)
+        if run.sim_mcu.t >= .4:
+            raise KeyboardInterrupt()
+    run.sim_mcu.c.pump = wait
+    with pytest.raises(KeyboardInterrupt):
+        run.aligned_intake_approach()
     assert 'dji_move 1 0 5' not in events
 
 
-def test_resumed_pickup_already_at_distance_still_runs_full_timed_sequence():
+def test_resumed_pickup_already_at_distance_still_runs_full_handshake():
     run, events = intake_runner()
-    run.rear_distance_scoop=lambda:pytest.fail('do not repeat completed approach')
+    run.rear_distance_scoop = lambda: pytest.fail('do not repeat completed approach')
     assert run.aligned_intake_approach(approach=False)
     assert events == expected_timed_pickup()

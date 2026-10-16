@@ -18,8 +18,8 @@ def test_release_stops_chassis_then_sends_task_sequence_and_resumes(task):
         commands=['vesc_stop','vesc_home','vesc_shoot 3','vesc_stop','vesc_home','vesc_reset','vesc_stop']
         times=[0.,.3,.6,5.6,5.9,6.2,11.2];duration=11.2
     else:
-        commands=['vesc_stop','vesc_home','vesc_shoot 3','vesc_stop','vesc_reset']
-        times=[0.,0.,0.,3.,3.];duration=3.
+        commands=['vesc_stop','vesc_home','vesc_shoot2 3','vesc_stop','vesc_reset']
+        times=[0.,0.,0.,0.,0.];duration=0.  # handshake engine covered separately
     for cycle in range(2):
         events.clear()
         assert plan.release()

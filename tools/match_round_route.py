@@ -759,6 +759,9 @@ class RoundRoute:
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
         seconds = sum(waits[i] if i < len(waits) else action['wait_s'] for i in range(len(commands)))
+        if self.task == 'shoot' and self.release_kind == 'match':
+            from serial_actions import SHOOT_RESERVE_SECONDS
+            seconds = SHOOT_RESERVE_SECONDS
         if not getattr(self.r.args, 'route_intake', True):
             seconds = 0.
         section = budget.mechanism(seconds) if budget is not None else nullcontext()
@@ -783,6 +786,20 @@ class RoundRoute:
             return False
         commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
         self.r.stop()
+        if self.task == 'shoot' and self.release_kind == 'match':
+            from serial_actions import runner_actions
+            self.r.round_release_confirmed = False
+            report = runner_actions(self.r).shoot(commands)
+            self.r.shoot_report = report
+            self.r.round_release_confirmed = report.confirmed
+            if not report.confirmed:
+                self.last_error = '投篮/复位未确认：'+report.message
+                self.say(self.last_error)
+                return False
+            self.r.round_release_completed = True
+            self.carrying = False
+            self.say('投篮与定时复位回复确认；home=1是定时假定到底，未检测球是否投出/命中')
+            return True
         waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
         for index, command in enumerate(commands):
             ok, message = self.r.intake_text(command)

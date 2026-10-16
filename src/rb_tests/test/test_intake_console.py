@@ -87,7 +87,8 @@ def test_route_ui_rejects_invalid_parameters(args):
 def test_fixed_route_ui_enables_automatic_scoop_by_default_but_retains_skip_switch():
     ui = (WS/'tools/console_debug_ui.html').read_text()
     assert 'id="routeIntake" type="checkbox" checked' in ui
-    assert '上升到位保持5秒' in ui
+    assert '上升DONE后等1秒' in ui
+    assert '50ms重发最多20次' in ui
     assert "start_intake: $('routeIntake').checked" in ui
 
 

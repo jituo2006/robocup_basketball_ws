@@ -68,6 +68,17 @@ def fake_runner():
                 r.spin(delay)
         return True, 'simulated completed action'
     r.mechanism_release = checked_release
+    # Route tests fake the already-tested reply engine, never a real UART.
+    from serial_actions import ActionReport, StepResult
+    def checked_shoot(commands):
+        steps = []
+        for command in commands:
+            ok, message = r.intake_text(command)
+            steps.append(StepResult(command, ok, message))
+            if not ok:
+                break
+        return ActionReport(steps)
+    r.serial_actions = NS(controller=NS(shoot=checked_shoot))
     r.aligned_intake_approach = scoop
     r.stop = lambda: events.append(('stop',))
     r.spin = lambda seconds: None

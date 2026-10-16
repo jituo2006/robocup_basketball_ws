@@ -141,7 +141,7 @@
         <label>对正后靠近距离（米）<input id="scoopDistance" type="number" min="0.021" step="0.01" value="0.70"></label>
         <label>靠近速度（米/秒）<input id="scoopSpeed" type="number" min="0.01" step="0.01" value="0.08"></label>
       </div>
-      <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 自动铲球：靠近完成后抬起，上升到位保持5秒、下降到位再行驶（取消勾选可跳过）</label>
+      <label><input id="routeIntake" type="checkbox" checked style="width:auto"> 自动铲球：靠近停车后按ACK/DONE推进；50ms重发最多20次，上升DONE后等1秒再下降（取消勾选可跳过）</label>
       <button class="danger" onclick="act('TOOL_STOP')">■ 停止调试脚本</button>
       <div class="hint" id="toolstate">未运行</div>
       <div class="hint" id="missionstate">—</div>
@@ -149,7 +149,7 @@
         <button class="orange" onclick="act('MISSION_RESTART')">🔄 重启任务节点</button>
         <button data-guard="TOOL_STOP" onclick="act('MISSION_STOP')">⏹ 停任务节点</button>
       </div></details>
-      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 向规则图右端横移（途中识球） → 无球再向图左端找 → 识球即停 → 转180° → 后摄横移对正 → 低速后退0.70米 → 自动铲球 → 上升到位保持5秒、下降到位再行驶。<br>中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
+      <div class="hint" id="fixedPathHint">右转90° → 前进3.2米 → 向规则图右端横移（途中识球） → 无球再向图左端找 → 识球即停 → 转180° → 后摄横移对正 → 低速后退0.70米 → 自动铲球 → 收到上升DONE后等1秒、下降DONE后停止机构再行驶。<br>中线第一次横移也识球，不要求前摄居中；后摄短暂漏检时停车等待，恢复后继续对正；靠近期间不要求识球。机构关闭时照常靠近。</div>
     </div>
     <div class="card" id="firstPassCard">
       <h2>第一阶段自动行驶</h2>
@@ -175,7 +175,7 @@
         <option value="drop">放球联调：dji_move 1 0 5</option>
       </select></label>
       <label><input id="roundIntake" type="checkbox" onchange="roundReleaseState()" style="width:auto"> 开启机构：吸球、传球/投篮、放球（当前关闭）</label>
-      <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。开启机构时，靠近完成后自动铲球，上升到位保持5秒、下降到位再行驶，再去动作点。</div>
+      <div class="hint">整轮按钮自动处理两颗球，再回出发区；中途不用点下一阶段。开启机构时，靠近完成后自动铲球，收到上升DONE后等1秒、下降DONE后停止机构再行驶，再去动作点。</div>
       <label>第1回合首球方式<select id="roundFirstBall" onchange="loadRoundSteps()">
         <option value="preloaded">首球预装（赛事规则）</option>
         <option value="search">场上取首球（仅放球联调）</option>
