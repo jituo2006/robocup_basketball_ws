@@ -182,6 +182,8 @@ def load_config(path=CONFIG, start_point=None):
                     raise ValueError(f'inner_via.{k} 的每一项须为 [x, y]')
                 point(list(p))
     number(cfg['speed_mps'], math.nextafter(0., math.inf), math.inf)
+    from transit_motion import parameters as transit_parameters
+    transit_parameters(cfg.get('transit_control'))
     profiles = cfg.get('speed_profiles', {})
     if not isinstance(profiles, dict) or any(key not in ('1', '2', '3') for key in profiles):
         raise ValueError('speed_profiles 须为按回合1/2/3配置的字典')
@@ -423,8 +425,8 @@ class RoundRoute:
     def say(self, message):
         self.emit(f'第{self.round}回合/{self.task}/{self.mode}: {message}')
 
-    def move_world(self, p, remember=False, speed=None):
-        # 走线和识球扫描分别选速；最终仍调用原有到点控制。
+    def move_world(self, p, remember=False, speed=None, stop_at_goal=True, heading=None):
+        # 转场按制动包络和反馈调速；识球扫描仍用 scan_to 的独立低速控制。
         # p 已在定位坐标系；remember 只保存返程点，不作为是否允许运动的条件。
         if speed is None:
             key = 'carry_mps' if self.carrying else 'travel_mps'
@@ -434,7 +436,9 @@ class RoundRoute:
         self.r.args.speed = speed
         try:
             ok = self.r.goto(*p, timeout=max(20., distance/speed+15.),
-                             tolerance=self.r.args.step_tol)
+                             tolerance=self.r.args.step_tol, transit=True,
+                             stop_at_goal=stop_at_goal, heading=heading,
+                             transit_options=self.cfg.get('transit_control'))
         finally:
             self.r.args.speed = saved_speed
         if ok and remember:
@@ -444,6 +448,29 @@ class RoundRoute:
     def move(self, p, remember=False):
         # 配置中的场地坐标先按本轮起点映射到定位坐标，再发送运动指令。
         return self.move_world(self.frame.point(p), remember)
+
+    def move_path(self, points, remember=False):
+        """整串点一起规划速度及前视点，中间平滑衔接，终点制动确认。"""
+        if not points:
+            return True
+        heading = self.r.pose[2]
+        world = [self.frame.point(p) for p in points]
+        key = 'carry_mps' if self.carrying else 'travel_mps'
+        saved_speed = self.r.args.speed
+        self.r.args.speed = self.speed_profile.get(key, self.cfg['speed_mps'])
+        try:
+            ok = self.r.goto(*world[-1], timeout=0., tolerance=self.r.args.step_tol,
+                             transit=True, stop_at_goal=True, heading=heading,
+                             transit_options=self.cfg.get('transit_control'), path_points=world,
+                             path_progress=(lambda p: self.trail.append(tuple(p))) if remember else None)
+            if not ok:
+                self.r.stop()
+            return ok
+        except BaseException:
+            self.r.stop()
+            raise
+        finally:
+            self.r.args.speed = saved_speed
 
     def turn(self, heading):
         return self.r.rotate_to(self.frame.yaw(heading), timeout=45.)
@@ -564,16 +591,18 @@ class RoundRoute:
         """取球后回到检测点，再沿已经走过的折线退出，不直接穿过置球线。"""
         self.r.stop()
         leaving_pickup = self.carrying and self.search_origin is not None
+        heading = self.r.pose[2]
         while self.trail:
             p = self.trail[-1]
             speed = self.speed_profile.get('pickup_exit_mps') if leaving_pickup else None
-            if not self.move_world(p, speed=speed):
+            if not self.move_world(p, speed=speed, stop_at_goal=len(self.trail) == 1,
+                                   heading=heading):
                 return False
             leaving_pickup = False
             self.trail.pop()
         return True
 
-    def search_area(self, area, cycle, search_only=False):
+    def search_area(self, area, cycle, search_only=False, via=None):
         # search_only=True：本函数找到球只停车返回，转身/对正/靠近由
         # match_round_steps.execute_step 的后续动作负责；不是漏掉铲球。
         cfg = self.cfg
@@ -591,7 +620,7 @@ class RoundRoute:
         #                 （旧帧 6.8 = 新帧 3.05，正好在半场置球线顶边之上）
         # 想回到旧行为：search_via_entry = true
         # 搜球前的中转：要跨过半场置球线才绕，同侧直接去（crossing_via 判断）。
-        transit = self.crossing_via(self.area_x(area))
+        transit = list(via or []) + self.crossing_via(self.area_x(area))
         if area == 'inner' and transit:
             # 现场加的中转点（配置键 inner_via，只在跨线进深场时插）。
             # 由来：投篮的深场线在三分线【内侧】(x = inner.x_shoot)，
@@ -601,10 +630,10 @@ class RoundRoute:
             for extra in (cfg.get('inner_via') or {}).get(self.task) or []:
                 transit.append(list(extra))
             transit.append([inner_x(cfg, self.task), cfg['corridor'][1]])
-        for p in transit:
-            if not self.move(p, remember=True):
-                return 'failed'
         points = search_plan(cfg, area, cycle, self.round, self.task)
+        # 起扫点与前面的通道属于同一次转场；到起扫点才停车并对准扫描方向。
+        if not self.move_path(transit + [points[0][0]], remember=True):
+            return 'failed'
         if area == 'middle':
             # 直接到【本回合方向的第一扫描点】，再从那里扫向另一端。
             # ⚠️ 原来写的是 move([start.x, middle.y])，x 被硬编码成出发点的 1.5，
@@ -617,12 +646,8 @@ class RoundRoute:
             #    没有就继续扫到 points[1] —— 整条线仍然全程认球。
             if not self.turn(points[0][1]):
                 return 'failed'
-            if not self.move(points[0][0], remember=True):
-                return 'failed'
             self.say(f"中线到本回合起扫点 X={points[0][0][0]:.2f}，"
                      f"再扫至 X={points[1][0][0]:.2f}，遇球即停")
-        elif not self.move(points[0][0], remember=True):
-            return 'failed'
         for p, yaw in points:
             if not self.turn(yaw):
                 return 'failed'
@@ -682,26 +707,26 @@ class RoundRoute:
             return self.cfg['release'][self.task].get('aim_mode') != 'fixed'
         return self.task in tasks
 
-    def action_point(self, aim=True):
+    def action_point(self, aim=True, via=None):
         cfg = self.cfg
         self.heading_ready = False
+        points = list(via or [])
         # 投篮点在绿线右边，过半场仍走上侧通道；传球点位于左侧传球圆内。
         if self.task == 'shoot':
             # 投篮动作点在右侧。要不要先绕半场置球线由 crossing_via 判断：
             #   从进场点进场地(y 已在通道高度) → entry → corridor → shootPt
             #   从中线取球(y 低)               → [4.8,通道y] → corridor → shootPt
             #   从弧线/深场(同在右侧)           → 直接去 shootPt
-            for p in self.crossing_via(float(cfg['release']['shoot']['point'][0])):
-                if not self.move(p):
-                    return False
+            if not points:
+                points.extend(self.crossing_via(float(cfg['release']['shoot']['point'][0])))
         else:
             # 传球：默认直接去传球点（与编辑器路线一致）。
             # pass_action_via_middle=true 时先绕到 (start.x, 中线y) —— 旧行为。
             if self.cfg.get('pass_action_via_middle', False):
-                if not self.move([cfg['start'][0], cfg['middle']['y']]):
-                    return False
+                points.append([cfg['start'][0], cfg['middle']['y']])
         action = cfg['release'][self.task]
-        if not self.move(action['point']):
+        points.append(action['point'])
+        if not self.move_path(points):
             return False
         if not aim:
             self.r.stop()
@@ -776,19 +801,18 @@ class RoundRoute:
 
     def home(self):
         cfg = self.cfg
-        if self.task == 'shoot' and not self.move(cfg['corridor']):
-            return False
-        if not self.move(cfg['entry']):
-            return False
-        self.say('已到出场点E，先恢复本轮初始朝向，再进入初始点S')
+        points = [cfg['corridor']] if self.task == 'shoot' else []
         # 回正放在【进场点】：先把车头转回初始朝向，再直着进出发区。
         # 旧写法是先到出发点再原地转 —— 原地旋转会让已经到位的终点位置带偏，
         # 规则要求停稳在出发区内，所以默认改成在进场点回正。
         # 想回旧行为：home_align_at = "start"
         if cfg.get('home_align_at', 'entry') == 'start':
-            if not self.move(cfg['start']):
+            if not self.move_path(points + [cfg['entry'], cfg['start']]):
                 return False
             return self.turn(0.)
+        if not self.move_path(points + [cfg['entry']]):
+            return False
+        self.say('已到出场点E，先恢复本轮初始朝向，再进入初始点S')
         if not self.turn(0.):
             return False
         return self.move(cfg['start'])

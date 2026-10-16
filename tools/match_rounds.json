@@ -11,14 +11,14 @@
     6.4,
     2.3
   ],
-  "speed_mps": 0.5,
+  "speed_mps": 0.8,
   "speed_profiles": {
     "1": {
       "travel_mps": 0.85,
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 1.0,
+      "turn_rad_s": 0.7,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
@@ -27,7 +27,7 @@
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 1.0,
+      "turn_rad_s": 0.7,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     },
@@ -36,12 +36,12 @@
       "carry_mps": 0.65,
       "scan_mps": 0.25,
       "pickup_exit_mps": 0.15,
-      "turn_rad_s": 1.0,
+      "turn_rad_s": 0.7,
       "approach_radius_m": 0.25,
       "approach_mps": 0.12
     }
   },
-  "start_delay_s": 10.0,
+  "start_delay_s": 5.0,
   "drop_commands": [
     "dji_move 1 0 5"
   ],
@@ -262,5 +262,20 @@
         0.74
       ]
     ]
+  },
+  "transit_control": {
+    "accel_mps2": 0.6,
+    "decel_mps2": 0.7,
+    "brake_mps2": 0.3,
+    "lookahead_m": 0.12,
+    "corner_mps": 0.18,
+    "corner_blend_m": 0.08,
+    "terminal_radius_m": 0.4,
+    "terminal_kp": 2.0,
+    "velocity_damping": 0.45,
+    "prediction_max_s": 0.15,
+    "arrival_mps": 0.05,
+    "arrival_frames": 2,
+    "correction_mps": 0.12
   }
 }

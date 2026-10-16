@@ -165,13 +165,12 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 ok = plan.action_point()
             elif kind == 'search':
                 cycle = 0 if round_number == 1 else index-1
-                if task == 'shoot' and index == 2:
-                    if not plan.move(cfg['corridor']):
-                        raise RuntimeError('去搜索通道未完成')
+                via = [cfg['corridor']] if task == 'shoot' and index == 2 else []
                 # 按【阶段】取区域：你编辑器里画的是阶段1找哪些、阶段2找哪些，
                 # 不要每个阶段都把整份列表重搜一遍。
                 for area in search_order(round_number, task, cfg, index):
-                    result = plan.search_area(area, cycle, search_only=True)
+                    result = plan.search_area(area, cycle, search_only=True, via=via)
+                    via = []
                     if result == 'failed':
                         break
                     if result == 'found':
@@ -219,13 +218,7 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
                 if cfg.get('exit_after_pickup', 'direct') == 'unwind':
                     ok = plan.unwind() and plan.action_point()
                 else:
-                    ok = True
-                    for _wp in plan.carry_via():
-                        if not plan.move(_wp):
-                            ok = False
-                            break
-                    if ok:
-                        ok = plan.action_point()
+                    ok = plan.action_point(via=plan.carry_via())
             elif kind == 'release':
                 # 重试会新建 plan，须恢复出球朝向；同次 carry 已完成则不重复走动作点。
                 if (release_kind == 'match' and getattr(runner.args, 'route_intake', True)

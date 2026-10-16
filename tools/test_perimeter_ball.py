@@ -729,9 +729,19 @@ class Runner:
             raise RuntimeError("避障停车: "+reason)
 
     # -- 基本动作 -----------------------------------------------------------
-    def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None) -> bool:
+    def goto(self, tx: float, ty: float, timeout: float, tolerance: float | None = None,
+             transit=False, stop_at_goal=True, heading=None, transit_options=None,
+             path_points=None, path_progress=None) -> bool:
         """保持进入本段时的朝向，持续控制至目标容差内。"""
         tol = self.args.tol if tolerance is None else tolerance
+        if transit:
+            from transit_motion import follow_path
+            def record(event, **data):
+                trace(event, **data)
+                if path_progress is not None and event in ('transit_waypoint', 'transit_arrival'):
+                    path_progress(tuple(data['target']))
+            return follow_path(self, path_points if path_points is not None else [(tx,ty)],
+                               tol, transit_options, heading, stop_at_goal, record)
         last_log = 0.0
         heading = self.pose[2]
         log('到点开始', f'起点={self.pose} 目标=({tx:.3f},{ty:.3f}) 保持朝向={math.degrees(heading):.1f}°')

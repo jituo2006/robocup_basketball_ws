@@ -46,7 +46,10 @@ def runner(origin):
     r = NS(pose=origin, args=NS(route_intake=False, speed=.5, step_tol=.02, max_ang=1.))
     r.events = []
     def goto(x, y, **kw):
-        r.events.append(('move', x, y))
+        for point in kw.get('path_points', [(x, y)]):
+            r.events.append(('move', *point))
+            if kw.get('path_progress'):
+                kw['path_progress'](point)
         r.pose = (x, y, r.pose[2])
         return True
     def turn(yaw, **kw):
@@ -62,16 +65,18 @@ def runner(origin):
 @pytest.mark.parametrize('side,sign', [('A', -1), ('B', 1)])
 @pytest.mark.parametrize('number', [1, 2, 3])
 @pytest.mark.parametrize('mode', ['cycle', 'drive', 'collect'])
-def test_all_entry_modes_turn_correctly_after_ten_seconds(tmp_path, monkeypatch, side, sign, number, mode):
+def test_all_entry_modes_turn_correctly_after_configured_wait(tmp_path, monkeypatch, side, sign, number, mode):
     monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
     cfg = load_config(start_point=side)
     r = runner((12., -7., .37))
     # 入场后结束测试，不发送真实运动或机构命令。
     monkeypatch.setattr(RoundRoute, 'move', lambda *a, **k: False)
+    monkeypatch.setattr(RoundRoute, 'move_path', lambda *a, **k: False)
     assert not RoundRoute(r, cfg, number, 'pass', mode, emit=lambda m: None).execute()
-    assert sum(e[1] for e in r.events if e[0] == 'wait') == pytest.approx(10.)
+    assert sum(e[1] for e in r.events if e[0] == 'wait') == pytest.approx(cfg['start_delay_s'])
     assert next(e[1] for e in r.events if e[0] == 'turn') == pytest.approx(wrap(.37 + sign*math.pi/2))
-    assert all(e[0] == 'wait' for e in r.events[:10])
+    first_turn = next(i for i,e in enumerate(r.events) if e[0] == 'turn')
+    assert first_turn > 0 and all(e[0] == 'wait' for e in r.events[:first_turn])
 
 
 @pytest.mark.parametrize('side,sign', [('A', 1), ('B', -1)])

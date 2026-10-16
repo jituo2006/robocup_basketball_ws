@@ -36,7 +36,10 @@ def fake_runner():
                    route_scoop_timeout=15., route_scoop_speed=.08,
                    route_heading_tol=.1, kp=1.5, kp_yaw=2., kd_yaw=.25, max_ang=.3))
     def goto(x, y, **kw):
-        events.append(('move', x, y))
+        for point in kw.get('path_points', [(x, y)]):
+            events.append(('move', *point))
+            if kw.get('path_progress'):
+                kw['path_progress'](point)
         r.pose = (x, y, r.pose[2])
         return True
     def turn(yaw, **kw):
