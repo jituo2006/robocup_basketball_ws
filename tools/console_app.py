@@ -2206,7 +2206,9 @@ def make_app(bridge: Bridge, stack: StackManager, tool: ToolRunner,
                             'release_heading': {task: {'mode': action.get('aim_mode', 'target'),
                                                        'degrees': action.get('search_heading_deg', 0)}
                                                 for task, action in cfg['release'].items()},
-                            'vision_classes': ['篮球', '排球', '定位柱'],
+                            # 当前 YOLO 是两类（篮球/排球）。原来这里还写着「定位柱」，
+                            # 但模型不出这一类，界面上会一直空一格，所以去掉。
+                            'vision_classes': ['篮球', '排球'],
                             'release_ready': {task: release_ready(action)
                                               for task, action in cfg['release'].items()}})
         except (ValueError, KeyError, TypeError, OSError) as exc:
