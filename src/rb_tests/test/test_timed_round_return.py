@@ -34,8 +34,6 @@ def make_round_fixture(tmp_path, monkeypatch, side='A', number=3, enabled=True):
         for command in commands:
             ok, message = r.intake_text(command)
             report.steps.append(StepResult(command, ok, message))
-            if not ok:
-                break
         return report
     r.serial_actions = NS(controller=NS(shoot=shoot))
     def scan(x, y, yaw, **kwargs):
@@ -202,16 +200,19 @@ def test_deadline_before_second_release_does_not_count_previous_release_twice(tm
     assert not stages.workflow_state(3, 'shoot')['steps'][1]['done']
 
 
-def test_serial_failure_during_deferred_sequence_is_not_converted_to_return(tmp_path, monkeypatch):
+def test_serial_step_failures_finish_all_attempts_then_obey_timed_return(tmp_path, monkeypatch):
     r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
+    sent = []
     def fail(command):
+        sent.append(command)
         clock[0] = 86.
         return False, 'serial failed'
     r.intake_text = fail
-    assert not RoundRoute(r, cfg, 3, 'shoot', 'collect', emit=lambda m: None).release()
-    assert not r.events
-    assert not getattr(r, 'round_release_completed', False)
+    with pytest.raises(ReturnRequested):
+        RoundRoute(r, cfg, 3, 'shoot', 'collect', emit=lambda m: None).release()
+    assert sent == cfg['release']['shoot']['commands']
+    assert r.round_release_completed and not r.round_release_confirmed
 
 
 def test_unknown_service_result_stops_instead_of_driving_home(tmp_path, monkeypatch):

@@ -140,9 +140,11 @@
         "vesc_home",
         "vesc_shoot2 3",
         "vesc_stop",
-        "vesc_reset"
+        "vesc_reset",
+        "vesc_stop"
       ],
       "command_waits_s": [
+        0.0,
         0.0,
         0.0,
         0.0,
@@ -238,7 +240,7 @@
       -4.25
     ]
   },
-  "start_point": "A",
+  "start_point": "B",
   "intake_settle_s": 5.0,
   "home_align_at": "entry",
   "b_y_adjustments_m": {

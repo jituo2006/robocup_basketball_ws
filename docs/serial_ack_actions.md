@@ -32,7 +32,7 @@
 
 ## 投篮（shoot任务，传球pass不变）
 
-命令主体为：
+2026-10-17按现场要求改为“出错也继续”。依次尝试：
 
 ```text
 vesc_stop
@@ -40,23 +40,24 @@ vesc_home
 vesc_shoot2 3
 vesc_stop
 vesc_reset
+vesc_stop
 ```
 
-1. `vesc_stop` 按公共规则重发，确认 `--VESC stop: both 0 A mailboxes cleared; ...`。随后只在待机时查询 `vesc_status`，最多3秒，要求两路反馈新鲜（age<20 ms）、低速静止、请求0 A、pending=0、无主板锁存故障，连续确认至少150 ms。
-2. `vesc_home` 同样重发，只有人工起点确认回复含 `encoder_home=1` 才继续。`encoder_home=0` 不能启动编码器闭环投篮。
-3. `vesc_shoot2 3` 同样重发；收到 `--SHOT2 starting both; ...` 后立即停止重发，最多5秒等待本次新run的结果和多行报告结束。仅 `reason=timed release`、`timing_speed` 非 `INVALID`、无报告故障才继续。
-4. 再执行 `vesc_stop` 确认与待机静止检查。
-5. `vesc_reset` 同样重发；收到 `--RESET top assumed; ...` 后停止重发，最多5秒等新的 `RESET_RESULT FINISHED`，要求 `valid=YES`、`reason=timed release`、`fault_id=0`。
-6. 另等最多5秒确认 `--RESET bottom zero established; home=1 ...`。通知丢失时，在复位结果结束后可通过 `vesc_status` 的待机 `home=1` 确认。
-7. 正常完成后不追加 `vesc_stop`，因为当前主板的停止命令会清除刚建立的home。
+- 所有命令的确认窗口仍为1秒，每50 ms重试，最多20次；收到有效确认就停止重发。无回复、错误回复或主板拒绝，记录该步骤未确认后继续下一条。
+- `vesc_stop` 收到 `--VESC stop: both 0 A mailboxes cleared; ...` 即推进，不额外插入 `vesc_status` 静止检查。
+- `vesc_home` 收到人工起点确认即推进；`encoder_home=0`记录为异常，但不拦截后续命令。主板自身仍可能拒绝不满足条件的发射。
+- `vesc_shoot2 3` 收到 `--SHOT2 starting both; ...` 后不再重发，最多5秒等待本次结果及报告结束。`shaft encoder invalid/stale`、`timing_speed=INVALID`、其他异常结果或等待超时，全部只记录，随后仍尝试停止、复位和末尾停止；不自动再次发射。
+- `vesc_reset` 收到 `--RESET top assumed; ...` 后不再重发，最多5秒等待 `RESET_RESULT FINISHED`。结果无效、主板拒绝或等待超时，都继续尝试末尾的 `vesc_stop`。
+- 不再等待或要求 `home=1`。末尾停止会清除主板home，因此结束时home=0符合当前命令序列，不应把它当成流程卡住。
+- 整个序列尝试完后返回比赛流程，继续下一段路线。`round_release_completed`表示尝试完毕，`round_release_confirmed`及每步报告保留实际确认结果；未确认不会被伪装成投篮或机械回程成功。
 
-准备失败、发射异常、复位异常或等待超时，都有界退出并记录失败；尽力发送停止并确认，**不盲目再次发射或从未知位置启动定时复位**。该投篮阶段返回未确认，原任务管理器保留失败进度，不报整轮成功；传球阶段仍走原配置。
+串口服务发送结果未知时不积压新请求；任务取消仍正常退出。普通主板错误不会退出整轮，也不会跳过后面的复位和停止步骤。旧的五命令投篮配置会自动补上末尾停止。
 
-`vesc_reset` 是主板定时回程。结果成功和home=1代表源码的时间假定，不是底部传感器检测。0 A仍为滑行。
+`vesc_reset`仍是主板原有的定时回程，0 A仍为滑行。没有修改主板固件、保护和电机参数，也没有增加底部检测。
 
 ## 计时回位与使用
 
-保留现有计时回位策略，开始机构动作前预留完整的有界等待预算：捡球36秒，投篮32秒。若余量不足，先回位，不新开机构动作；动作已经开始则走完确认/失败退出后再由原计时器处理。不要把ACK的1秒窗口当成电机运动时间。
+保留现有计时回位策略，开始机构动作前预留完整的有界等待预算：捡球36秒，投篮16秒。若余量不足，先回位，不新开机构动作；动作已经开始则走完确认/失败退出后再由原计时器处理。不要把ACK的1秒窗口当成电机运动时间。
 
 本次为Python主机逻辑调整，现有串口节点已提供RX事件及发送元数据，无需重编译C++。结束旧的任务进程，再从原比赛按钮/脚本启动新任务即可加载新模块；不自动重启真实服务，也不发送实机动作。
 

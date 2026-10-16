@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
 from serial_actions import SerialActions, ProtocolError
 from mechanism_control import ReplyInbox
 
-SHOOT = ['vesc_stop', 'vesc_home', 'vesc_shoot2 3', 'vesc_stop', 'vesc_reset']
+SHOOT = ['vesc_stop', 'vesc_home', 'vesc_shoot2 3', 'vesc_stop', 'vesc_reset', 'vesc_stop']
 
 
 class MCU:
@@ -182,13 +182,13 @@ def test_cancel_during_hold_never_lowers_or_runs_cleanup_motion():
     assert 'dji_move 1 0 5' not in commands(m)
 
 
-def test_normal_shoot2_reset_and_home_without_final_stop():
+def test_normal_shoot2_reset_and_final_stop_without_status_or_home_gate():
     m = MCU()
     report = m.c.shoot(SHOOT)
     assert report.confirmed, report.message
-    assert [c for c in commands(m) if c != 'vesc_status'] == SHOOT
+    assert commands(m) == SHOOT
     assert commands(m).count('vesc_shoot2 3') == 1 and commands(m).count('vesc_reset') == 1
-    assert m.home == 1 and m.t < 4.
+    assert commands(m).count('vesc_stop') == 3 and m.home == 0 and m.t < 3.
     assert m.c.shoot(SHOOT).confirmed
 
 
@@ -209,19 +209,21 @@ def test_all_shoot_steps_retry_at_50ms_until_ack(command, ack):
 @pytest.mark.parametrize('reply', [
     '--Home refused: healthy CAN and fresh stationary feedback required.',
     '--Manual start-position confirmation accepted for both motors; encoder_home=0; no automatic return.'])
-def test_bad_home_skips_shoot_and_reset(reply):
+def test_bad_home_is_recorded_but_shoot_reset_and_final_stop_are_attempted(reply):
     m = MCU()
     m.overrides['vesc_home'] = lambda: m.rx(reply)
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and commands(m).count('vesc_home') == 20
-    assert 'vesc_shoot2 3' not in commands(m) and 'vesc_reset' not in commands(m)
+    assert not report.confirmed
+    assert 'vesc_shoot2 3' in commands(m) and 'vesc_reset' in commands(m)
+    assert commands(m)[-1] == 'vesc_stop'
+    assert commands(m).count('vesc_home') == (20 if 'refused:' in reply else 1)
 
 
 @pytest.mark.parametrize('header', [
     'RESULT FINISHED run=1 reason=shaft encoder invalid/stale timing_speed=INVALID',
     'RESULT FINISHED run=1 reason=user abort timing_speed=PASS',
     'RESULT FINISHED run=1 reason=timed release timing_speed=INVALID'])
-def test_failed_shot_stops_and_does_not_auto_reset(header):
+def test_failed_shot_is_recorded_then_stop_reset_and_stop_continue(header):
     m = MCU()
     def shoot():
         m.rx('--SHOT2 starting both; feedback=MT6816')
@@ -229,20 +231,21 @@ def test_failed_shot_stops_and_does_not_auto_reset(header):
         m.later(.12, lambda: m.rx('VERIFY actual stroke/ball departure/battery current: UNVERIFIED. RAM only; export trace.'))
     m.overrides['vesc_shoot2 3'] = shoot
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and 'vesc_reset' not in commands(m)
-    assert commands(m).count('vesc_shoot2 3') == 1 and commands(m).count('vesc_stop') == 2
+    assert not report.confirmed and not report.steps[2].confirmed
+    assert commands(m) == SHOOT
+    assert commands(m).count('vesc_shoot2 3') == 1 and commands(m).count('vesc_reset') == 1
 
 
-def test_missing_shot_completion_is_bounded_and_never_refires():
+def test_missing_shot_completion_is_bounded_then_reset_is_attempted_without_refiring():
     m = MCU()
     m.overrides['vesc_shoot2 3'] = lambda: m.rx('--SHOT2 starting both; feedback=MT6816')
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and m.t < 7.
-    assert commands(m).count('vesc_shoot2 3') == 1 and 'vesc_reset' not in commands(m)
+    assert not report.confirmed and m.t < 8.
+    assert commands(m) == SHOOT
 
 
 @pytest.mark.parametrize('kind', ['no_result', 'invalid', 'no_home', 'dropped_home_notice'])
-def test_reset_completion_and_conditional_home(kind):
+def test_reset_errors_and_missing_home_never_skip_final_stop(kind):
     m = MCU()
     def reset():
         m.rx('--RESET top assumed; fixed reverse=300 RPM')
@@ -253,16 +256,16 @@ def test_reset_completion_and_conditional_home(kind):
             m.later(1.4, lambda: setattr(m, 'home', 1))
     m.overrides['vesc_reset'] = reset
     report = m.c.shoot(SHOOT)
-    assert report.confirmed == (kind == 'dropped_home_notice'), report.message
-    assert commands(m).count('vesc_reset') == 1 and m.t < 10.
+    assert report.confirmed == (kind in ('no_home', 'dropped_home_notice')), report.message
+    assert commands(m) == SHOOT and m.t < 8.
 
 
-def test_stale_done_and_previous_run_cannot_confirm_new_action():
+def test_stale_result_is_unconfirmed_but_does_not_prevent_reset():
     m = MCU()
     m.rx('DONE')
     m.c.last_shot_run = 5
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and 'vesc_reset' not in commands(m)
+    assert not report.confirmed and commands(m) == SHOOT
 
 
 @pytest.mark.parametrize('mode', ['disconnect', 'foreign', 'gap', 'restart'])
@@ -302,11 +305,11 @@ def test_foreign_tx_does_not_allow_later_automatic_motion():
     assert commands(m) == ['dji_stop', 'dji_zero']
 
 
-def test_observed_previous_result_run_is_rejected():
+def test_observed_previous_run_is_recorded_as_unconfirmed_without_stopping_sequence():
     m = MCU()
     m.rx('RESULT FINISHED run=1 reason=timed release timing_speed=PASS')
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and 'vesc_reset' not in commands(m)
+    assert not report.confirmed and commands(m) == SHOOT
 
 
 @pytest.mark.parametrize('unavailable', ['service', 'publisher', 'future'])
@@ -334,20 +337,8 @@ def test_ros_adapter_bounds_service_wait_and_never_queues_unknown_requests(monke
         assert not ok and requests == ['dji_stop']
 
 
-@pytest.mark.parametrize('defect', ['stale', 'running', 'current_command', 'pending', 'fault'])
-def test_stop_requires_fresh_stationary_both_ids_before_shoot(defect):
+def test_no_extra_status_query_blocks_shoot_sequence():
     m = MCU()
-    def status():
-        m.rx('--VESC dual IDLE bus=CAN2 ids=1,2 poles=7 home=0 diag=10')
-        m.rx('CAN_ESR=0x00000000 fault_id=' + ('1' if defect == 'fault' else '0') + ' fault=none')
-        for i in (1, 2):
-            age = 30 if defect == 'stale' and i == 1 else 1
-            speed = 100 if defect == 'running' and i == 1 else 0
-            current = 100 if defect == 'current_command' and i == 2 else 0
-            pending = '0x1' if defect == 'pending' and i == 2 else '0x0'
-            m.rx(f'MOTOR id={i} rx=100 age={age} ms actual={speed} ERPM current=0 mA duty=0/1000')
-            m.rx(f'CONTROL id={i} ref=0 ERPM cmd={current} mA pending={pending}')
-    m.overrides['vesc_status'] = status
+    m.overrides['vesc_status'] = lambda: pytest.fail('automatic shoot no longer adds status gates')
     report = m.c.shoot(SHOOT)
-    assert not report.confirmed and m.t < 9.
-    assert 'vesc_home' not in commands(m) and 'vesc_shoot2 3' not in commands(m)
+    assert report.confirmed and commands(m) == SHOOT

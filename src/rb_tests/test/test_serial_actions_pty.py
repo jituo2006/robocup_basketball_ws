@@ -97,7 +97,7 @@ def test_real_ros_uart_retry_and_completion(tmp_path, fragment):
         assert report.confirmed, report.message + '\n' + (tmp_path / 'node.log').read_text()[-2000:]
         vesc = [c for _, c in m.sent if c.startswith('vesc_') and c != 'vesc_status']
         assert vesc == SHOOT
-        assert m.home == 1
+        assert m.home == 0
         assert not errors, errors
     finally:
         stop.set()

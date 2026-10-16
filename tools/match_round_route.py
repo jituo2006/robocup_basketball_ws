@@ -793,12 +793,10 @@ class RoundRoute:
             self.r.shoot_report = report
             self.r.round_release_confirmed = report.confirmed
             if not report.confirmed:
-                self.last_error = '投篮/复位未确认：'+report.message
-                self.say(self.last_error)
-                return False
-            self.r.round_release_completed = True
+                self.say('投篮串口有异常/未确认步骤，已继续尝试全部命令：'+report.message)
+            self.r.round_release_completed = True  # 序列尝试完毕，不表示物理动作成功。
             self.carrying = False
-            self.say('投篮与定时复位回复确认；home=1是定时假定到底，未检测球是否投出/命中')
+            self.say('投篮命令序列结束，继续后续任务；未检测球是否投出或机构是否到底')
             return True
         waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
         for index, command in enumerate(commands):

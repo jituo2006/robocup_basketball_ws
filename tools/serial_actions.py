@@ -5,7 +5,6 @@ external writes, event loss and reconnects invalidate it. MCU has no wire IDs:
 host TX boundaries reduce stale replies but cannot prove mechanical position.
 """
 from dataclasses import dataclass, field
-import math
 import time
 
 from mechanism_control import ReplyInbox, fields
@@ -16,9 +15,8 @@ MAX_ATTEMPTS = 20
 MOVE_SECONDS = 15.0
 SHOT_SECONDS = 5.0
 RESET_SECONDS = 5.0
-HOME_SECONDS = 5.0
 PICKUP_RESERVE_SECONDS = 36.0
-SHOOT_RESERVE_SECONDS = 32.0
+SHOOT_RESERVE_SECONDS = 16.0
 
 
 class ProtocolError(RuntimeError):
@@ -203,45 +201,6 @@ class SerialActions:
     def _move_ack(line):
         return line in ('ACK DJI_MOVE 1 MOVING', 'ACK DJI_MOVE 1 HOMING', 'ACK DJI_MOVE 1 HOLD')
 
-    def _stop(self):
-        ex, result = self.accept('vesc_stop', lambda s: s.startswith('--VESC stop: both 0 A mailboxes cleared;'))
-        if not result.confirmed:
-            raise ProtocolError(result.detail)
-        # Stop reply proves TX completion, not standstill. Query only while idle.
-        deadline = self.clock()+3.
-        stable_since = None
-        while self.clock() < deadline:
-            query, status = self.accept('vesc_status', lambda s: s.startswith('--VESC dual IDLE '))
-            if not status.confirmed:
-                raise ProtocolError('停止后状态未确认: '+status.detail)
-            self.wait(query, lambda s: s.startswith('CONTROL id=2 '), max(.001, min(1., deadline-self.clock())))
-            lines = [line for _, line in self._read(query)]
-            header = next((fields(s) for s in lines if s.startswith('--VESC dual ')), {})
-            fault = next((fields(s) for s in lines if s.startswith('CAN_ESR=')), {})
-            motors = {fields(s).get('id'): fields(s) for s in lines if s.startswith('MOTOR id=')}
-            controls = {fields(s).get('id'): fields(s) for s in lines if s.startswith('CONTROL id=')}
-            try:
-                poles = int(header['poles'])
-                healthy = (1 <= poles <= 100 and fault['fault_id'] == '0' and
-                           int(fault['CAN_ESR'], 0) & 4 == 0)
-                for motor_id in ('1', '2'):
-                    m, c = motors[motor_id], controls[motor_id]
-                    nums = [float(m[k]) for k in ('age', 'actual')]
-                    healthy = healthy and all(math.isfinite(v) for v in nums)
-                    healthy = healthy and 0 <= nums[0] < 20 and abs(nums[1]) <= 5*poles
-                    healthy = healthy and int(m['rx']) > 0 and int(c['cmd']) == 0 and int(c['pending'], 0) == 0
-            except (KeyError, ValueError):
-                healthy = False
-            if healthy:
-                if stable_since is None:
-                    stable_since = self.clock()
-                if self.clock()-stable_since >= .15:
-                    return result
-            else:
-                stable_since = None
-            self._pause(.05)
-        raise ProtocolError('停止后3秒内未确认双机新鲜静止反馈')
-
     def _observed_run(self, prefix):
         with self.inbox.lock:
             lines = [e['line'] for e in self.inbox.events if e['kind'] == 'rx']
@@ -250,91 +209,68 @@ class SerialActions:
         return max(values, default=0)
 
     def shoot(self, commands):
-        expected = ['vesc_stop', 'vesc_home', 'vesc_shoot2 3', 'vesc_stop', 'vesc_reset']
+        """Try every configured step; diagnostics never gate the next command."""
+        sequence = list(commands)
+        if not sequence or sequence[-1].strip().lower() != 'vesc_stop':
+            sequence.append('vesc_stop')
         report = ActionReport()
-        if list(commands) != expected:
-            report.steps.append(StepResult('shoot配置', False, '投篮配置必须为 stop/home/shoot2 3/stop/reset'))
-            return report
-        stage = 'vesc_stop'
-        try:
-            report.steps.append(self._stop())
-            stage = 'vesc_home'
-            ex, result = self.accept(stage, lambda s: s.startswith('--Manual start-position confirmation accepted')
-                                     and fields(s).get('encoder_home', '').rstrip('.') == '1')
+        for command in sequence:
+            name = command.strip().lower().split()[0] if command.strip() else ''
+            result = StepResult(command, False, '未确认')
             report.steps.append(result)
-            if not result.confirmed:
-                raise ProtocolError('起点确认失败，跳过发射')
-            stage = 'vesc_shoot2 3'
-            shot_baseline = max(self.last_shot_run, self._observed_run('RESULT '))
-            ex, result = self.accept(stage, lambda s: s.startswith('--SHOT2 starting both;'))
-            report.steps.append(result)
-            if not result.confirmed:
-                raise ProtocolError('发射是否启动未确认，停止，不自动再次发射或复位')
-            finish_deadline = self.clock()+SHOT_SECONDS
-            header = self.wait(ex, lambda s: s.startswith('RESULT FINISHED '), SHOT_SECONDS)
-            data = fields(header)
-            run = int(data.get('run', '0'))
-            # Drain the multi-line result before sending the next command.
-            self.wait(ex, lambda s: s.startswith('VERIFY actual stroke/'), max(0., finish_deadline-self.clock()))
-            if run <= shot_baseline or 'reason=timed release ' not in header or data.get('timing_speed') not in ('PASS', 'FAIL'):
-                raise ProtocolError('本次发射未正常完成: '+header)
-            self.last_shot_run = run
-            self.log('发射完成: '+header)
-            if any('fault_id=' in s and fields(s).get('fault_id') != '0' for _, s in ex.lines):
-                raise ProtocolError('发射结果包含故障')
-            result.detail += ' -> '+header
-            stage = 'vesc_stop'
-            report.steps.append(self._stop())
-            stage = 'vesc_reset'
-            reset_baseline = max(self.last_reset_run, self._observed_run('RESET_RESULT '))
-            ex, result = self.accept(stage, lambda s: s.startswith('--RESET top assumed;'))
-            report.steps.append(result)
-            if not result.confirmed:
-                raise ProtocolError('复位启动未确认')
-            header = self.wait(ex, lambda s: s.startswith('RESET_RESULT FINISHED '), RESET_SECONDS)
-            data = fields(header)
-            run = int(data.get('run', '0'))
-            if (run <= reset_baseline or data.get('valid') != 'YES' or data.get('fault_id') != '0'
-                    or 'reason=timed release ' not in header):
-                raise ProtocolError('定时复位未正常完成: '+header)
-            self.last_reset_run = run
-            self.log('复位结束: '+header)
-            result.detail += ' -> '+header
-            # The asynchronous home notice can be dropped by MCU output congestion.
-            # Once RESET_RESULT finished, status queries are permitted again.
-            end = self.clock()+HOME_SECONDS
-            home = data.get('home') == '1'
-            while not home and self.clock() < end:
-                self._read(ex)
-                home = any(seq > ex.ack_seq and s.startswith('--RESET bottom zero established; home=1')
-                           for seq, s in ex.lines)
-                if home:
-                    break
-                if self.clock()+ACK_SECONDS > end:
-                    self._pause(min(.01, end-self.clock()))
-                    continue
-                query, status = self.accept('vesc_status', lambda s: s.startswith('--VESC dual IDLE '))
-                if status.confirmed:
-                    self.wait(query, lambda s: s.startswith('CONTROL id=2 '), min(1., end-self.clock()))
-                    home = fields(status.detail).get('home') == '1'
-                # Queries now own the TX boundary; old reset exchange must not be reread.
-                ex = query
-                self._pause(.05)
-            if not home:
-                raise ProtocolError('复位后5秒未确认home=1；未证明到底')
-            result.detail += ' -> home=1（定时假定到底）'
-            self.log('投篮与定时复位已确认；不追加会清除home的vesc_stop')
-        except (ProtocolError, ValueError) as exc:
-            if report.steps and report.steps[-1].command == stage:
-                report.steps[-1].confirmed, report.steps[-1].detail = False, str(exc)
-            else:
-                report.steps.append(StepResult(stage, False, str(exc)))
-            self.log('投篮流程失败: '+str(exc))
-            # Cleanup only requests zero current; never auto-shoot or auto-reset.
+            matchers = {
+                'vesc_stop': lambda s: s.startswith('--VESC stop: both 0 A mailboxes cleared;'),
+                'vesc_home': lambda s: s.startswith('--Manual start-position confirmation accepted'),
+                'vesc_shoot2': lambda s: s.startswith('--SHOT2 starting both;'),
+                'vesc_reset': lambda s: s.startswith('--RESET top assumed;'),
+            }
+            if name not in matchers:
+                result.detail = '未配置该命令的确认格式，跳过并继续'
+                self.log(command+': '+result.detail)
+                continue
             try:
-                report.steps.append(self._stop())
-            except ProtocolError as stop_exc:
-                report.steps.append(StepResult('vesc_stop', False, str(stop_exc)))
+                baseline = (max(self.last_shot_run, self._observed_run('RESULT '))
+                            if name == 'vesc_shoot2' else
+                            max(self.last_reset_run, self._observed_run('RESET_RESULT ')))
+                exchange, accepted = self.accept(command, matchers[name])
+                result.confirmed, result.detail, result.attempts = (
+                    accepted.confirmed, accepted.detail, accepted.attempts)
+                if not accepted.confirmed:
+                    continue
+                if name == 'vesc_home':
+                    result.confirmed = fields(exchange.ack).get('encoder_home', '').rstrip('.') == '1'
+                elif name == 'vesc_shoot2':
+                    deadline = self.clock()+SHOT_SECONDS
+                    header = self.wait(exchange, lambda s: s.startswith('RESULT FINISHED '), SHOT_SECONDS)
+                    result.detail += ' -> '+header
+                    data = fields(header)
+                    run = int(data.get('run', '0'))
+                    result.confirmed = (run > baseline and 'reason=timed release ' in header
+                                        and data.get('timing_speed') in ('PASS', 'FAIL'))
+                    self.last_shot_run = max(self.last_shot_run, run)
+                    # Drain the report, including an abnormal result, before the next command.
+                    self.wait(exchange, lambda s: s.startswith('VERIFY actual stroke/'),
+                              max(0., deadline-self.clock()))
+                    if any('fault_id=' in s and fields(s).get('fault_id') != '0'
+                           for _, s in exchange.lines):
+                        result.confirmed = False
+                    self.log('发射结果（仅记录，不阻止复位）: '+header)
+                elif name == 'vesc_reset':
+                    header = self.wait(exchange, lambda s: s.startswith('RESET_RESULT FINISHED '), RESET_SECONDS)
+                    result.detail += ' -> '+header
+                    data = fields(header)
+                    run = int(data.get('run', '0'))
+                    result.confirmed = (run > baseline and data.get('valid') == 'YES'
+                                        and data.get('fault_id') == '0' and 'reason=timed release ' in header)
+                    self.last_reset_run = max(self.last_reset_run, run)
+                    self.log('复位结果（仅记录，继续末尾停止）: '+header)
+            except (ProtocolError, ValueError) as exc:
+                result.confirmed = False
+                result.detail += '；'+str(exc)
+            finally:
+                self.log(f'{command}: '+('已确认' if result.confirmed else '异常/未确认，继续下一步')
+                         +'；'+result.detail)
+        self.log('投篮命令序列已走完，继续后续任务；不将串口确认当作实际命中/到底')
         return report
 
 
