@@ -83,15 +83,15 @@ def test_goto_keeps_target_until_stopped_and_confirmed(node):
     assert node.goto_goal is None and node.phase == 'IDLE'
 
 
-def test_stale_pose_or_status_stops_and_keeps_goal(node):
+def test_old_pose_or_status_timestamps_do_not_stop_or_cancel_goal(node):
     goal = node.goto_goal
     node.now = 101.1
     node.tick()
-    assert node.commands[-1] == (0,0,0) and node.goto_goal == goal
+    assert node.commands[-1][0] > 0 and node.goto_goal == goal
     measurement(node,101.2,0)
     node.last_loc_ok_time = 100
     node.tick()
-    assert node.commands[-1] == (0,0,0)
+    assert node.commands[-1][0] > 0
     measurement(node,101.3,0)
     node.tick()
     assert node.commands[-1][0] > 0 and node.goto_goal == goal
@@ -145,7 +145,7 @@ def test_stationary_feedback_does_not_trigger_timed_fault(node):
 
 
 def test_parameters_validate_whole_request_and_take_effect(node):
-    invalid = [NS(name='navigation.velocity_window_s',value=1.1)]
+    invalid = [NS(name='navigation.velocity_window_s',value=-.1)]
     assert not node.on_tuning_parameters(invalid).successful
     assert node.velocity_window_s == .15
     assert not node.on_tuning_parameters([NS(name='limits.max_linear',value=float('nan'))]).successful
@@ -164,10 +164,10 @@ def test_new_goal_resets_previous_confirmation(node):
     assert node.arrival.stable_since is None
 
 
-def test_sequential_parameter_validation_uses_accepted_server_values(node):
+def test_legacy_pose_timeout_does_not_restrict_velocity_window(node):
     node.ros_parameters['navigation.pose_timeout_s'] = .2
-    # 上一次修改已接受但尚未 tick，不能用缓存中的旧 .5s 验证窗口。
-    assert not node.on_tuning_parameters([
+    # Legacy TTL values no longer gate the speed-estimation window.
+    assert node.on_tuning_parameters([
         NS(name='navigation.velocity_window_s', value=.3)]).successful
 
 
@@ -192,12 +192,15 @@ def test_holonomic_navigation_respects_keep_heading_and_approach_speed(node):
 
 
 @pytest.mark.parametrize('phase,stale', [('FAULT', False), ('ESTOP', False), ('IDLE', True)])
-def test_goto_refuses_fault_or_stale_localization(node, phase, stale):
+def test_goto_refuses_explicit_fault_but_accepts_delayed_localization(node, phase, stale):
     node.phase = phase
     node.now += 1.1 if stale else 0
     original = node.goto_goal
     ok, why = node._accept_goto(3.6, 4.5, 0., False)
-    assert not ok and why and node.goto_goal == original
+    if phase == 'IDLE' and stale:
+        assert ok and node.goto_goal == (3.6, 4.5, 0., False)
+    else:
+        assert not ok and why and node.goto_goal == original
 
 
 def test_rviz_goal_in_odometry_frame_is_not_treated_as_field_coordinates(node):

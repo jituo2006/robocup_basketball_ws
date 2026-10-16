@@ -4,6 +4,9 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include "board_link.h"
 
 #include "base_chassis.h"
 #include "bupt_can/bupt_can.h"
@@ -13,7 +16,7 @@
  * 全向轮底盘（4 轮 X 型布置，驱动：DJI RoboMaster M3508 经大疆驱动板）。
  *
  * 运动学公式沿用 ROBOCON 2025 篮球工程的实现，未改动物理模型，
- * 只修复了限速/超时/日志三类工程缺陷（见 base_chassis.h 与 execute()）。
+ * 保留限速、加速度限制和日志控制（见 base_chassis.h 与 execute()）。
  */
 class OmniChassis : public Chassis {
 private:
@@ -23,13 +26,22 @@ private:
   uint32_t board_id_ = 0;
   double angular_z_sign_ = 1.0;   // 旋转方向符号（物理装轮方式决定，默认 +1）
 
-  // 停车（cmd_vel 超时 / 急停）时的减速度上限 m/s²。
+  // 停车（显式零速 / 急停）时的减速度上限 m/s²。
   // ⚠️ 必须有这一项：停车若走平时的 limit_acc 会太慢（不安全），
   //    若直接把速度阶跃到零则会让电机速度环过冲甚至反转 ——
   //    现场表现就是"急停时猛往后窜一下"。取"够快但不阶跃"的中间值。
   double stop_accel_ = 3.0;
   std::array<int16_t, 4> wheel_speed{};
-  bool timeout_zero_sent_ = false;
+  struct StatusMailbox {
+    std::mutex mutex;
+    std::optional<can_frame> frame;
+  };
+  std::shared_ptr<StatusMailbox> board_mailbox_ = std::make_shared<StatusMailbox>();
+  std::shared_ptr<Can> board_can_;
+  std::unique_ptr<rb_chassis::BoardLink> board_link_;
+  bool board_was_ready_ = false;
+  rb_chassis::MotionGate motion_gate_;
+
 
 public:
   OmniChassis(const std::string &node_name, const std::string &odom_topic, const std::string &vel_topic,

@@ -158,7 +158,7 @@ launcher:
   automatic:
     enabled: true
     map_confirmed: false       # 现场测量 hoop 坐标后确认；当前仍是占位坐标
-    detection_timeout_s: 0.5   # 源时间戳与消息时间戳都必须新鲜
+    detection_timeout_s: 0.5   # 兼容旧参数；不再按检测年龄取消任务
     min_confidence: 0.5
     bearing_tolerance_rad: 0.15
     range_tolerance_m: 0.5     # 相机估计目标与地图目标的最大水平位置差
@@ -204,12 +204,12 @@ control:
 # ROS 参数名为 navigation.<键>，支持 ros2 param set /rb_mission 在线修改。
 # YAML 是启动默认值；在线调参不会自动写回文件。
 navigation:
-  pose_timeout_s: 1.0               # 真实位姿时间戳最大年龄，s
-  loc_ok_timeout_s: 1.0             # 定位有效状态消息最大接收间隔，s
-  velocity_window_s: 0.15           # 位姿差分估速窗口，s；必须小于 pose_timeout_s
+  pose_timeout_s: 1.0               # 兼容旧参数；不再按位姿年龄停车
+  loc_ok_timeout_s: 1.0             # 兼容旧参数；不再按状态消息间隔停车
+  velocity_window_s: 0.15           # 位姿差分估速窗口，s
   exit_margin_m: 0.02               # 10cm 进入、12cm 退出确认；完成仍必须在10cm内
   linear_speed_tolerance: 0.03      # 停稳平移速度阈值，m/s
   angular_speed_tolerance: 0.05     # 停稳角速度阈值，rad/s
   settle_time_s: 0.5                # 连续真实测量满足条件的时间，s
-  settle_timeout_s: 0.0             # 0取消总确认时限，仍必须用新鲜反馈确认停稳
+  settle_timeout_s: 0.0             # 兼容旧参数；到点确认无总时限，仍需不同测量确认停稳
   correction_max_linear: 0.08       # 漂出到位范围后的位置修正限速，m/s

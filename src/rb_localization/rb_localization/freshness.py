@@ -16,7 +16,7 @@ class SourceFreshness:
 
     def accept(self, source, stamp, now, timeout):
         self._check_clock(now)
-        if not math.isfinite(stamp) or stamp <= 0 or not 0 <= now - stamp <= timeout:
+        if not math.isfinite(stamp) or stamp <= 0 or not math.isfinite(now) or stamp > now:
             return False
         if stamp <= self.by_source.get(source, -math.inf):
             return False
@@ -29,4 +29,4 @@ class SourceFreshness:
 
     def valid(self, now, timeout):
         self._check_clock(now)
-        return self.stamp is not None and 0 <= now - self.stamp <= timeout
+        return self.stamp is not None  # No communication-age expiry.

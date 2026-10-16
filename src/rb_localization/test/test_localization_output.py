@@ -25,6 +25,7 @@ def node():
     exec(compile(ast.fix_missing_locations(module),str(path),'exec'),ns)
     cls=ns['LocalizationNode'];n=cls.__new__(cls)
     n.relative_mode=False
+    n.config_file=''  # Unit fixture has no on-disk configuration to reload.
     n.now=100.0
     n.get_clock=lambda:NS(now=lambda:NS(nanoseconds=int(n.now*1e9)))
     n.get_parameter=lambda name:NS(value=.5)
@@ -48,15 +49,15 @@ def odom(stamp=100):
     return m
 
 
-def test_timer_does_not_renew_source_stamp_or_health():
+def test_timer_retains_health_without_renewing_source_stamp():
     n=node();n.publish_state(None)
     assert not n.ok_messages[-1].data
     n.on_odom(odom());n.publish_state(None)
     assert n.ok_messages[-1].data and n.pose_messages[-1].header.stamp.sec==100
     n.now=100.6;n.publish_state(None)
-    assert not n.ok_messages[-1].data
+    assert n.ok_messages[-1].data  # silence alone no longer invalidates localization
     assert n.pose_messages[-1].header.stamp.sec==100
-    n.on_odom(odom());assert n.odom_count==1  # stale input cannot renew filter
+    n.on_odom(odom());assert n.odom_count==1  # duplicate input cannot renew filter
 
 
 def test_identity_quaternion_does_not_turn_lidar_height_into_yaw():

@@ -1,4 +1,4 @@
-"""A/B 区出发的三个回合实验；复用固定路线的 ROS/后摄/吸球实现。
+"""A 区出发的三个回合实验；复用固定路线的 ROS/后摄/吸球实现。
 
 drive: 空场走搜索轨迹、动作点和回位，不取球、不发送机构指令。
 collect: 寻一颗目标球、转身对正吸球、退回通道、到动作点停车。
@@ -20,7 +20,7 @@ def wrap(a):
 
 
 def side_heading(cfg, heading):
-    """A 帧的规划朝向在 B 场地取反，定位和相机测量不在这里变换。"""
+    """A帧的规划朝向在B场地取反；定位及相机测量不变。"""
     return -heading if cfg.get('start_point', 'A') == 'B' else heading
 
 
@@ -75,7 +75,7 @@ def mirror_to_b(cfg):
     变换（镜像完仍走原有范围校验，所以结果必须仍然合法）：
       所有 y 坐标                y → −y
       所有规划朝向                h → −h
-      inner.dir_pass/dir_shoot   不动：端点坐标已镜像，保留访问顺序
+      inner.dir_pass/dir_shoot   不变：已镜像的端点保持原访问顺序
       arc.angles_deg/angles_shoot v → −v
           （弧线点 = 圆心 + R·(cos v, sin v)，v 是场地系逆时针角，故取负；
             朝向 v+π 取负后与 −v+π 等价）
@@ -123,7 +123,7 @@ def mirror_to_b(cfg):
 def load_config(path=CONFIG, start_point=None):
     with open(path, encoding='utf-8') as stream:
         cfg = json.load(stream)
-    # 出发点：A 用文件里那份；B 是把整份路线关于场地中线镜像得到的。
+    # 出发点：A 用文件里那份；B 先关于场地中线镜像，再应用 B 专用现场校准。
     chosen = str(start_point if start_point is not None
                  else cfg.get('start_point', 'A')).strip().upper()
     if chosen == 'B':
@@ -134,6 +134,16 @@ def load_config(path=CONFIG, start_point=None):
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
+    # B 场地现场校准：先镜像，再按场地坐标加偏移；A 完全不受影响。
+    adjustments = cfg.get('b_y_adjustments_m', {})
+    if not isinstance(adjustments, dict) or any(
+            key not in ('middle', 'pass') for key in adjustments):
+        raise ValueError('b_y_adjustments_m 只支持 middle 和 pass')
+    for value in adjustments.values():
+        number(value, -math.inf, math.inf)
+    if chosen == 'B':
+        cfg['middle']['y'] += adjustments.get('middle', 0.)
+        cfg['release']['pass']['point'][1] += adjustments.get('pass', 0.)
     # Y 原点平移时，场地边界与动作区域校验使用同一偏移。
     y_offset = cfg.get('coordinate_y_offset_m', 0.)
     number(y_offset, -math.inf, math.inf)
@@ -225,11 +235,6 @@ def load_config(path=CONFIG, start_point=None):
             if action['aim'] == action['point']:
                 raise ValueError('动作点不能与瞄准目标重合')
         number(action['wait_s'], 0, math.inf)
-        waits = action.get('command_waits_s', [])
-        if not isinstance(waits, list) or len(waits) > len(action['commands']):
-            raise ValueError('逐条等待参数必须为列表且不能多于指令数量')
-        for delay in waits:
-            number(delay, 0, math.inf)
         number(action.get('search_heading_deg', 0), -math.inf, math.inf)
         if not isinstance(action['commands'], list) or any(
                 not isinstance(c, str) or not c.strip() or '\n' in c or '\r' in c
@@ -436,7 +441,7 @@ class RoundRoute:
             # 记下实际停车点，不把尚未到达的右端点加入返程路线。
             self.search_origin = tuple(self.r.pose)
             self.trail.append(self.search_origin[:2])
-            self.say('识别到目标球，停车 → 正对球 → 转180° → 后摄旋转寻球对正')
+            self.say('识别到目标球，停车 → 正对球 → 转180° → 后摄横移对正')
         elif status == 'empty':
             self.trail.append(tuple(target))
         return status
@@ -610,7 +615,7 @@ class RoundRoute:
                     saved_distance, saved_timeout = self.r.args.route_scoop_distance, self.r.args.route_scoop_timeout
                     self.r.args.route_scoop_distance = cfg[area]['scoop_m']
                     if getattr(self.r.args, 'route_intake_settle', None) is None:
-                        self.r.args.route_intake_settle = float(cfg.get('intake_settle_s', 5.))
+                        self.r.args.route_intake_settle = float(cfg.get('intake_settle_s', 1.5))
                     # 距离取本区域 scoop_m：中线默认0.70m，arc/inner另有配置；
                     # 修改通用 route_scoop_distance 不会覆盖此处的区域配置。
                     self.r.args.route_scoop_timeout = max(15., cfg[area]['scoop_m']/self.r.args.route_scoop_speed+5.)
@@ -748,7 +753,7 @@ class RoundRoute:
         self.r.args.ball_label = TASK_LABELS[self.task]
         self.r.args.speed = self.cfg['speed_mps']
         if getattr(self.r.args, 'route_intake_settle', None) is None:
-            self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 5.))
+            self.r.args.route_intake_settle = float(self.cfg.get('intake_settle_s', 1.5))
         self.say(f"假定车已放回 {self.cfg.get('start_point', 'A')} 区、面向篮筐；当前位姿作为本轮起点")
         self.say('雷达控制行驶/回位；前摄找目标球与出球柱；后摄仅横移对球')
         self.r.stop()

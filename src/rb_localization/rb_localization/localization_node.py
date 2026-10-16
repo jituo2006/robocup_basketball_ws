@@ -404,7 +404,7 @@ class LocalizationNode(Node):
         sx, sy, syaw = self.ekf.std
 
         out = PoseWithCovarianceStamped()
-        # 保留最近一次真实位置输入的时间，定时器不能给旧位姿续期。
+        # 保留真实源时间戳；按用户策略不再因消息年龄改变就绪状态。
         if self.last_source_stamp is not None and session_live:
             out.header.stamp = self.last_source_stamp
         out.header.frame_id = self.field_frame

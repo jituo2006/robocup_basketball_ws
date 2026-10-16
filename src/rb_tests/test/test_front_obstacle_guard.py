@@ -48,7 +48,7 @@ class TestGuard(unittest.TestCase):
 
     def test_pose_jump_latches_fault_and_does_not_replace_good_pose(self):
         from collections import deque
-        r=self.runner();r.pose=(1.5,8.,0);r.pose_stamp=10.;r.pose_history=deque();r.yaw_rate=0
+        r=self.runner();r.args.jump_fault_limit=1;r.pose=(1.5,8.,0);r.pose_stamp=10.;r.pose_history=deque();r.yaw_rate=0
         q=NS(x=0,y=0,z=0,w=1)
         m=NS(pose=NS(pose=NS(position=NS(x=20.,y=8.,z=0),orientation=q)),
              header=NS(stamp=NS(sec=10,nanosec=100000000)))
@@ -77,8 +77,9 @@ class TestGuard(unittest.TestCase):
         for depth in [float('nan'),10.]:
             self.assertIsNotNone(g.camera_hazard([det(distance=depth,size=.3)],10.1,.15,0,cfg()))
 
-    def test_stale_future_low_confidence_and_lidar_labels_not_camera_veto(self):
-        for d in [det(stamp=8),det(stamp=11),det()]:
+    def test_delayed_detection_remains_valid_but_future_low_confidence_and_lidar_are_rejected(self):
+        self.assertIsNotNone(g.camera_hazard([det(stamp=8)],10.1,.15,0,cfg()))
+        for d in [det(stamp=11),det()]:
             if d.stamp.sec==10:d.confidence=.1
             self.assertIsNone(g.camera_hazard([d],10.1,.15,0,cfg()))
         d=det();d.source='lidar'
@@ -127,9 +128,10 @@ class TestGuard(unittest.TestCase):
         with self.assertRaises(RuntimeError):r.check_obstacle(m)
         self.assertEqual(r.stops,[True])
 
-    def test_stale_camera_stops_even_with_no_detections(self):
+    def test_delayed_camera_timestamp_does_not_stop_without_an_obstacle(self):
         r=self.runner();r.det_stamp=8
-        self.assertFalse(r.check_obstacle(NS(linear=NS(x=.15,y=0))))
+        self.assertIsNone(r.check_obstacle(NS(linear=NS(x=.15,y=0))))
+        self.assertEqual(r.stops,[])
 
     def test_lateral_motion_requires_usable_lidar(self):
         r=self.runner()

@@ -44,19 +44,19 @@ def test_old_deadline_cannot_abort_repeated_excursions():
     assert gate.update(300, .14, 0, .1, 0, cfg) == 'approach'
 
 
-def test_feedback_rejects_stale_future_nan_and_repeated_samples():
+def test_feedback_accepts_delayed_but_rejects_future_nan_and_repeated_samples():
     feedback = PoseFeedback()
-    assert not feedback.update((0,0,0), 1, 2, .5, .15)
+    assert feedback.update((0,0,0), 1, 2, .5, .15)
     assert not feedback.update((0,0,0), 3, 2, .5, .15)
     assert not feedback.update((math.nan,0,0), 2, 2, .5, .15)
     assert feedback.update((0,0,0), 2, 2, .5, .15)
-    assert math.isinf(feedback.linear_speed)
+    assert feedback.linear_speed == pytest.approx(0.)
     assert feedback.update((.04,0,0), 2.2, 2.2, .5, .15)
     assert feedback.linear_speed == pytest.approx(.2)
     assert not feedback.update((.04,0,0), 2.2, 2.3, .5, .15)
     assert feedback.linear_speed == pytest.approx(.2)
     assert feedback.update((.04,0,0), 3, 3, .5, .15)
-    assert math.isinf(feedback.linear_speed)  # resumed data must reacquire speed
+    assert math.isfinite(feedback.linear_speed)  # long gaps do not expire feedback
 
 
 def test_feedback_wraps_yaw_at_pi():

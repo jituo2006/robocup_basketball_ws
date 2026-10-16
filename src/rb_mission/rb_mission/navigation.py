@@ -6,7 +6,7 @@ from .geometry import wrap_pi
 
 
 def fresh(now, stamp, timeout):
-    return stamp is not None and 0.0 <= now - stamp <= timeout
+    return stamp is not None and math.isfinite(stamp) and 0 < stamp <= now
 
 
 class PoseFeedback:
@@ -30,7 +30,7 @@ class PoseFeedback:
             return False
         if self.stamp is not None and stamp <= self.stamp:
             return False  # timer republication is not a new stationary measurement
-        if self.stamp is None or stamp - self.stamp > timeout:
+        if self.stamp is None:
             self.samples.clear()
             self.linear_speed = self.angular_speed = math.inf
         self.stamp = stamp

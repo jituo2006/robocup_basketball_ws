@@ -20,9 +20,8 @@ Chassis::Chassis(const std::string &node_name, const std::string &odom_topic, co
       vel_topic, 10, std::bind(&Chassis::setVelocity, this, std::placeholders::_1));
 
   last_execute_time_ = std::chrono::steady_clock::now();
-  RCLCPP_INFO(get_logger(), "Chassis 已就绪: odom=%s cmd_vel=%s timeout=%ldms",
-              odom_topic.c_str(), vel_topic.c_str(),
-              static_cast<long>(cmd_vel_timeout_.count()));
+  RCLCPP_INFO(get_logger(), "Chassis 已就绪: odom=%s cmd_vel=%s（指令无超时失效）",
+              odom_topic.c_str(), vel_topic.c_str());
 }
 
 void Chassis::setVelocity(const geometry_msgs::msg::Twist &cmd_vel) {
@@ -37,8 +36,8 @@ void Chassis::updateOdom(const nav_msgs::msg::Odometry &odom) {
   has_odom_ = true;
 }
 
-bool Chassis::hasFreshVelocityCommand() const {
-  return (std::chrono::steady_clock::now() - last_velocity_command_time_) <= cmd_vel_timeout_;
+bool Chassis::hasVelocityCommand() const {
+  return last_velocity_command_time_ != std::chrono::steady_clock::time_point{};
 }
 
 geometry_msgs::msg::Twist Chassis::applyLimits() {
