@@ -123,7 +123,7 @@ def mirror_to_b(cfg):
 def load_config(path=CONFIG, start_point=None):
     with open(path, encoding='utf-8') as stream:
         cfg = json.load(stream)
-    # 出发点：A 用文件里那份；B 是把整份路线关于场地中线镜像得到的。
+    # 出发点：A 用文件里那份；B 先关于场地中线镜像，再应用 B 专用现场校准。
     chosen = str(start_point if start_point is not None
                  else cfg.get('start_point', 'A')).strip().upper()
     if chosen == 'B':
@@ -134,6 +134,16 @@ def load_config(path=CONFIG, start_point=None):
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
+    # B 场地现场校准：先镜像，再按场地坐标加偏移；A 完全不受影响。
+    adjustments = cfg.get('b_y_adjustments_m', {})
+    if not isinstance(adjustments, dict) or any(
+            key not in ('middle', 'pass') for key in adjustments):
+        raise ValueError('b_y_adjustments_m 只支持 middle 和 pass')
+    for value in adjustments.values():
+        number(value, -math.inf, math.inf)
+    if chosen == 'B':
+        cfg['middle']['y'] += adjustments.get('middle', 0.)
+        cfg['release']['pass']['point'][1] += adjustments.get('pass', 0.)
     # Y 原点平移时，场地边界与动作区域校验使用同一偏移。
     y_offset = cfg.get('coordinate_y_offset_m', 0.)
     number(y_offset, -math.inf, math.inf)

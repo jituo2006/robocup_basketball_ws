@@ -1,4 +1,4 @@
-"""A/B 路线逐点、逐朝向对称；无 ROS、无硬件。"""
+"""A/B 基准镜像及 B 专用现场校准；无 ROS、无硬件。"""
 import math
 import json
 import sys
@@ -8,8 +8,13 @@ from types import SimpleNamespace as NS
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
-from match_round_route import RoundRoute, load_config, search_plan, wrap
+from match_round_route import RoundRoute, load_config, mirror_to_b, search_plan, wrap
 import match_round_steps as stages
+
+
+def baseline_config(side):
+    a = load_config(start_point='A')
+    return mirror_to_b(a) if side == 'B' else a
 
 
 def test_explicit_a_overrides_saved_b_selection(tmp_path):
@@ -29,8 +34,8 @@ def test_explicit_a_overrides_saved_b_selection(tmp_path):
 @pytest.mark.parametrize('cycle', [0, 1])
 @pytest.mark.parametrize('area', ['middle', 'arc', 'inner'])
 def test_search_points_and_headings_are_exact_reflections(task, number, cycle, area):
-    a = search_plan(load_config(start_point='A'), area, cycle, number, task)
-    b = search_plan(load_config(start_point='B'), area, cycle, number, task)
+    a = search_plan(baseline_config('A'), area, cycle, number, task)
+    b = search_plan(baseline_config('B'), area, cycle, number, task)
     assert len(a) == len(b)
     for ((ax, ay), ah), ((bx, by), bh) in zip(a, b):
         assert (bx, by) == pytest.approx((ax, -ay))
@@ -96,7 +101,7 @@ def test_crossing_uses_nominal_coordinates_and_correct_side(side, sign, origin, 
 def test_release_and_home_remain_reflections(task):
     paths = []
     for side in ('A', 'B'):
-        cfg = load_config(start_point=side)
+        cfg = baseline_config(side)
         r = runner((*cfg['start'], 0.))
         plan = RoundRoute(r, cfg, 1, task, 'collect', emit=lambda m: None)
         assert plan.action_point()
@@ -117,7 +122,7 @@ def test_complete_cycles_mirror_motion_and_keep_serial_commands(tmp_path, monkey
     monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
     paths = []
     for side in ('A', 'B'):
-        cfg = load_config(start_point=side)
+        cfg = baseline_config(side)
         origin = (12., -7., .37)
         r = runner(origin)
         r.args.route_intake = True
@@ -186,3 +191,35 @@ def test_concurrent_session_writes_use_distinct_temporary_paths(tmp_path,monkeyp
     with ThreadPoolExecutor(max_workers=8) as pool:list(pool.map(write,range(80)))
     assert stages.load_session(2,'pass')['marker'] in range(80)
     assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_production_b_adjustments_only_shift_middle_and_pass():
+    a = load_config(start_point='A')
+    b = load_config(start_point='B')
+    expected = mirror_to_b(a)
+    expected['middle']['y'] -= .24
+    expected['release']['pass']['point'][1] -= .24
+    assert b == expected
+    assert a['middle']['y'] == pytest.approx(.9)
+    assert a['release']['pass']['point'] == pytest.approx([3.715, 1.388])
+    assert b['middle']['y'] == pytest.approx(-1.14)
+    assert b['release']['pass']['point'] == pytest.approx([3.715, -1.628])
+    for task in ('pass', 'shoot'):
+        for number in (1, 2, 3):
+            for cycle in (0, 1):
+                for area in ('middle', 'arc', 'inner'):
+                    ap = search_plan(a, area, cycle, number, task)
+                    bp = search_plan(b, area, cycle, number, task)
+                    assert len(ap) == len(bp)
+                    for ((ax, ay), ah), ((bx, by), bh) in zip(ap, bp):
+                        assert (bx, by) == pytest.approx((ax, -ay - (.24 if area == 'middle' else 0.)))
+                        assert wrap(ah + bh) == pytest.approx(0.)
+
+
+def test_missing_b_adjustments_preserves_pure_mirror(tmp_path):
+    config = Path(__file__).resolve().parents[3] / 'tools' / 'match_rounds.json'
+    raw = json.loads(config.read_text())
+    raw.pop('b_y_adjustments_m', None)
+    path = tmp_path / 'rounds.json'
+    path.write_text(json.dumps(raw))
+    assert load_config(path, start_point='B') == mirror_to_b(load_config(path, start_point='A'))
