@@ -244,5 +244,15 @@
   "b_y_adjustments_m": {
     "middle": -0.24,
     "pass": -0.24
+  },
+  "timed_return": {
+    "enabled": true,
+    "tasks": [
+      "shoot"
+    ],
+    "round_duration_s": 120.0,
+    "return_reserve_s": 35.0,
+    "turn_reserve_s": 5.0,
+    "margin_s": 5.0
   }
 }

@@ -39,11 +39,13 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 
 WS = str(Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import front_obstacle_guard as obstacle_guard
 from intake_control import start_intake, stop_intake
+from round_return_budget import check_runner
 _TRACE = None
 C_OK, C_BAD, C_WARN, C_DIM, C_OFF = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m")
@@ -539,6 +541,9 @@ class Runner:
         t0 = time.time()
         while time.time() - t0 < sec:
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
+            if self.motion_guard:
+                self.require_fresh_pose()
+            check_runner(self)
         if self.motion_guard:
             self.require_fresh_pose()
 
@@ -554,6 +559,7 @@ class Runner:
                     raise RuntimeError("位姿包含非有限数，已请求停车")
                 return False
             self.stop()
+            check_runner(self)
             if not self.rclpy.ok():
                 raise KeyboardInterrupt
             self.rclpy.spin_once(self.node, timeout_sec=.05)
@@ -630,6 +636,7 @@ class Runner:
         if getattr(self, "motion_guard", False):
             if self.require_fresh_pose():
                 return  # Recompute from the recovered pose before sending velocity.
+        check_runner(self)
         if getattr(self, "visual_guard", False) and self.best_ball() is None:
             # 2. visual_guard：旧版视觉伺服专用；固定/整轮距离后退不启用。
             self.stop()
@@ -968,11 +975,13 @@ class Runner:
             if not self.rclpy.ok():
                 raise KeyboardInterrupt
             self.rclpy.spin_once(self.node, timeout_sec=.03)
+            check_runner(self, service_wait=True)
         req = SerialText.Request()
         req.command = command
         future = self.intake_client.call_async(req)
         while self.rclpy.ok() and not future.done():
             self.rclpy.spin_once(self.node, timeout_sec=.03)
+            check_runner(self, service_wait=True)
         if not future.done():
             raise KeyboardInterrupt
         response = future.result()
@@ -994,6 +1003,15 @@ class Runner:
             log('吸球跳过', '机构开关关闭（--no-route-intake / 控制台未勾选），'
                           '本次只完成底盘靠近，不发任何串口指令', C_WARN)
             return True
+        budget = getattr(self, 'round_return_budget', None)
+        section = budget.mechanism(10.6) if budget is not None else nullcontext()
+        with section:
+            ok = Runner._timed_pickup_sequence(self)
+        if ok and budget is not None:
+            budget.check()
+        return ok
+
+    def _timed_pickup_sequence(self):
         # 用户指定的原始指令时序；不查询dji_status，不等待位置/速度状态。
         raised, message = start_intake(self.intake_text,
                                       wait=lambda delay: self.spin(delay))
@@ -1012,6 +1030,7 @@ class Runner:
         log('捡球末尾停止', message, C_OK if stopped else C_BAD)
         if not stopped:
             return False
+        self.round_pickup_completed = True
         log('捡球流程', '固定时序已发送完成，交回后续路线继续底盘运动；未检测球是否入仓')
         return True
 

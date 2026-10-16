@@ -8,6 +8,7 @@ cycle: 放球联调或配置后正式出球两次并回位；第一回合先处�
 import json
 import math
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from visual_target_alignment import align_pillar
 
@@ -131,6 +132,8 @@ def load_config(path=CONFIG, start_point=None):
     elif chosen != 'A':
         raise ValueError(f"出发点只能是 A 或 B，收到 {chosen!r}")
     cfg['start_point'] = chosen
+    from round_return_budget import validate_return_budget
+    validate_return_budget(cfg)
     def number(value, lo, hi):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f'路线参数不在范围 [{lo}, {hi}]: {value!r}')
@@ -701,6 +704,21 @@ class RoundRoute:
         return True
 
     def release(self):
+        budget = getattr(self.r, 'round_return_budget', None)
+        action = self.cfg['release'][self.task]
+        commands = self.cfg['drop_commands'] if self.release_kind == 'drop' else action['commands']
+        waits = action.get('command_waits_s', []) if self.release_kind == 'match' else []
+        seconds = sum(waits[i] if i < len(waits) else action['wait_s'] for i in range(len(commands)))
+        if not getattr(self.r.args, 'route_intake', True):
+            seconds = 0.
+        section = budget.mechanism(seconds) if budget is not None else nullcontext()
+        with section:
+            ok = self._release()
+        if ok and budget is not None:
+            budget.check()
+        return ok
+
+    def _release(self):
         action = self.cfg['release'][self.task]
         if not getattr(self.r.args, 'route_intake', True):
             self.say('机构开关关闭：跳过全部吸球/发射/放球指令，继续本轮后续路线')
@@ -727,6 +745,7 @@ class RoundRoute:
                 self.r.spin(wait)
         self.say('放球联调完成，不计正式传球/投篮' if self.release_kind == 'drop'
                  else '出球指令完成；串口成功不代表球已经投出/命中')
+        self.r.round_release_completed = True
         self.carrying = False
         return True
 
@@ -736,6 +755,7 @@ class RoundRoute:
             return False
         if not self.move(cfg['entry']):
             return False
+        self.say('已到出场点E，先恢复本轮初始朝向，再进入初始点S')
         # 回正放在【进场点】：先把车头转回初始朝向，再直着进出发区。
         # 旧写法是先到出发点再原地转 —— 原地旋转会让已经到位的终点位置带偏，
         # 规则要求停稳在出发区内，所以默认改成在进场点回正。

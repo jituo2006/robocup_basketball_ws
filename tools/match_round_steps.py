@@ -4,6 +4,7 @@ import math
 import os
 import tempfile
 from pathlib import Path
+from round_return_budget import RoundReturnBudget, ReturnRequested, check_runner
 
 from match_round_route import (RoundRoute, StartFrame, search_order, validate_mode,
                                TASK_LABELS, wrap, start_wait, side_heading)
@@ -83,9 +84,14 @@ def workflow_state(round_number, task, first_ball='preloaded'):
     next_step = state['next_step'] if state else 1
     return {'round': round_number, 'started': state is not None, 'next_step': next_step,
             'finished': next_step > 3, 'last_error': (state or {}).get('last_error', ''),
+            'timed_return': (state or {}).get('timed_return', False),
+            'returned_early': (state or {}).get('returned_early', False),
+            'completed_releases': (state or {}).get('completed_releases', 0),
             'active_action': (state or {}).get('active_action', ''),
             'first_ball': (state or {}).get('first_ball', first_ball),
-            'steps': [{'index': i, 'kind': kind, 'label': label, 'done': i < next_step}
+            'steps': [{'index': i, 'kind': kind, 'label': label,
+                       'done': i in (state or {}).get('completed_stages', [])
+                       if (state or {}).get('timed_return') else i < next_step}
                       for i, (kind, label) in enumerate(steps(round_number, (state or {}).get('first_ball', first_ball)), 1)]}
 
 
@@ -136,6 +142,13 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
         save_session(state)
         ok = False
         try:
+            if kind == 'home' and getattr(runner, 'round_return_budget', None) is not None:
+                runner.round_return_budget.returning = True
+            if kind == 'approach':
+                runner.round_pickup_completed = False
+            if kind == 'release':
+                runner.round_release_completed = False
+            check_runner(runner)
             if kind == 'entry':
                 # 起步先静止 start_delay_s 秒，再按 A/B 方向转90°并进场；
                 # 等待期间也会处理定位回调，但不发底盘速度。
@@ -238,12 +251,15 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
             return False
         if kind == 'approach':
             plan.carrying = True
+        if kind == 'release' and getattr(runner, 'round_release_completed', False):
+            state['completed_releases'] = state.get('completed_releases', 0)+1
         state['carrying'] = plan.carrying
         state['substep'] += 1
         state['trail'] = [list(p) for p in plan.trail]
         state['search_origin'] = plan.search_origin
         save_session(state)
     state['next_step'] = index+1
+    state.setdefault('completed_stages', []).append(index)
     state['substep'] = 0
     state['active_action'], state['last_error'] = '', ''
     save_session(state)
@@ -251,6 +267,51 @@ def execute_step(runner, cfg, round_number, task, index, release_kind='drop', em
              else '本轮完成，已回出发区并恢复初始朝向' if continuous
              else '本阶段完成，已停车，等待下一阶段按钮')
     return True
+
+
+def timed_home(runner, cfg, number, task, release_kind, budget, reason, emit):
+    """Return through E with the original round frame; never restart the round."""
+    runner.stop()
+    budget.returning = True
+    state = load_session(number, task)
+    if state is None:
+        return False
+    state.setdefault('completed_stages', list(range(1, state['next_step'])))
+    if state.get('active_action') == 'approach' and getattr(runner, 'round_pickup_completed', False):
+        state['carrying'] = True
+    if state.get('active_action') == 'release' and getattr(runner, 'round_release_completed', False):
+        state['carrying'] = False
+        state['completed_releases'] = state.get('completed_releases', 0)+1
+        state['completed_stages'].append(state['next_step'])
+    state.update(timed_return=True, return_reason=str(reason), active_action='timed_home',
+                 next_step=3, substep=0, last_error='')
+    save_session(state)
+    emit(f'计时回位：{reason}；退出当前任务，经出场点E回正后进入初始点S；'
+         f'已完成出球流程{state.get("completed_releases", 0)}次，不代表现场得分确认')
+    home_cfg = dict(cfg, home_align_at='entry')
+    if getattr(runner, 'motion_fault', None) or runner.pose is None or not all(math.isfinite(v) for v in runner.pose):
+        state['last_error'] = getattr(runner, 'motion_fault', None) or '回位缺少有效定位，已停车'
+        save_session(state)
+        emit(state['last_error'])
+        return False
+    plan = RoundRoute(runner, home_cfg, number, task, 'collect', emit=emit, release_kind=release_kind)
+    plan.frame = budget.frame
+    runner.round_start_frame = budget.frame
+    plan.carrying = state.get('carrying', False)
+    try:
+        ok = plan.home()
+    except RuntimeError as exc:
+        state['last_error'] = str(exc)
+        ok = False
+    if ok:
+        state.update(next_step=4, active_action='', returned_early=True)
+        state['completed_stages'].append(3)
+        emit('计时回位到点流程完成；未执行的取球/投篮不再继续，承重轮进区和得分仍需现场确认')
+    else:
+        state['last_error'] = state['last_error'] or '计时回位未完成，已停车'
+        emit(state['last_error'])
+    save_session(state)
+    return ok
 
 
 def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=print):
@@ -261,6 +322,11 @@ def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=pri
                   mechanism_enabled=getattr(runner.args, 'route_intake', True))
     steps(round_number, cfg.get('round1_first_ball', 'preloaded'))
     clear_session(round_number, task)
+    budget = RoundReturnBudget(runner, cfg, round_number, task, emit=emit)
+    runner.round_return_budget = budget
+    if budget.enabled:
+        emit(f'计时回位开启：总时限{budget.options.get("round_duration_s", 120.):g}秒，'
+             f'至少预留{budget.options.get("return_reserve_s", 35.):g}秒；包含E回正再进S')
     emit(f'第{round_number}回合整轮开始：以当前位姿建立起点；两次处理球后回位')
     profile = cfg.get('speed_profiles', {}).get(str(round_number), {})
     if profile:
@@ -277,5 +343,8 @@ def execute_cycle(runner, cfg, round_number, task, release_kind='drop', emit=pri
                 emit(f'整轮在第{index}阶段停止：{state["last_error"]}')
                 return False
         return True
+    except ReturnRequested as exc:
+        return timed_home(runner, cfg, round_number, task, release_kind, budget, exc, emit)
     finally:
+        runner.round_return_budget = None
         runner.stop()
