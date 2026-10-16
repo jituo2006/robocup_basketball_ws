@@ -10,4 +10,4 @@ if [ -f "$pass_console_root/install/setup.bash" ]; then
   source "$pass_console_root/install/setup.bash"
 fi
 export ROS_DOMAIN_ID=2
-exec /usr/bin/python3 tools/console_app.py --pass-only "$@"
+exec /usr/bin/python3 tools/console_app.py --pass-only --task shoot "$@"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""六按键传球控制台：直接运行既有脚本，透传输出和退出码。"""
+"""六按键传球/投篮控制台：复用设备检查与任务交接，透传脚本结果。"""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,7 @@ from pass_health import HardwareNotReady, PassHealth, RosHealthMonitor
 
 WS = Path(__file__).resolve().parent.parent
 ACTIONS_FILE = Path(__file__).with_name('pass_actions.json')
+SHOOT_ACTIONS_FILE = Path(__file__).with_name('shoot_actions.json')
 
 
 def command_for(side, number, config_path=None):
@@ -30,6 +31,10 @@ def command_for(side, number, config_path=None):
             or any(not isinstance(arg, str) for arg in command) or not command[0]):
         raise ValueError('后端动作映射须为非空命令参数列表')
     return list(command)
+
+
+def shoot_command_for(side, number, config_path=None):
+    return command_for(side, number, config_path or SHOOT_ACTIONS_FILE)
 
 
 def workspace_route_pids(proc_root=Path('/proc'), workspace=WS):
@@ -170,11 +175,18 @@ class PassRuns:
                         lines=run['lines'][after:], cursor=len(run['lines']))
 
 
-def make_app(runs=None, boot_watch=None, health=None):
+def make_app(runs=None, boot_watch=None, health=None, task='pass', tasks=None):
     from flask import Flask, jsonify, request, send_file
     app = Flask(__name__)
-    runs = runs if runs is not None else PassRuns()
+    if task not in ('pass', 'shoot'):
+        raise ValueError('任务须为 pass/shoot')
+    runs = runs if runs is not None else PassRuns(
+        shoot_command_for if task == 'shoot' else command_for)
     health = health if health is not None else PassHealth()
+    from console_trip import ConsoleTasks, TaskBusy
+    tasks = tasks if tasks is not None else ConsoleTasks(runs, health,
+        json.loads((WS/'tools/fallback_config.json').read_text()))
+    app.extensions['console_tasks'] = tasks
 
     def hardware():
         return health.snapshot(boot_watch.snapshot() if boot_watch is not None else None)
@@ -186,6 +198,41 @@ def make_app(runs=None, boot_watch=None, health=None):
 
     runs.start_guard = require_ready
 
+    @app.post('/api/console/prepare-update')
+    def prepare_update():
+        if request.remote_addr not in ('127.0.0.1', '::1') or not request.is_json:
+            return jsonify(error='仅允许本机更新控制界面'), 403
+        with tasks.lock:
+            if tasks.activity() != 'idle':
+                return jsonify(error='任务正在执行，不能更新控制界面'), 409
+            tasks.maintenance = True
+            if boot_watch is not None:
+                boot_watch.stop_event.set()
+        return jsonify(ok=True)
+
+    @app.post('/api/console/prepare-fallback')
+    def retired_handover():
+        return jsonify(error='独立保底已移除，请使用投篮页面底部的底盘往返'), 410
+
+    @app.get('/api/shoot/chassis-trip/state')
+    def trip_state():
+        return jsonify(tasks.snapshot())
+
+    @app.post('/api/shoot/chassis-trip/run')
+    def trip_run():
+        if task != 'shoot':
+            return jsonify(error='请从投篮控制页面启动底盘往返'), 409
+        if not request.is_json or request.get_json(silent=True) != {}:
+            return jsonify(error='无效的往返执行请求'), 400
+        try:
+            return jsonify(tasks.start_trip()), 202
+        except TaskBusy as exc:
+            return jsonify(error=str(exc), **tasks.snapshot()), 409
+
+    @app.post('/api/shoot/chassis-trip/stop')
+    def trip_stop():
+        return jsonify(tasks.stop_trip())
+
     @app.after_request
     def no_stale_status(response):
         response.headers['Cache-Control'] = 'no-store'
@@ -193,24 +240,27 @@ def make_app(runs=None, boot_watch=None, health=None):
 
     @app.get('/')
     def index():
-        return send_file(WS / 'tools' / 'console_ui.html')
+        return send_file(WS / 'tools' / ('shoot_ui.html' if task == 'shoot' else 'console_ui.html'))
 
-    @app.post('/api/pass/run')
+    @app.post(f'/api/{task}/run')
     def start():
         data = request.get_json(silent=True) or {}
         if not isinstance(data, dict):
             return jsonify(error='请求须为 JSON 对象'), 400
         try:
-            run_id = runs.start(data.get('side'), data.get('round'))
+            run_id = (tasks.start_shoot(data.get('side'), data.get('round')) if task == 'shoot'
+                      else runs.start(data.get('side'), data.get('round')))
+        except TaskBusy as exc:
+            return jsonify(error=str(exc)), 409
         except (ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
         except HardwareNotReady as exc:
             return jsonify(error=str(exc), hardware=exc.hardware), 409
         except (OSError, KeyError, RuntimeError) as exc:
             return jsonify(error=f'后端脚本映射不可用：{exc}'), 500
-        return jsonify(id=run_id), 202
+        return jsonify(id=run_id, task=task), 202
 
-    @app.get('/api/pass/state')
+    @app.get(f'/api/{task}/state')
     def state():
         try:
             after = max(0, int(request.args.get('after', 0)))
@@ -218,9 +268,16 @@ def make_app(runs=None, boot_watch=None, health=None):
             if boot_watch is not None:
                 result['boot'] = boot_watch.snapshot()
             result['hardware'] = hardware()
+            result['task'] = task
+            result['chassis_trip'] = tasks.snapshot()
             return jsonify(result)
         except (KeyError, ValueError):
             return jsonify(error='执行记录不存在或游标无效', hardware=hardware()), 404
+
+    if task == 'shoot':
+        @app.post('/api/pass/run')
+        def old_pass_run():
+            return jsonify(error='控制台已切换为投篮，请刷新页面后选择投篮回合', task='shoot'), 409
 
     @app.get('/api/hardware/state')
     def hardware_state():
@@ -235,6 +292,7 @@ def make_app(runs=None, boot_watch=None, health=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--task', choices=['pass', 'shoot'], default='pass')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8090)
     args = parser.parse_args(argv)
@@ -243,11 +301,17 @@ def main(argv=None):
     cleanup_legacy_routes()
     boot_watch = BootWatch()
     health = PassHealth()
-    monitor = RosHealthMonitor(health)
+    from console_trip import ConsoleTasks
+    runs = PassRuns(shoot_command_for if args.task == 'shoot' else command_for)
+    tasks = ConsoleTasks(runs, health, json.loads((WS/'tools/fallback_config.json').read_text()))
+    monitor = RosHealthMonitor(health, tasks=tasks)
+    def terminate(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, terminate)
     monitor.start()
     boot_watch.start()
     try:
-        make_app(boot_watch=boot_watch, health=health).run(
+        make_app(runs=runs, boot_watch=boot_watch, health=health, task=args.task, tasks=tasks).run(
             host=args.host, port=args.port, threaded=True, use_reloader=False)
     finally:
         boot_watch.stop_event.set()

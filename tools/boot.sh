@@ -62,6 +62,20 @@ echo ""
 #   （或它的父进程）命令行里恰好含 "mission_node" 之类字样，就会把自己杀掉
 #   —— 实测踩过：`bash -c '... mission_node ...'` 调用 boot.sh，boot.sh
 #   把自己的父 shell SIGKILL 了。所以下面逐 PID 判断，跳过祖先链。
+# The desktop console owns a persistent chassis service. Lidar restarts must
+# neither kill its node nor touch its CAN interface.
+console_start_chassis=true
+for console_arg in "$@"; do
+  case "$console_arg" in
+    start_chassis:=false|start_chassis:=False|start_chassis:=0) console_start_chassis=false ;;
+    start_chassis:=true|start_chassis:=True|start_chassis:=1) console_start_chassis=true ;;
+  esac
+done
+if [[ "$console_start_chassis" == true ]] && systemctl --user is-active --quiet robocup-console-chassis.service; then
+  echo '共享底盘服务正在运行，请指定 start_chassis:=false 复用该驱动。' >&2
+  exit 1
+fi
+
 _self=$$
 _anc=" $_self "
 _p=$_self
@@ -97,6 +111,7 @@ for pat in \
     camera_node \
     perception_node \
     rb_launcher_node ; do
+  [[ "$pat" != rb_chassis_node || "$console_start_chassis" == true ]] || continue
   n=$(safe_kill "$pat")
   killed=$((killed + n))
 done
@@ -117,7 +132,9 @@ echo ""
 
 # ── ① 确保 CAN 起来（udev 规则应已自动做，这里兜底复查）────────────────────
 echo "[2/3] 检查 CAN …"
-if ip link show can0 >/dev/null 2>&1; then
+if [[ "$console_start_chassis" == false ]]; then
+  echo '      复用桌面共享底盘服务，不重配 CAN'
+elif ip link show can0 >/dev/null 2>&1; then
   state=$(ip -details link show can0 2>/dev/null | grep -oE "state [A-Z-]+" | head -1)
   bitrate=$(ip -details link show can0 2>/dev/null | grep -oE "bitrate [0-9]+" | head -1)
   echo "      can0 已存在: $state $bitrate"
@@ -143,6 +160,8 @@ export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
 # Before any chassis node: bound pending frames and recover bus-off in the kernel.
-python3 "$WS/tools/configure_chassis_can.py" || exit 1
+if [[ "$console_start_chassis" == true ]]; then
+  python3 "$WS/tools/configure_chassis_can.py" || exit 1
+fi
 
 exec ros2 launch rb_bringup bringup_lidar_vision.launch.py "$@"

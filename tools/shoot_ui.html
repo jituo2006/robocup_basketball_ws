@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoboCup · 投篮控制</title>
+<style>
+:root{color-scheme:dark;--bg:#14161a;--panel:#1c2027;--panel2:#232833;--line:#2e3542;--tx:#e6e9ef;--dim:#929bab;--blue:#4a9eff;--orange:#ff9b59;--ok:#3ddc84;--bad:#ff8178}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 -apple-system,"Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+main{max-width:1200px;margin:0 auto;padding:32px 36px}header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}h1{font-size:28px;margin:0;font-weight:650}.subtitle{color:var(--dim);margin:6px 0 0;font-size:14px}.tag{color:var(--dim);font-size:13px;border:1px solid var(--line);border-radius:20px;padding:6px 12px;white-space:nowrap}
+.courts{display:grid;grid-template-columns:1fr 1fr;gap:24px}.court{padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:16px}h2{margin:0 0 18px;font-size:21px;display:flex;align-items:center;gap:10px}.mark{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1c3454;color:var(--blue)}.b .mark{background:#432d21;color:var(--orange)}
+button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:22px 24px;margin-top:12px;border:1px solid #35547c;border-radius:11px;background:#1c2e49;color:var(--tx);font:600 20px/1.5 inherit;text-align:left;cursor:pointer;touch-action:manipulation;min-height:88px}button span{font-size:20px;font-weight:600}button i{font-style:normal;font-size:22px;color:var(--blue)}button:hover{background:#254064;border-color:var(--blue)}button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}button:active{transform:scale(.99)}.b button{background:#3b2b22;border-color:#745137}.b button i{color:var(--orange)}.b button:hover{background:#523823;border-color:var(--orange)}
+.result{margin-top:24px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}.result-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}#status{font-size:15px}#connection{font-size:12px;color:var(--dim)}#status[data-state=succeeded]{color:var(--ok)}#status[data-state=failed]{color:var(--bad)}#status[data-state=running]{color:var(--blue)}pre{margin:0;padding:16px 20px;min-height:140px;height:22vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,Menlo,Consolas,monospace;color:#b8c7d9;background:#101216}
+.equipment{margin:0 0 24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}.equipment-grid{display:grid;grid-template-columns:1fr 1fr}.equipment-item{padding:18px 20px}.equipment-item+div{border-left:1px solid var(--line)}.equipment-title{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:18px;font-weight:600}.equipment-state{font-size:14px;color:var(--orange)}.equipment-state:before{content:'●';margin-right:7px}.equipment-state[data-ready=true]{color:var(--ok)}.equipment-reason{margin:8px 0 0;color:var(--dim);font-size:14px;overflow-wrap:anywhere;min-height:42px}#equipment-gate{margin:0;padding:12px 20px;border-top:1px solid var(--line);font-size:14px;color:var(--orange)}#equipment-gate[data-ready=true]{color:var(--ok)}button:disabled,.b button:disabled{background:var(--panel2);border-color:var(--line);color:var(--dim);cursor:not-allowed;transform:none}button:disabled i{color:var(--dim)}
+@media(max-width:700px){main{padding:20px 16px}.courts{gap:12px}.court{padding:14px}header{align-items:flex-start}h1{font-size:23px}button{padding:18px 12px;min-height:82px}button span{font-size:16px}.tag{display:none}.result-head{padding:12px}pre{padding:12px}.equipment-grid{grid-template-columns:1fr}.equipment-item+div{border-left:0;border-top:1px solid var(--line)}.equipment-reason{min-height:0}}
+
+.trip{margin-top:28px;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.trip h2{margin-bottom:8px}.trip-subtitle{color:var(--dim);font-size:14px;margin:0 0 18px}.trip-equipment{display:flex;justify-content:space-between;gap:16px;align-items:center}.trip-equipment strong{font-size:17px}#trip-ready{font-size:14px;color:var(--orange)}#trip-ready[data-ready=true]{color:var(--ok)}#trip-reason{margin:8px 0 20px;color:var(--dim);font-size:14px}.trip-path{display:flex;gap:16px;align-items:center;margin:18px 0;color:var(--tx)}.trip-path span{padding:10px 16px;background:var(--panel2);border-radius:8px}.trip-path i{font-style:normal;color:var(--dim)}.trip-actions{display:grid;grid-template-columns:2fr 1fr;gap:16px}.trip-actions button{min-height:70px;justify-content:center;margin:0;font-family:inherit;font-size:19px;font-weight:600}#trip-stop{background:#3e2428;border-color:#87444d}#trip-stop:disabled{background:var(--panel2);border-color:var(--line)}.trip-note{font-size:13px;color:var(--dim);margin:16px 0}.trip-result{border-top:1px solid var(--line);padding-top:14px}#trip-phase{color:var(--blue)}#trip-phase[data-state=succeeded]{color:var(--ok)}#trip-phase[data-state=failed],#trip-error{color:var(--bad)}#trip-message{font-size:14px;color:var(--dim);margin:6px 0}#trip-error{min-height:22px;font-size:14px;margin:6px 0 0}@media(max-width:700px){.trip{padding:18px}.trip-path{gap:8px;font-size:14px}.trip-path span{padding:10px}.trip-actions{grid-template-columns:1fr 1fr;gap:12px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>投篮控制</h1><p class="subtitle">排球投篮 · 第一轮首球预装 · 每轮两球后回位</p></div><span class="tag">设备状态实时检查</span></header>
+<section class="equipment" aria-label="设备状态" aria-live="polite">
+<div class="equipment-grid">
+<div class="equipment-item"><div class="equipment-title"><span>雷达</span><span class="equipment-state" id="lidar-status">检查中</span></div><p class="equipment-reason" id="lidar-reason">正在读取雷达和定位状态…</p></div>
+<div class="equipment-item"><div class="equipment-title"><span>底盘</span><span class="equipment-state" id="chassis-status">检查中</span></div><p class="equipment-reason" id="chassis-reason">正在读取控制板和电调状态…</p></div>
+</div><p id="equipment-gate" role="status">设备状态尚未确认，暂不能执行回合。</p>
+</section>
+<div class="courts">
+<section class="court"><h2><span class="mark">A</span>A 场地</h2>
+<button type="button" data-side="A" data-round="1" disabled><span>A 场地 · 投篮回合 1</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="A" data-round="2" disabled><span>A 场地 · 投篮回合 2</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="A" data-round="3" disabled><span>A 场地 · 投篮回合 3</span><i aria-hidden="true">↗</i></button>
+</section>
+<section class="court b"><h2><span class="mark">B</span>B 场地</h2>
+<button type="button" data-side="B" data-round="1" disabled><span>B 场地 · 投篮回合 1</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="B" data-round="2" disabled><span>B 场地 · 投篮回合 2</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="B" data-round="3" disabled><span>B 场地 · 投篮回合 3</span><i aria-hidden="true">↗</i></button>
+</section>
+</div>
+<section class="result" aria-label="执行结果"><div class="result-head"><span id="status" role="status">待执行</span><span id="connection">正在连接</span></div><pre id="logs" aria-label="脚本输出">请选择场地与回合。</pre></section>
+
+<section class="trip" aria-label="底盘往返">
+<h2>底盘往返</h2><p class="trip-subtitle">只需底盘就绪，无需雷达或定位</p>
+<div class="trip-equipment"><strong>底盘</strong><span id="trip-ready">检查中</span></div><p id="trip-reason">正在读取控制板与四路电调状态…</p>
+<div class="trip-path" aria-label="往返路线"><span>向右 2 米 →</span><i>停车 1 秒</i><span>← 向左 2 米返回</span></div>
+<div class="trip-actions"><button type="button" id="trip-run" disabled>执行往返</button><button type="button" id="trip-stop" disabled>停止</button></div>
+<p class="trip-note" id="trip-note">速度上限 0.25 米/秒；距离按速度和时间估算，实车需标定。</p>
+<div class="trip-result" aria-live="polite"><span id="trip-phase">待执行</span><p id="trip-message">等待底盘就绪后点击执行往返。</p></div><p id="trip-error" role="alert"></p>
+</section>
+</main>
+<script>
+const statusEl=document.getElementById('status'), logs=document.getElementById('logs'), connection=document.getElementById('connection');
+const buttons=[...document.querySelectorAll('button[data-side]')], gate=document.getElementById('equipment-gate');
+let selected=null,cursor=0,polling=false,canRun=false,starting=false,lastEquipmentAt=0,activity="idle",tripCanRun=false,tripStarting=false,tripRunning=false;
+function updateButtons(){for(const b of buttons)b.disabled=!canRun||starting||tripStarting||activity!=="idle";document.getElementById('trip-run').disabled=!tripCanRun||starting||tripStarting||activity!=="idle";document.getElementById('trip-stop').disabled=!tripRunning||tripStarting;}
+function text(id,value){const el=document.getElementById(id);if(el.textContent!==value)el.textContent=value;}
+function equipment(data){
+  const valid=data&&data.lidar&&data.chassis&&typeof data.can_run==='boolean';
+  canRun=!!(valid&&data.can_run&&data.lidar.ready===true&&data.chassis.ready===true);
+  lastEquipmentAt=valid?Date.now():0;
+  for(const name of ['lidar','chassis']){
+    const state=valid?data[name]:{ready:false,reason:'连接中断，暂无法确认设备状态'};
+    text(name+'-status',state.ready?'正常':'未就绪');
+    document.getElementById(name+'-status').dataset.ready=String(!!state.ready);
+    text(name+'-reason',String(state.reason||'等待设备状态'));
+  }
+  gate.dataset.ready=String(canRun);
+  text('equipment-gate',canRun?'雷达和底盘均已就绪，可以选择回合。':'设备尚未就绪，暂不能执行回合。请查看上方原因。');
+  updateButtons();
+}
+async function request(url,options={}){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+  try{return await fetch(url,{...options,cache:'no-store',signal:controller.signal});}
+  finally{clearTimeout(timer);}
+}
+function render(data){
+  if(data.status==='idle'){
+    if(data.boot){statusEl.dataset.state='idle';statusEl.textContent=data.boot.message;
+      logs.textContent=data.boot.lines.join('\n')||'请选择场地与回合。';}
+    return;
+  }
+  if(data.id!==selected){selected=data.id;cursor=0;logs.textContent='';}
+  const nearBottom=logs.scrollHeight-logs.scrollTop-logs.clientHeight<60;
+  const clean=data.lines.map(line=>line.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g,''));
+  if(clean.length)logs.textContent+=(logs.textContent?'\n':'')+clean.join('\n');
+  if(nearBottom)logs.scrollTop=logs.scrollHeight;
+  cursor=data.cursor;
+  const label=`${data.side} 场地 · 投篮回合 ${data.round}`;
+  statusEl.dataset.state=data.status;
+  statusEl.textContent=data.status==='running'?`${label} · 执行中`:data.status==='succeeded'?`${label} · 执行完成（退出码 0）`:data.status==='superseded'?`${label} · 已切换到新任务`:`${label} · 执行失败（退出码 ${data.returncode}）`;
+}
+async function poll(){
+  if(polling)return;polling=true;
+  const requestId=selected;
+  try{
+    const params=selected?`?id=${encodeURIComponent(selected)}&after=${cursor}`:'';
+    const response=await request('/api/shoot/state'+params);
+    const data=await response.json();
+    equipment(data.hardware);
+    tripState(data.chassis_trip);
+    if(response.status===404 && requestId===selected){selected=null;cursor=0;localStorage.removeItem('robocup-shoot-run');return;}
+    if(!response.ok)throw new Error(data.error);
+    if(requestId===selected)render(data);
+    connection.textContent='已连接';
+  }catch(error){connection.textContent='连接中断，正在重连';equipment(null);tripState(null);}
+  finally{polling=false;}
+}
+for(const button of buttons)button.addEventListener('click',async()=>{
+  if(!canRun||starting||tripStarting||activity!=="idle")return;
+  starting=true;updateButtons();
+  const side=button.dataset.side,round=Number(button.dataset.round);
+  try{
+    const response=await request('/api/shoot/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({side,round})});
+    const data=await response.json();if(data.hardware)equipment(data.hardware);
+    if(!response.ok)throw new Error(data.error);
+    activity='shoot';selected=data.id;cursor=0;logs.textContent='';
+    statusEl.dataset.state='running';statusEl.textContent=`${side} 场地 · 投篮回合 ${round} · 执行中`;
+    localStorage.setItem('robocup-shoot-run',selected);
+    poll();
+  }catch(error){statusEl.dataset.state='failed';statusEl.textContent=`未启动：${error.message}`;}
+  finally{starting=false;updateButtons();}
+});
+selected=localStorage.getItem('robocup-shoot-run');
+if(selected)logs.textContent='';
+// 服务重启后旧记录不存在，恢复到本次服务的最新执行记录。
+async function restore(){if(selected){try{const r=await request('/api/shoot/state?id='+encodeURIComponent(selected));if(r.status===404){selected=null;localStorage.removeItem('robocup-shoot-run');}}catch(e){}}await poll();}
+function tripState(data){
+  const valid=data&&data.chassis&&typeof data.can_run==='boolean'&&data.motion;
+  tripCanRun=!!(valid&&data.can_run&&data.chassis.ready===true);
+  if(valid){activity=data.activity;tripRunning=data.motion.status==='running';}
+  else{activity='unknown';}
+  const ready=!!(valid&&data.chassis.ready);
+  text('trip-ready',ready?'正常':'未就绪');document.getElementById('trip-ready').dataset.ready=String(ready);
+  text('trip-reason',valid?data.reason:'界面连接中断，无法确认底盘状态');
+  if(valid){text('trip-phase',data.motion.phase);document.getElementById('trip-phase').dataset.state=data.motion.status;text('trip-message',data.motion.message);
+    if(data.settings)text('trip-note',`速度上限 ${data.settings.speed_mps} 米/秒；距离按速度和时间估算，实车需标定。`);}
+  updateButtons();
+}
+async function tripAction(action){
+  if(tripStarting||starting)return;
+  if(action==='run'&&(!tripCanRun||activity!=='idle'))return;
+  tripStarting=true;updateButtons();text('trip-error','');
+  try{const response=await request('/api/shoot/chassis-trip/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const data=await response.json();tripState(data);if(!response.ok)throw Error(data.error||'往返操作失败');
+  }catch(error){text('trip-error',error.message);tripCanRun=false;}
+  finally{tripStarting=false;updateButtons();}
+}
+document.getElementById('trip-run').addEventListener('click',()=>tripAction('run'));
+document.getElementById('trip-stop').addEventListener('click',()=>tripAction('stop'));
+restore();setInterval(poll,500);
+setInterval(()=>{if(lastEquipmentAt&&Date.now()-lastEquipmentAt>2000){equipment(null);tripState(null);}},250);
+</script>
+</body>
+</html>

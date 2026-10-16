@@ -34,7 +34,7 @@ def test_install_and_legacy_entry_leave_only_a_manual_desktop_launcher(tmp_path)
         assert p.returncode==0,p.stdout+p.stderr
     launcher=desktop/'robocup-pass-console.desktop'
     text=launcher.read_text()
-    assert 'open_pass_console.sh' in text and 'Name[zh_CN]=传球控制' in text
+    assert 'open_pass_console.sh' in text and 'Name[zh_CN]=投篮控制' in text
     assert launcher.stat().st_mode & 0o111
     assert 'Hidden=true' in auto.read_text() and 'enabled=false' in auto.read_text()
     calls=logfile.read_text().splitlines()

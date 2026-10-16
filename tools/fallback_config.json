@@ -1,0 +1,8 @@
+{
+  "distance_m": 2.0,
+  "speed_mps": 0.25,
+  "acceleration_mps2": 0.3,
+  "pause_s": 1.0,
+  "right_scale": 1.0,
+  "left_scale": 1.0
+}

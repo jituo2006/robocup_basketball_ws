@@ -26,10 +26,10 @@ odom_frame_conversion:
 
   # 开机时车在场地里的位置（**必须人工摆正并实测**）
   # 例：把车推到出发区 A 的中心，车头朝场地 +x 方向
-  # 当前 B 起点：(1.5, -4.25)，与 match_rounds.json 的 start_points.B 一致（由 tools/set_start_point.sh 写入）。
+  # 当前 A 起点：(1.5, 4.25)，与 match_rounds.json 的 start_points.A 一致（由 tools/set_start_point.sh 写入）。
   start_pose:
     x: 1.5
-    y: -4.25
+    y: 4.25
     yaw: 0.0
 
   # 雷达安装偏移：base = sensor + R(**车体yaw**) · (sensor_to_base)
@@ -87,7 +87,7 @@ output:
 
 initial_pose:
   x: 1.5
-  y: -4.25
+  y: 4.25
   yaw: 0.0
 
 ekf:

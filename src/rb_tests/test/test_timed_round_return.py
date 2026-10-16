@@ -14,7 +14,7 @@ from test_perimeter_ball import Runner
 from test_round_mirror import runner as basic_runner
 
 
-def setup(tmp_path, monkeypatch, side='A', number=3, enabled=True):
+def make_round_fixture(tmp_path, monkeypatch, side='A', number=3, enabled=True):
     monkeypatch.setattr(stages, 'STATE_DIR', tmp_path)
     cfg = load_config(start_point=side)
     cfg['timed_return']['enabled'] = enabled
@@ -43,7 +43,7 @@ def setup(tmp_path, monkeypatch, side='A', number=3, enabled=True):
 @pytest.mark.parametrize('number', [1, 2, 3])
 @pytest.mark.parametrize('interrupt', ['travel', 'scan', 'rear', 'approach'])
 def test_deadline_unwinds_to_entry_turn_start_with_original_frame(tmp_path, monkeypatch, side, number, interrupt):
-    r, cfg, clock = setup(tmp_path, monkeypatch, side, number)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch, side, number)
     origin = r.pose
     def request():
         clock[0] = 85.
@@ -84,7 +84,7 @@ def test_deadline_unwinds_to_entry_turn_start_with_original_frame(tmp_path, monk
 
 
 def test_dynamic_return_budget_includes_slow_speed_and_entry_to_start(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     profile = cfg['speed_profiles']['3']
     profile.update(travel_mps=.25, carry_mps=.25)
     budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
@@ -102,7 +102,7 @@ def test_translation_model_matches_terminal_slowdown():
 
 
 def test_pickup_finishes_exact_fixed_sequence_before_return(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     r.round_return_budget = budget
     r.rear_distance_scoop = lambda: True
@@ -123,7 +123,7 @@ def test_pickup_finishes_exact_fixed_sequence_before_return(tmp_path, monkeypatc
 
 
 def test_no_new_pickup_when_sequence_would_consume_reserve(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     r.rear_distance_scoop = lambda: True
     clock[0] = 80.
@@ -133,7 +133,7 @@ def test_no_new_pickup_when_sequence_would_consume_reserve(tmp_path, monkeypatch
 
 
 def test_shot_finishes_reset_before_return(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     r.spin = lambda seconds: (clock.__setitem__(0, clock[0]+seconds), check_runner(r))
     send = r.intake_text
@@ -150,7 +150,7 @@ def test_shot_finishes_reset_before_return(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('action', ['pickup', 'release'])
 def test_completed_sequence_at_deadline_preserves_payload_and_action_count(tmp_path, monkeypatch, action):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     if action == 'pickup':
         def pickup(**kwargs):
             r.round_pickup_completed = True
@@ -172,7 +172,7 @@ def test_completed_sequence_at_deadline_preserves_payload_and_action_count(tmp_p
 
 
 def test_deadline_before_second_release_does_not_count_previous_release_twice(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     original_action = RoundRoute.action_point
     visits = [0]
     def action(plan, *args, **kwargs):
@@ -190,7 +190,7 @@ def test_deadline_before_second_release_does_not_count_previous_release_twice(tm
 
 
 def test_serial_failure_during_deferred_sequence_is_not_converted_to_return(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     def fail(command):
         clock[0] = 86.
@@ -202,7 +202,7 @@ def test_serial_failure_during_deferred_sequence_is_not_converted_to_return(tmp_
 
 
 def test_unknown_service_result_stops_instead_of_driving_home(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     with budget.mechanism(3.):
         clock[0] = 86.
@@ -212,7 +212,7 @@ def test_unknown_service_result_stops_instead_of_driving_home(tmp_path, monkeypa
 
 @pytest.mark.parametrize('available', [True, False])
 def test_real_serial_wait_observes_budget_and_stops_on_unknown_result(tmp_path, monkeypatch, available):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     r.round_return_budget = budget
     monkeypatch.setitem(sys.modules, 'rb_msgs', NS())
@@ -228,7 +228,7 @@ def test_real_serial_wait_observes_budget_and_stops_on_unknown_result(tmp_path, 
 
 
 def test_motion_fault_precedes_deadline_at_command_outlet(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     clock[0] = 86.
     r.motion_guard = True
@@ -241,7 +241,7 @@ def test_motion_fault_precedes_deadline_at_command_outlet(tmp_path, monkeypatch)
 
 
 def test_normal_home_is_not_restarted_when_clock_passes_cutoff(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     original_home = RoundRoute.home
     called = []
     def home(plan):
@@ -258,7 +258,7 @@ def test_normal_home_is_not_restarted_when_clock_passes_cutoff(tmp_path, monkeyp
 
 @pytest.mark.parametrize('fault', ['localization failed', 'invalid_pose'])
 def test_fault_at_deadline_never_starts_return_motion(tmp_path, monkeypatch, fault):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     def scan(*a, **kw):
         if fault == 'invalid_pose':
             r.pose = None
@@ -274,7 +274,7 @@ def test_fault_at_deadline_never_starts_return_motion(tmp_path, monkeypatch, fau
 
 
 def test_real_spin_wait_checks_budget_without_motion(tmp_path, monkeypatch):
-    r, cfg, clock = setup(tmp_path, monkeypatch)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, 'shoot', clock=lambda: clock[0])
     clock[0] = 84.99
     r.motion_guard = False
@@ -287,7 +287,7 @@ def test_real_spin_wait_checks_budget_without_motion(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('task,enabled', [('pass', True), ('shoot', False)])
 def test_opt_out_and_passing_unchanged(tmp_path, monkeypatch, task, enabled):
-    r, cfg, clock = setup(tmp_path, monkeypatch, enabled=enabled)
+    r, cfg, clock = make_round_fixture(tmp_path, monkeypatch, enabled=enabled)
     r.round_return_budget = RoundReturnBudget(r, cfg, 3, task, clock=lambda: clock[0])
     clock[0] = 500.
     check_runner(r)

@@ -104,7 +104,7 @@ def test_round_shell_preflight_accepts_fixed_heading_without_target_coordinate(t
     source = Path(__file__).resolve().parents[3] / 'tools'
     tools = tmp_path / 'tools'; tools.mkdir(); (tmp_path / 'install').mkdir()
     (tmp_path / 'install/setup.bash').write_text('')
-    for name in (f'run_round{number}.sh', 'match_rounds.json', 'match_round_route.py', 'visual_target_alignment.py'):
+    for name in (f'run_round{number}.sh', 'match_rounds.json', 'match_round_route.py', 'round_return_budget.py', 'visual_target_alignment.py'):
         shutil.copy(source / name, tools / name)
     script = (source / 'run_round_test.sh').read_text().replace('source /opt/ros/humble/setup.bash', ':')
     (tools / 'run_round_test.sh').write_text(script)

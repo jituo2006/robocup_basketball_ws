@@ -108,9 +108,10 @@ class PassHealth:
 
 
 class RosHealthMonitor:
-    """Only subscribes; never publishes velocity or starts the robot stack."""
-    def __init__(self, health):
+    """Shared status subscriptions and optional finite-motion command publisher."""
+    def __init__(self, health, tasks=None):
         self.health = health
+        self.tasks = tasks
         self.stop_event = threading.Event()
         self.thread = None
 
@@ -131,10 +132,27 @@ class RosHealthMonitor:
             node = rclpy.create_node('pass_console_health', context=context)
             executor = SingleThreadedExecutor(context=context)
             executor.add_node(node)
+            def ready(message):
+                self.health.observe_ready(message.data)
+                if self.tasks is not None:
+                    self.tasks.board_ready(message.data)
+            if self.tasks is not None:
+                from geometry_msgs.msg import Twist
+                publisher = node.create_publisher(Twist, '/cmd_vel', 1)
+                def publish(velocity):
+                    message = Twist()
+                    message.linear.y = velocity
+                    publisher.publish(message)
+                self.tasks.attach(publish)
+                def motion_tick():
+                    others = any(info.node_name != node.get_name() or info.node_namespace != node.get_namespace()
+                                 for info in node.get_publishers_info_by_topic('/cmd_vel'))
+                    self.tasks.tick(others)
+                motion_timer = node.create_timer(.02, motion_tick)
             subscriptions = [
                 node.create_subscription(String, '/lidar/session', lambda m: self.health.observe_session(m.data), 10),
                 node.create_subscription(String, '/chassis/status', lambda m: self.health.observe_chassis(m.data), 10),
-                node.create_subscription(Bool, '/chassis/ready', lambda m: self.health.observe_ready(m.data), 10),
+                node.create_subscription(Bool, '/chassis/ready', ready, 10),
                 node.create_subscription(Bool, '/localization/ok', lambda m: self.health.observe_localization(m.data), 10),
             ]
             while not self.stop_event.is_set() and rclpy.ok(context=context):
@@ -142,6 +160,8 @@ class RosHealthMonitor:
         except Exception as exc:
             self.health.set_error(str(exc))
         finally:
+            if self.tasks is not None:
+                self.tasks.detach()
             if executor is not None:
                 executor.shutdown()
             if node is not None:

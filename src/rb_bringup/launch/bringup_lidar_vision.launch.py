@@ -122,6 +122,7 @@ def generate_launch_description():
              parameters=[{"config_file": _share("rb_localization", "config", "localization.yaml"),
                           "require_lidar_session": True}]),
         Node(package="rb_chassis", executable="rb_chassis_node", name="rb_chassis",
+             condition=IfCondition(LaunchConfiguration("start_chassis")),
              output="screen",
              parameters=[_share("rb_chassis", "config", "chassis.yaml"),
                          {"dry_run": dry_run}]),
@@ -137,6 +138,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("dry_run", default_value="false",
                               description="true = 底盘只解算不下发 CAN"),
+        DeclareLaunchArgument('start_chassis', default_value='true',
+                              description='桌面界面使用共享底盘服务时设为false'),
         DeclareLaunchArgument('start_mission', default_value='true',
                               description='自动路线直接控制底盘时关闭独立mission，避免抢速度话题'),
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),

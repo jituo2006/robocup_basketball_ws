@@ -1,0 +1,26 @@
+{
+  "A1": [
+    "bash",
+    "tools/run_shoot_A1.sh"
+  ],
+  "A2": [
+    "bash",
+    "tools/run_shoot_A2.sh"
+  ],
+  "A3": [
+    "bash",
+    "tools/run_shoot_A3.sh"
+  ],
+  "B1": [
+    "bash",
+    "tools/run_shoot_B1.sh"
+  ],
+  "B2": [
+    "bash",
+    "tools/run_shoot_B2.sh"
+  ],
+  "B3": [
+    "bash",
+    "tools/run_shoot_B3.sh"
+  ]
+}

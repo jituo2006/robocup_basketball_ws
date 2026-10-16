@@ -22,7 +22,7 @@ done
 systemctl --user disable --now robocup-pass-console.service
 cat > "$pass_console_config/systemd/user/robocup-pass-stack.service" <<EOF
 [Unit]
-Description=RoboCup stack prepared by the manually opened passing console
+Description=RoboCup stack prepared by the manually opened shooting console
 
 [Service]
 Type=simple
@@ -33,8 +33,9 @@ TimeoutStopSec=30
 EOF
 cat > "$pass_console_config/systemd/user/robocup-pass-console.service" <<EOF
 [Unit]
-Description=RoboCup six-button passing console (manual desktop start)
-After=network.target
+Description=RoboCup six-button shooting console (manual desktop start)
+Wants=robocup-console-chassis.service
+After=network.target robocup-console-chassis.service
 
 [Service]
 Type=simple
@@ -42,14 +43,31 @@ WorkingDirectory=$pass_console_root
 ExecStart=/bin/bash "$pass_console_root/tools/start_pass_console.sh"
 Restart=on-failure
 RestartSec=2
+KillSignal=SIGINT
+TimeoutStopSec=12
 
 [Install]
 WantedBy=default.target
 EOF
+cat > "$pass_console_config/systemd/user/robocup-console-chassis.service" <<EOF
+[Unit]
+Description=RoboCup shared chassis driver for the manually opened console
+PartOf=robocup-pass-console.service
+
+[Service]
+Type=simple
+WorkingDirectory=$pass_console_root
+ExecStart=/bin/bash "$pass_console_root/tools/start_console_chassis.sh"
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=8
+EOF
 cat > "$pass_console_config/autostart/robocup-pass-console.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=RoboCup Passing Control
+Name=RoboCup Shooting Control
 Hidden=true
 X-GNOME-Autostart-enabled=false
 EOF
@@ -57,9 +75,9 @@ cat > "$pass_console_desktop/robocup-pass-console.desktop" <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Passing Control
-Name[zh_CN]=传球控制
-Comment=打开传球界面并检查雷达与底盘状态
+Name=Shooting Control
+Name[zh_CN]=投篮控制
+Comment=打开投篮界面并检查雷达与底盘状态
 Exec=/bin/bash "$pass_console_root/tools/open_pass_console.sh"
 Path=$pass_console_root
 Icon=applications-engineering
@@ -73,4 +91,4 @@ if command -v gio >/dev/null; then
     echo '桌面环境未设置启动信任，请右键快捷方式选择“允许启动”。' >&2
 fi
 systemctl --user daemon-reload
-echo "已关闭开机及登录自启动。点击桌面“传球控制”启动；备份：$pass_console_backup"
+echo "已关闭开机及登录自启动。点击桌面“投篮控制”启动；备份：$pass_console_backup"
