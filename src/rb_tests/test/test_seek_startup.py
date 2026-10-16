@@ -25,6 +25,7 @@ def test_fixed_route_skips_cloud_and_tf_until_they_are_requested(monkeypatch):
         'geometry_msgs.msg':dict(PoseWithCovarianceStamped=object,Twist=object),
         'rb_msgs.msg':dict(DetectionArray=object),
         'nav_msgs.msg':dict(Odometry=object),
+        'std_msgs.msg':dict(Bool=object),
         'sensor_msgs.msg':dict(PointCloud2=object),
         'rclpy.qos':dict(qos_profile_sensor_data=object()),
         'rb_mission.geometry':dict(goto_command=lambda *a:None),
@@ -40,21 +41,11 @@ def test_fixed_route_skips_cloud_and_tf_until_they_are_requested(monkeypatch):
     assert topics.count('/cloud_registered')==1
 
 
-def test_motion_accepts_point_eight_second_old_pose_with_new_budget():
+def test_valid_pose_does_not_expire_by_age():
     mod=load();r=mod.Runner.__new__(mod.Runner)
-    r.args=NS(pose_timeout=1.);r.pose=(1.5,8.,0.);r.pose_stamp=r.odom_stamp=99.2
-    r.node=NS(get_clock=lambda:NS(now=lambda:NS(nanoseconds=100000000000)))
-    r.stop=lambda:None
-    r.require_fresh_pose()
-    r.pose_stamp=98.99
-    ticks=[0]
-    def recover(*a,**kw):
-        ticks[0]+=1
-        if ticks[0]>100:
-            r.pose_stamp=100.
-    r.rclpy=NS(ok=lambda:True,spin_once=recover)
-    assert r.require_fresh_pose() is True
-    assert ticks[0]>100
+    r.args=NS(pose_timeout=1.);r.pose=(1.5,8.,0.);r.pose_stamp=r.odom_stamp=1.
+    r.stop=lambda:pytest.fail('message age must not trigger stop')
+    assert r.require_fresh_pose() is False
 
 
 def test_wait_pose_accepts_initialisation_longer_than_eight_seconds():
@@ -88,6 +79,8 @@ def test_motion_readiness_waits_for_late_pose_and_can_cancel():
     run = mod.Runner.__new__(mod.Runner)
     clock = NS(elapsed=0.)
     run.args = NS(obstacle_guard=False)
+    run.chassis_ready = True
+    run.stop = lambda:None
     run.spin = lambda seconds:setattr(clock,'elapsed',clock.elapsed+seconds)
     run.rclpy = NS(ok=lambda:clock.elapsed<40.)
     def require():

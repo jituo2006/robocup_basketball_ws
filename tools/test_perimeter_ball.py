@@ -277,6 +277,7 @@ class Runner:
         from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
         from rb_msgs.msg import DetectionArray
         from nav_msgs.msg import Odometry
+        from std_msgs.msg import Bool
 
         self.args = args
         self.rclpy = rclpy
@@ -293,6 +294,7 @@ class Runner:
         self.pose_stamp = self.odom_stamp = 0.0
         self.det_stamp = self.rear_det_stamp = 0.0
         self.motion_fault = None
+        self.chassis_ready = False
         self.last_obstacle_tf_error = ""
         # motion_guard：启动就绪后置 True，所有运动都要检查定位/里程计。
         # visual_guard：旧版视觉伺服临时启用；固定路线和整轮铲球不启用它。
@@ -312,6 +314,7 @@ class Runner:
         self.pose_history = deque(maxlen=250)
         self.yaw_rate = float("inf")
 
+        self.node.create_subscription(Bool, "/chassis/ready", self._on_chassis_ready, 10)
         self.node.create_subscription(PoseWithCovarianceStamped, "/localization/pose",
                                       self._on_pose, 10)
         self.node.create_subscription(DetectionArray, "/perception/detections",
@@ -336,6 +339,13 @@ class Runner:
         self._goto_command = goto_command
 
     # -- 回调 ---------------------------------------------------------------
+    def _on_chassis_ready(self, msg) -> None:
+        was_ready = self.chassis_ready
+        self.chassis_ready = bool(msg.data)
+        if was_ready and not self.chassis_ready and self.motion_guard:
+            # A reported reset/I/O fault cancels this run; no automatic old-route restart.
+            self.motion_fault = "底盘明确报告重新握手/通信故障，本轮停止；恢复后重新点击任务"
+
     def _on_pose(self, m) -> None:
         p = m.pose.pose.position
         q = m.pose.pose.orientation
@@ -612,6 +622,13 @@ class Runner:
             self.spin(0.05)
             try:
                 self.require_fresh_pose()
+                if not self.chassis_ready:
+                    self.stop()
+                    continue
+                # A zero published after the ready notification opens the neutral gate.
+                self.stop()
+                if not self.chassis_ready:
+                    continue
                 if getattr(self.args,"obstacle_guard",False):
                     now=self.node.get_clock().now().nanoseconds*1e-9
                     if not obstacle_guard.fresh(self.det_stamp,now,self.args.obstacle_timeout):

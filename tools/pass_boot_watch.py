@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""共用总开关上电后启动 boot；独立服务持有整车进程，不自动执行比赛路线。"""
+"""手动打开界面后检测雷达连接并准备整车；回合只由按钮显式执行。"""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +20,7 @@ def load_settings(path=CONFIG):
 
 
 def shared_power(config, net_root=Path('/sys/class/net'), run=subprocess.run):
-    """仅将共用电源上的雷达用作上电信号，不将 can0 UP 当作电机回执。"""
+    """雷达网络用于启动软件；底盘是否就绪由板端握手独立确认。"""
     try:
         carrier = (net_root / config['power_interface'] / 'carrier').read_text().strip() == '1'
     except OSError:
@@ -99,7 +99,7 @@ class BootWatch:
         self.stop_event = threading.Event()
         self.thread = None
         self.lines = deque(maxlen=100)
-        self.state = dict(status='waiting', message='等待总开关上电，后台持续检测',
+        self.state = dict(status='waiting', message='等待雷达连接，后台持续检测',
                           power={}, pid=None, returncode=None, checked_at=None)
 
     def update(self, status, message, **fields):
@@ -123,14 +123,14 @@ class BootWatch:
             self.link_down_since = None
         if self.power_rearm:
             if not power['online']:
-                self.update('waiting', '已检测到总电源断开，等待重新上电后执行 boot.sh', **common)
+                self.update('waiting', '雷达掉电或网线断开，等待重新连接', **common)
                 return
             if state.get('ActiveState') in ('active', 'activating', 'reloading', 'deactivating'):
                 self.restart(self.config['stack_unit'])
             else:
                 self.launch(self.config['stack_unit'])
             self.power_rearm = False
-            self.update('starting', '共用总电源重新上电，重新执行 boot.sh 使能底盘',
+            self.update('starting', '雷达重新连接，重建整车程序并等待设备就绪',
                         pid=None, returncode=None, **common)
             return
         if state.get('ActiveState') in ('active', 'activating', 'reloading', 'deactivating'):
@@ -142,7 +142,7 @@ class BootWatch:
             self.update('existing', '已有整车启动进程，复用当前实例', pid=pid, returncode=None, **common)
             return
         if not power['online']:
-            self.update('waiting', '等待总开关上电，后台持续检测', pid=None,
+            self.update('waiting', '等待雷达连接，后台持续检测', pid=None,
                         returncode=int(state.get('ExecMainStatus', 0)), **common)
             return
         code = int(state.get('ExecMainStatus', 0))
@@ -150,7 +150,7 @@ class BootWatch:
             self.update('retrying', f'boot.sh 上次退出码 {code}，上电状态有效，重新启动',
                         returncode=code, **common)
         self.launch(self.config['stack_unit'])
-        self.update('starting', '已检测到共用总电源上电，自动执行 boot.sh',
+        self.update('starting', '雷达已连接，准备整车程序并等待设备就绪',
                     pid=None, returncode=None, **common)
 
     def _loop(self):

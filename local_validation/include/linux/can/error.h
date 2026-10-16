@@ -1,0 +1,5 @@
+#pragma once
+#define CAN_ERR_TX_TIMEOUT 0x1U
+#define CAN_ERR_CRTL 0x4U
+#define CAN_ERR_BUSOFF 0x40U
+#define CAN_ERR_RESTARTED 0x100U

@@ -6,5 +6,5 @@ find_package(ament_cmake REQUIRED)
 # config/ 不在 Git 中，干净检出时不存在；只安装实际受版本控制的目录。
 install(DIRECTORY launch rviz DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS scripts/lidar_session.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/lidar_health.py DESTINATION lib/${PROJECT_NAME})
+install(FILES scripts/lidar_health.py scripts/lidar_startup.py DESTINATION lib/${PROJECT_NAME})
 ament_package()

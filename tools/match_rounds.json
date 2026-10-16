@@ -238,11 +238,11 @@
       -4.25
     ]
   },
-  "start_point": "B",
+  "start_point": "A",
   "intake_settle_s": 5.0,
   "home_align_at": "entry",
   "b_y_adjustments_m": {
-    "middle": -0.24,
-    "pass": -0.24
+    "middle": 0.24,
+    "pass": 0.24
   }
 }

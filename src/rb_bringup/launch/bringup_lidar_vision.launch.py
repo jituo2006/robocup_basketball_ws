@@ -1,9 +1,9 @@
 """雷达定位 + 视觉感知的整车启动。
 
 启动顺序（以真实数据就绪为依据）：
-    ① Livox MID360 驱动        (ws_livox)
+    ① 网口/静态 IP/PTP 就绪后启动 Livox MID360 驱动 (ws_livox)
     ② FAST-LIO 建图/里程计      (fast_prop_ws)  → /Odometry
-    ③ 视觉 / 底盘 / 机构 / 定位 / 任务
+    ③ 视觉 / 底盘 / 机构 / 定位 / 任务与管理器并行启动，任务等待定位和底盘就绪
     ④ 可选：RViz 看建图效果
 
 用法：
@@ -58,8 +58,11 @@ def generate_launch_description():
             "source /opt/ros/humble/setup.bash && "
             f"source {LIDAR_WS}/ws_livox/install/setup.bash && "
             f"source {LIDAR_WS}/fast_prop_ws/install/setup.bash && "
-            f"exec python3 {session_executable}"
-        ),
+            f'exec python3 "{session_executable}" "$@"'
+        ) + ["lidar_session",  # bash -c 的 $0；后面的参数经 "$@" 原样传递。
+             "--interface", LaunchConfiguration("lidar_interface"),
+             "--host-ip", LaunchConfiguration("lidar_host_ip"),
+             "--ptp-mode", LaunchConfiguration("lidar_ptp_mode")],
         additional_env={"ROS_DOMAIN_ID": domain},
         output="screen", name="lidar_session",
     )
@@ -119,6 +122,7 @@ def generate_launch_description():
              parameters=[{"config_file": _share("rb_localization", "config", "localization.yaml"),
                           "require_lidar_session": True}]),
         Node(package="rb_chassis", executable="rb_chassis_node", name="rb_chassis",
+             condition=IfCondition(LaunchConfiguration("start_chassis")),
              output="screen",
              parameters=[_share("rb_chassis", "config", "chassis.yaml"),
                          {"dry_run": dry_run}]),
@@ -134,6 +138,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("dry_run", default_value="false",
                               description="true = 底盘只解算不下发 CAN"),
+        DeclareLaunchArgument('start_chassis', default_value='true',
+                              description='桌面界面使用共享底盘服务时设为false'),
         DeclareLaunchArgument('start_mission', default_value='true',
                               description='自动路线直接控制底盘时关闭独立mission，避免抢速度话题'),
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
@@ -145,6 +151,10 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_device", default_value="/dev/video0"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("ros_domain_id", default_value="2"),
+        DeclareLaunchArgument("lidar_interface", default_value="enp114s0"),
+        DeclareLaunchArgument("lidar_host_ip", default_value="192.168.1.110"),
+        DeclareLaunchArgument("lidar_ptp_mode", default_value="auto",
+                              description="auto 按安装标记等待PTP；on 强制等待；off 仅供旧驱动联调"),
 
         lidar_session,
         *rest,

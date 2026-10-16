@@ -65,7 +65,7 @@ public:
     explicit Can(const std::string &can_name); // constructor
     ~Can(); // destructor
     /**
-     * @brief It will star to receive and send can frame
+     * @brief Start receiving CAN frames; sends are immediate, without a sender queue
      * @param none
     */
     void can_start();
@@ -88,14 +88,14 @@ public:
     */
     void send_can(const can_frame &frame);
     /**
-     * @brief Send a can frame and wait for respond
+     * @brief Try one nonblocking CAN submission (not a board acknowledgement)
      * @param id The can frame id
      * @param dlc The can frame dlc
      * @return true if success, false if failed
     */
     bool send_can_with_respond(const uint32_t &id, const CAN_ID_TYPE &id_type, const int &dlc, const std::array<uint8_t,8> &data);
     /**
-     * @brief Send a can frame and wait for respond
+     * @brief Try one nonblocking CAN submission (not a board acknowledgement)
      * @param frame The can frame
      * @return true if success, false if failed
     */
@@ -112,6 +112,8 @@ public:
      * @return true if started, false if not started
      */
     bool isStarted() const;
+    /// Advances only on an actual I/O error or CAN error/restart event; no age timeout.
+    uint64_t transport_generation() const;
 };
 
 #endif // BUPT_CAN_H

@@ -1,205 +1,201 @@
 #include "bupt_can/bupt_can.h"
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <net/if.h>
 #include <sys/ioctl.h>
 #include <linux/can/raw.h>
+#include <linux/can/error.h>
 #include <unistd.h>
-#include <string>
+#include <poll.h>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <iostream>
+#include <stdexcept>
+#include <system_error>
 
-Can::Can(const std::string &can_name)
-{
-    this->can_name = can_name;
-    can_fd_read = socket(AF_CAN,SOCK_RAW,CAN_RAW);
-    can_fd_write = socket(AF_CAN,SOCK_RAW,CAN_RAW);
+namespace {
+// Keep Can's installed motor_lib ABI unchanged: no added/reordered data members.
+struct LinkState {
+    std::atomic<uint64_t> generation{0};
+    std::atomic<uint64_t> last_log_ms{0};
+};
+std::mutex links_mutex;
+std::map<const Can*, std::shared_ptr<LinkState>> links;
+std::shared_ptr<LinkState> link_state(const Can *can) {
+    std::lock_guard<std::mutex> lock(links_mutex);
+    auto it = links.find(can);
+    return it == links.end() ? nullptr : it->second;
+}
+void fault(const std::shared_ptr<LinkState> &state, const std::string &name, int error) {
+    if (!state) return;
+    state->generation.fetch_add(1, std::memory_order_relaxed);
+    const auto now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    auto previous = state->last_log_ms.load();
+    if (now - previous >= 1000 && state->last_log_ms.compare_exchange_strong(previous, now))
+        std::cerr << name << ": CAN I/O fault (" << error
+                  << "), dropped frame; board handshake must restart\n";
+}
+}
 
-    std::strcpy(ifr.ifr_name,can_name.c_str());
-
-    ioctl(can_fd_read,SIOCGIFINDEX,&ifr);
-    ioctl(can_fd_write,SIOCGIFINDEX,&ifr);
-
-    addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-
-    bind(can_fd_read,(struct sockaddr*)&addr,sizeof(addr));
-    bind(can_fd_write,(struct sockaddr*)&addr,sizeof(addr));
-
+Can::Can(const std::string &name) {
+    can_name = name;
+    can_fd_read = can_fd_write = -1;
     isDestroyed = false;
     Started = false;
     filter_size = 0;
-
-    filters[filter_size].can_id = 0x7FC;
-    filters[filter_size].can_mask = CAN_SFF_MASK;
-    filter_size++;
+    ifr = {};
+    addr = {};
+    if (name.empty() || name.size() >= IFNAMSIZ)
+        throw std::invalid_argument("invalid CAN interface name");
+    try {
+        can_fd_read = socket(AF_CAN, SOCK_RAW, CAN_RAW);
+        if (can_fd_read < 0) throw std::system_error(errno, std::generic_category(), "CAN RX socket");
+        can_fd_write = socket(AF_CAN, SOCK_RAW, CAN_RAW);
+        if (can_fd_write < 0) throw std::system_error(errno, std::generic_category(), "CAN TX socket");
+        std::memcpy(ifr.ifr_name, name.c_str(), name.size()+1);
+        if (ioctl(can_fd_read, SIOCGIFINDEX, &ifr) < 0)
+            throw std::system_error(errno, std::generic_category(), "CAN interface index");
+        addr.can_family = AF_CAN;
+        addr.can_ifindex = ifr.ifr_ifindex;
+        if (bind(can_fd_read, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
+            bind(can_fd_write, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+            throw std::system_error(errno, std::generic_category(), "CAN bind");
+        // Bound socket memory as well as the interface qdisc; never retry old motion frames.
+        const int buffer = 4096;
+        if (setsockopt(can_fd_write, SOL_SOCKET, SO_SNDBUF, &buffer, sizeof(buffer)) < 0)
+            throw std::system_error(errno, std::generic_category(), "CAN TX buffer");
+        const can_err_mask_t errors = CAN_ERR_BUSOFF | CAN_ERR_RESTARTED | CAN_ERR_CRTL | CAN_ERR_TX_TIMEOUT;
+        if (setsockopt(can_fd_read, SOL_CAN_RAW, CAN_RAW_ERR_FILTER, &errors, sizeof(errors)) < 0)
+            throw std::system_error(errno, std::generic_category(), "CAN error filter");
+        std::lock_guard<std::mutex> lock(links_mutex);
+        links.emplace(this, std::make_shared<LinkState>());
+    } catch (...) {
+        if (can_fd_read >= 0) close(can_fd_read);
+        if (can_fd_write >= 0) close(can_fd_write);
+        throw;
+    }
 }
 
-Can::~Can()
-{
-    send_can(0x7FC,CAN_ID_STD,0,{0,0,0,0,0,0,0,0}); // 结束帧，用于结束接收线程
-    // ⚠️ 原库 bug 修复：send_thread_ / recv_thread_ 只在 can_start() 里才创建。
-    //    若构造了 Can 但从未 can_start()（如 dry_run），直接 join() 会空指针段错误。
-    if (send_thread_ && send_thread_->joinable()) send_thread_->join();
+Can::~Can() {
+    // Shutdown is local. It must work while the board has no power or CAN is bus-off.
+    __atomic_store_n(&isDestroyed, true, __ATOMIC_RELEASE);
     if (recv_thread_ && recv_thread_->joinable()) recv_thread_->join();
+    if (can_fd_read >= 0) close(can_fd_read);
+    if (can_fd_write >= 0) close(can_fd_write);
+    std::lock_guard<std::mutex> lock(links_mutex);
+    links.erase(this);
 }
 
-void Can::can_start()
-{
+void Can::can_start() {
     if (Started) return;
-    set_recv_filter();
-    recv_thread_ = std::make_unique<std::thread>(std::bind(&Can::receive_thread,this));
-    send_thread_ = std::make_unique<std::thread>(std::bind(&Can::send_thread,this));
+    if (set_recv_filter() < 0)
+        throw std::system_error(errno, std::generic_category(), "CAN RX filter");
+    recv_thread_ = std::make_unique<std::thread>(&Can::receive_thread, this);
+    // No sender thread or application queue: current commands are submitted once.
     Started = true;
 }
 
-uint32_t Can::set_id_type(const CAN_ID_TYPE &id_type, const uint32_t &id)
-{
-    uint32_t ret = id;
-    if (id_type == CAN_ID_TYPE::CAN_ID_EXT)
-    {
-        ret |= CAN_EFF_FLAG;
-    }
-    else if (id_type == CAN_ID_TYPE::CAN_ID_RTR)
-    {
-        ret |= CAN_RTR_FLAG;
-    }
-    else if (id_type == CAN_ID_TYPE::CAN_ID_ERR)
-    {
-        ret |= CAN_ERR_FLAG;
-    }
-    return ret;
+uint32_t Can::set_id_type(const CAN_ID_TYPE &type, const uint32_t &id) {
+    if (type == CAN_ID_EXT) return id | CAN_EFF_FLAG;
+    if (type == CAN_ID_RTR) return id | CAN_RTR_FLAG;
+    if (type == CAN_ID_ERR) return id | CAN_ERR_FLAG;
+    return id;
 }
 
-void Can::set_callback_map(const uint32_t &id, const std::function<void(const std::shared_ptr<can_frame>&)> callback)
-{
+void Can::set_callback_map(const uint32_t &id,
+        const std::function<void(const std::shared_ptr<can_frame>&)> callback) {
     std::lock_guard<std::mutex> lock(recv_callback_map_mutex);
     recv_callback_map[id] = callback;
 }
 
-void Can::register_msg(const uint32_t &id, const CAN_ID_TYPE &id_type, const std::function<void(const std::shared_ptr<can_frame>&)> callback)
-{
+void Can::register_msg(const uint32_t &id, const CAN_ID_TYPE &type,
+        const std::function<void(const std::shared_ptr<can_frame>&)> callback) {
+    if (filter_size >= static_cast<int>(filters.size())) throw std::length_error("too many CAN filters");
     set_callback_map(id, callback);
-    filters[filter_size].can_id = id ;
-    filters[filter_size].can_id = set_id_type(id_type,filters[filter_size].can_id);
-    if (id_type == CAN_ID_STD)
-        filters[filter_size].can_mask = CAN_SFF_MASK;
-    else if (id_type == CAN_ID_EXT)
-        filters[filter_size].can_mask = CAN_EFF_MASK,printf("1\n");
-    else if (id_type == CAN_ID_ERR)
-        filters[filter_size].can_mask = CAN_ERR_MASK;
-    filter_size++;
+    auto &f = filters[filter_size++];
+    f.can_id = set_id_type(type, id);
+    f.can_mask = (type == CAN_ID_EXT ? CAN_EFF_MASK : CAN_SFF_MASK) | CAN_EFF_FLAG | CAN_RTR_FLAG;
+    if (Started && set_recv_filter() < 0)
+        throw std::system_error(errno, std::generic_category(), "CAN RX filter update");
 }
 
-void Can::send_can(const uint32_t &id, const CAN_ID_TYPE &id_type, const int &dlc,const std::array<uint8_t,8> &data)
-{
-    struct can_frame frame;
-    
-    frame.can_id = set_id_type(id_type,id);
-    frame.can_dlc = dlc;
-    for (int i = 0;i < dlc;i++)
-    {
-        frame.data[i] = data[i];
-    }
-    send_can(frame);
+void Can::send_can(const uint32_t &id, const CAN_ID_TYPE &type, const int &dlc,
+                   const std::array<uint8_t,8> &data) {
+    (void)send_can_with_respond(id, type, dlc, data);
 }
+void Can::send_can(const can_frame &frame) { (void)send_can_with_respond(frame); }
+void Can::send_thread() {} // Retain symbol/layout compatibility with installed motor_lib.
 
-void Can::send_can(const can_frame &frame)
-{
-    std::lock_guard<std::mutex> lock(send_que_mutex);
-    constexpr std::size_t kMaxQueuedFrames = 64;
-    if (send_que.size() >= kMaxQueuedFrames) {
-        std::cerr << "CAN send queue overflow, dropping stale frames" << std::endl;
-        std::queue<can_frame> empty;
-        send_que.swap(empty);
-    }
-    send_que.push(frame);
-    if (send_que.size()==1)
-    {
-        send_que_cv.notify_one();
-    }
-}
-
-void Can::receive_thread()
-{
-    while (true)
-    {
-        auto frame_ptr = std::make_shared<can_frame>();
-        int nbytes = read(can_fd_read,frame_ptr.get(),sizeof(struct can_frame));
-        if (nbytes > 0)
-        {
-            if (frame_ptr->can_id & CAN_ERR_FLAG)
-            {
-                frame_ptr->can_id &= CAN_ERR_MASK;
-            }
-            else if (frame_ptr->can_id & CAN_EFF_FLAG)
-            {
-                frame_ptr->can_id &= CAN_EFF_MASK;
-            }
-            else if (frame_ptr->can_id & CAN_RTR_FLAG)
-            {
-                frame_ptr->can_id &= CAN_SFF_MASK;
-            }
-            else
-            {
-                frame_ptr->can_id &= CAN_SFF_MASK;
-            }
-            std::lock_guard<std::mutex> lock(recv_callback_map_mutex);
-            if (recv_callback_map.find(frame_ptr->can_id) != recv_callback_map.end())
-            {
-                recv_callback_map[frame_ptr->can_id](frame_ptr);
-            }
-            if (frame_ptr->can_id == 0x7FC) break;
-        }
-    }
-}
-
-void Can::send_thread()
-{
-    while (true)
-    {
-        std::unique_lock<std::mutex> lock1(send_que_mutex);
-        send_que_cv.wait(lock1, [this](){return !send_que.empty();});
-        if (send_que.empty()) break;
-        struct can_frame frame = send_que.front();
-        send_que.pop();
-        lock1.unlock();
-        std::lock_guard<std::mutex> lock2(can_fd_write_mutex);
-        ssize_t ret = write(can_fd_write, &frame, sizeof(frame));
-        if (ret == -1) {
-            std::cerr << "Error writing to CAN bus" << std::endl;
-        }
-        if (frame.can_id == 0x7FC) break;
-    }
-}
-
-bool Can::send_can_with_respond(const uint32_t &id, const CAN_ID_TYPE &id_type, const int &dlc, const std::array<uint8_t, 8> &data)
-{
-    struct can_frame frame;
-    frame.can_id = id;
-    frame.can_dlc = dlc;
-    for (int i = 0;i < dlc;i++)
-    {
-        frame.data[i] = data[i];
-    }
+bool Can::send_can_with_respond(const uint32_t &id, const CAN_ID_TYPE &type, const int &dlc,
+                                const std::array<uint8_t,8> &data) {
+    if (dlc < 0 || dlc > 8) { errno = EINVAL; return false; }
+    can_frame frame{};
+    frame.can_id = set_id_type(type, id);
+    frame.can_dlc = static_cast<uint8_t>(dlc);
+    std::memcpy(frame.data, data.data(), static_cast<std::size_t>(dlc));
     return send_can_with_respond(frame);
 }
 
-bool Can::send_can_with_respond(const can_frame &frame)
-{
+bool Can::send_can_with_respond(const can_frame &frame) {
+    if (frame.can_dlc > 8) { errno = EINVAL; return false; }
     std::lock_guard<std::mutex> lock(can_fd_write_mutex);
-    int ret=write(can_fd_write,&frame,sizeof(frame));
-    return ret!=-1;
+    if (__atomic_load_n(&isDestroyed, __ATOMIC_ACQUIRE)) { errno = EBADF; return false; }
+    const auto n = send(can_fd_write, &frame, sizeof(frame), MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (n == static_cast<ssize_t>(sizeof(frame))) return true;
+    const int error = n < 0 ? errno : EIO;
+    fault(link_state(this), can_name, error);
+    errno = error;
+    return false; // Includes EAGAIN/ENOBUFS/ENETDOWN: no queue and no replay.
 }
 
-int Can::set_recv_filter()
-{
-    setsockopt(can_fd_read,SOL_CAN_RAW,CAN_RAW_FILTER,
-        filters.data(),sizeof(struct can_filter)*filter_size);
-    return 0;
+uint64_t Can::transport_generation() const {
+    auto state = link_state(this);
+    return state ? state->generation.load(std::memory_order_relaxed) : 0;
 }
 
-bool Can::isStarted() const
-{
-    return Started;
+void Can::receive_thread() {
+    auto state = link_state(this);
+    while (!__atomic_load_n(&isDestroyed, __ATOMIC_ACQUIRE)) {
+        pollfd pfd{can_fd_read, POLLIN, 0};
+        const int count = poll(&pfd, 1, 100); // Poll wakeup only, never a command timeout.
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            fault(state, can_name, errno);
+            return;
+        }
+        if (!count) continue;
+        if (pfd.revents & (POLLNVAL | POLLHUP)) { fault(state, can_name, ENODEV); return; }
+        if (!(pfd.revents & POLLIN)) {
+            if (pfd.revents & POLLERR) {
+                fault(state, can_name, EIO);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            continue;
+        }
+        auto frame = std::make_shared<can_frame>();
+        const auto n = recv(can_fd_read, frame.get(), sizeof(*frame), MSG_DONTWAIT);
+        if (n < 0) {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+            fault(state, can_name, errno);
+            continue;
+        }
+        if (n != static_cast<ssize_t>(sizeof(*frame)) || frame->can_dlc > 8) continue;
+        if (frame->can_id & CAN_ERR_FLAG) { fault(state, can_name, EIO); continue; }
+        if (frame->can_id & CAN_RTR_FLAG) continue;
+        const uint32_t id = frame->can_id & (frame->can_id & CAN_EFF_FLAG ? CAN_EFF_MASK : CAN_SFF_MASK);
+        std::function<void(std::shared_ptr<can_frame>)> callback;
+        {
+            std::lock_guard<std::mutex> lock(recv_callback_map_mutex);
+            auto it = recv_callback_map.find(id);
+            if (it != recv_callback_map.end()) callback = it->second;
+        }
+        if (callback) callback(frame); // Preserve EFF/RTR flags for protocol validation.
+    }
 }
+
+int Can::set_recv_filter() {
+    return setsockopt(can_fd_read, SOL_CAN_RAW, CAN_RAW_FILTER,
+                      filters.data(), sizeof(can_filter)*filter_size);
+}
+bool Can::isStarted() const { return Started; }

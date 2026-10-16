@@ -4,5 +4,10 @@
   "power_interface": "enp114s0",
   "power_host": "192.168.1.138",
   "stack_unit": "robocup-pass-stack.service",
-  "boot_argv": ["bash", "tools/boot.sh", "start_mission:=false"]
+  "boot_argv": [
+    "bash",
+    "tools/boot.sh",
+    "start_mission:=false",
+    "start_chassis:=false"
+  ]
 }

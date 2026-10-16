@@ -24,3 +24,12 @@ __pycache__/
 
 # macOS Finder metadata
 .DS_Store
+
+# Local Windows-only verification outputs
+/local_validation/*.exe
+/local_validation/generated_protocol_test.cpp
+
+# Host deployment backups and temporary build/install trees
+/backups/
+/build_*/
+/install_*/

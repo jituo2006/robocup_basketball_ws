@@ -82,8 +82,10 @@ def test_manager_restarts_and_waits_for_new_stable_data(monkeypatch, fault):
     for name,attrs in modules.items():
         m=ModuleType(name);m.__dict__.update(attrs);monkeypatch.setitem(sys.modules,name,m)
     monkeypatch.setattr(lidar_session,'Path',Carrier)
+    monkeypatch.setattr(lidar_session,'startup_state',lambda *a:NS(ready=True,phase='waiting_inputs',reason='network ready'))
     monkeypatch.setattr(lidar_session.subprocess,'Popen',Proc)
-    monkeypatch.setattr(lidar_session.os,'killpg',kill)
+    monkeypatch.setattr(lidar_session.os,'killpg',kill,raising=False)
+    monkeypatch.setattr(lidar_session.signal,'SIGKILL',9,raising=False)
     monkeypatch.setattr(lidar_session,'time',NS(monotonic=lambda:runtime.t,time_ns=lambda:123))
     monkeypatch.setattr(sys,'argv',['lidar_session.py','--stable-seconds','.2'])
     lidar_session.main()
