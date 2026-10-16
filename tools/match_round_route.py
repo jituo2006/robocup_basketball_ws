@@ -99,6 +99,11 @@ def mirror_to_b(cfg):
     for k in ('top_y', 'bottom_y'):
         if isinstance(inner.get(k), (int, float)):
             inner[k] = -inner[k]
+    # inner_via 是现场加的中转点（见 search_area），y 也要跟着镜像，
+    # 否则 B 出发会绕到场地另一侧去。
+    if isinstance(o.get('inner_via'), dict):
+        o['inner_via'] = {k: [[p[0], -p[1]] for p in (vs or [])]
+                          for k, vs in o['inner_via'].items()}
     # dir_pass / dir_shoot 【不能】互换。
     # 它们的含义是"先扫 bottom_y 还是先扫 top_y"（见 search_plan 的 inner 分支），
     # 而 top_y / bottom_y 上面已经取过负了 —— 变量本身就代表镜像后的两端，
@@ -163,6 +168,19 @@ def load_config(path=CONFIG, start_point=None):
     point(cfg['start'], start=True)
     for key in ('entry', 'corridor'):
         point(cfg[key])
+    # inner_via：可选的中转点，按任务给一串 [x, y]（见 search_area 的 inner 分支）。
+    # 不配就是 []，行为和以前完全一样。
+    via = cfg.get('inner_via')
+    if via is not None:
+        if not isinstance(via, dict) or any(k not in ('pass', 'shoot') for k in via):
+            raise ValueError('inner_via 只支持 pass / shoot')
+        for k, pts in via.items():
+            if not isinstance(pts, list):
+                raise ValueError(f'inner_via.{k} 须为坐标列表')
+            for p in pts:
+                if not isinstance(p, (list, tuple)) or len(p) != 2:
+                    raise ValueError(f'inner_via.{k} 的每一项须为 [x, y]')
+                point(list(p))
     number(cfg['speed_mps'], math.nextafter(0., math.inf), math.inf)
     profiles = cfg.get('speed_profiles', {})
     if not isinstance(profiles, dict) or any(key not in ('1', '2', '3') for key in profiles):
@@ -575,6 +593,13 @@ class RoundRoute:
         # 搜球前的中转：要跨过半场置球线才绕，同侧直接去（crossing_via 判断）。
         transit = self.crossing_via(self.area_x(area))
         if area == 'inner' and transit:
+            # 现场加的中转点（配置键 inner_via，只在跨线进深场时插）。
+            # 由来：投篮的深场线在三分线【内侧】(x = inner.x_shoot)，
+            #   直接沿通道高度一路切进去，会在三分线内置球线的球带里穿过，
+            #   容易撞球。所以先降到 y=0.74 这个空档，再往里进。
+            # 每个点按顺序插在"通道高度那一点"之前。
+            for extra in (cfg.get('inner_via') or {}).get(self.task) or []:
+                transit.append(list(extra))
             transit.append([inner_x(cfg, self.task), cfg['corridor'][1]])
         for p in transit:
             if not self.move(p, remember=True):
