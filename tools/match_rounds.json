@@ -49,7 +49,7 @@
     "y": 0.9,
     "left_x": 0.6,
     "right_x": 4.4,
-    "scoop_m": 0.44,
+    "scoop_m": 0.64,
     "scan_dir": {
       "1": "rl",
       "2": "lr",
@@ -101,8 +101,8 @@
     "pass": {
       "aim_mode": "fixed",
       "point": [
-        3.715,
-        1.388
+        3.616,
+        1.275
       ],
       "aim": null,
       "commands": [

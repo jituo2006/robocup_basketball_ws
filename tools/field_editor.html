@@ -307,7 +307,7 @@ const DEFAULTS = {
        穷举过：第2轮 lr 比 rl 省 3.4 m（传球）/ 3.9 m（投篮）。 */
     /* y=4.45 是【旧帧】；导出成新帧就是 0.7（0.7 = 到球线的距离，正好等于 scoop_m），
        面板/悬停里看到的就是 0.7。 */
-    middle: { y: 4.65, left_x: 0.6, right_x: 4.4, scoop_m: 0.44,
+    middle: { y: 4.65, left_x: 0.6, right_x: 4.4, scoop_m: 0.64,
               scan_dir: { "1": "rl", "2": "lr", "3": "lr" } },
     /* 三分弧。传球走【外侧】R=4.65（扫完往左回传球点）；
        投篮走【内侧】R=2.85（2026 规则允许进三分线取球；内侧离投篮点近得多）。
@@ -336,7 +336,7 @@ const DEFAULTS = {
            朝向 49° 指向 A 方传球目标区3（顶部圆环，单次 50 分）。
            ⚠️ 队友的 first_pass_route.json 用公开帧 (-1.9,3.45) = 旧帧 (3.45,5.675)，
               离柱更近但车会伸出传球圆 0.43 m —— 判罚尺度要靠现场问裁判。 */
-      pass:  { aim_mode: "fixed", point: [3.715, 5.138], aim: null,
+      pass:  { aim_mode: "fixed", point: [3.616, 5.025], aim: null,
                commands: ["vesc_stop", "vesc_home", "vesc_shoot 3", "vesc_stop", "vesc_reset"],
                command_waits_s: [1.0, 1.0, 2.0, 0.0, 0.0],
                wait_s: 1.0, search_heading_deg: 49.0 },
