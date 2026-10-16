@@ -61,7 +61,7 @@ class View:
                 else:
                     payload = ('''<!doctype html><meta charset="utf-8"><title>模型独立检测</title>
 <style>body{background:#111;color:#ddd;font:16px sans-serif;margin:24px}img{max-width:100%}pre{white-space:pre-wrap}</style>
-<h2>模型独立检测：篮球、排球、定位柱</h2><p>这里只显示识别结果，不驱动车辆。</p>
+<h2>模型独立检测：篮球、排球</h2><p>这里只显示识别结果，不驱动车辆。</p>
 <img id="frame"><pre id="status"></pre><script>
 setInterval(async()=>{document.querySelector('#frame').src='/frame.jpg?t='+Date.now();
 document.querySelector('#status').textContent=JSON.stringify(await(await fetch('/status')).json(),null,2)},300);

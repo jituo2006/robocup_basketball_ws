@@ -10,8 +10,9 @@
   ② `models/model.json` 的 `sha256` 必须与模型文件**逐字节**一致
      （测试会重算哈希比对）
   ③ 所有 perception 配置的 `model_path` 都要指向**同一个**版本化文件名
-  ④ 元数据类名必须是 `{0:'篮球',1:'排球',2:'定位柱'}`，
+  ④ 元数据类名必须是 `{0:'篮球',1:'排球'}`（两类；三类版本见下面的说明），
      且配置里 `name_map` 有 `"定位柱": pillar`、`class_real_size` 有 `pillar: 0.20`
+     —— 这两项是留给「定位柱规则检测器」的，即使当前 YOLO 不出这一类也要保留
   ⑤ 生产配置里不能再有启用的 stripe/blob 检测器（柱子改由 YOLO 出）
 
 本脚本做 ①②③ 并**校验** ④⑤，任何一项不满足就中止并说明。
@@ -43,10 +44,18 @@ import shutil
 import sys
 from pathlib import Path
 
-# 三类模型的固定元数据（ONNX metadata `names`）
-EXPECTED_NAMES = {0: "篮球", 1: "排球", 2: "定位柱"}
+# 当前部署模型的固定元数据（ONNX metadata `names`）
+#
+# ⚠️ 2026-10-16 起改成【两类】：篮球 + 排球，去掉了「定位柱」。
+#    原因：出球只看角度、不看视觉（见 match_round_route.needs_pillar_alignment
+#    和 match_rounds.json 的 pillar_alignment.tasks = []），定位柱那一类
+#    实际没在用，新训的模型也就没带它。
+#    输出形状跟着从 (1,7,8400) 变成 (1,6,8400)（4 个框参数 + 类别数）。
+#    哪个任务以后真要对柱，得重新训一个带「定位柱」的三类模型，
+#    再把下面三行改回 {0:'篮球',1:'排球',2:'定位柱'} / [1,7,8400]。
+EXPECTED_NAMES = {0: "篮球", 1: "排球"}
 EXPECTED_INPUT = [1, 3, 640, 640]
-EXPECTED_OUTPUT = [1, 7, 8400]
+EXPECTED_OUTPUT = [1, 6, 8400]
 
 CONFIG_DIR = Path("config")
 MODELS_DIR = Path("models")
