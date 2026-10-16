@@ -378,10 +378,14 @@ def search_plan(cfg, area, cycle=0, round_number=None, task=None):
         i = cfg[area]
         shoot = task == 'shoot'
         x = inner_x(cfg, task)
-        direction = (i.get('dir_shoot') if shoot else i.get('dir_pass')) or 'tb'
+        direction = (i.get('dir_shoot') if shoot else i.get('dir_pass')) or 'bt'
         ys = [i['bottom_y'], i['top_y']] if direction == 'bt' else [i['top_y'], i['bottom_y']]
-        if cycle:
-            ys = list(reversed(ys))
+        # ⚠️ 深场【不跟阶段反转】。
+        #    原来是 if cycle: ys = list(reversed(ys))，于是第2/3轮的第2阶段会
+        #    把两端再翻一次，dir_shoot='bt'（从中心线往外）会被翻成从外往里。
+        #    现场要求：不管哪个阶段，深场都从【靠中心线那一端】往外扫，
+        #    所以这里不反转。传球/投篮都按 dir_pass / dir_shoot 各自的方向走。
+        #    （弧线仍然跟阶段反转，见下面的 arc 分支。）
         # 投篮从球线 X=9 的右侧扫描，前摄须朝 -X；传球从左侧朝 +X。
         face = math.pi if shoot else 0.
         return [((x, y), face) for y in ys]

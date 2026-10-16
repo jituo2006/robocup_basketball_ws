@@ -316,18 +316,17 @@ const DEFAULTS = {
        angles_shoot 按轮次给：第2轮弧线在投篮点【之后】⇒ 先扫近端；
                               第3轮弧线在投篮点【之前】⇒ 先扫远端收在近端。 */
     arc: { center: [11.0, 3.75], radius: 4.65,
-           angles_deg: [141.42, 146, 154, 162, 170], scoop_m: 0.44,
-           radius_shoot: 2.85,
-           angles_shoot: { "2": [120, 124, 138, 152, 165],
-                           "3": [165, 152, 138, 124, 120] } },
+           angles_deg: [151, 156, 161, 166, 171], scoop_m: 0.44,
+           radius_shoot: 2.65,
+           angles_shoot: { "2": [165, 152, 138, 124, 120], "3": [120, 124, 138, 152, 165] } },
     /* 深场（三分线内置球区 X=9 那条红线）。
        x=8.3 / x_shoot=9.7 —— 都离球线 X=9.0 正好 0.7 m，和寻中线的距离一致。
        top_y 6.9 = 整车不出上边线的极限（红线本半场到 6.92，原来只扫到 6.2 会漏 0.72 m）。
        bottom_y 4.4 = 整车不出中线的极限（队友的 1.3 在对方半场深处）。
        dir_pass=bt 从下到上（弧线扫完停在低处，接得上、不折返）；
        dir_shoot=tb 从上到下（扫完停在低处，直接进投篮点）。 */
-    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.65, bottom_y: 4.4, scoop_m: 0.44,
-             dir_pass: "bt", dir_shoot: "tb" },
+    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.0, bottom_y: 4.4, scoop_m: 0.44,
+             dir_pass: "bt", dir_shoot: "bt" },
     release: {
       /* 传球点 = 【传球柱 ↔ 传球区圆心】连线与传球区边界的交点附近
            圆心 (2.5,3.75) R=2.5；传球柱 (5.75,7.5) → 方向 49.1°（不是 45°）
@@ -770,9 +769,10 @@ function areaPoints(area, r, tk, rev) {
     const a = [x, M.inner.top_y], b = [x, M.inner.bottom_y];
     const d = (tk === "shoot") ? (M.inner.dir_shoot || "tb")
                                : (M.inner.dir_pass || "bt");
-    let pts = d === "bt" ? [b, a] : [a, b];
-    /* rev：本阶段车把这条线倒着扫（见下面 rev 的说明）；不要原地反转 */
-    if (rev) pts = pts.slice().reverse();
+    const pts = d === "bt" ? [b, a] : [a, b];
+    /* ⚠️ 深场【不吃 rev】：代码里深场不跟阶段反转（见 search_plan 的 inner 分支），
+       所以这里也不反转 —— 不管哪个阶段都按 dir_pass / dir_shoot 画。
+       弧线仍然吃 rev。 */
     return pts;
   }
   return [];
