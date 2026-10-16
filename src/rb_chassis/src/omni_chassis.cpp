@@ -6,6 +6,8 @@
 #include <memory>
 #include <thread>
 #include <utility>
+#include <random>
+#include <stdexcept>
 
 #include "utils/utils.h"
 
@@ -14,6 +16,16 @@ OmniChassis::OmniChassis(const std::string &node_name, const std::string &odom_t
                          const std::shared_ptr<Can> &can_handle)
     : Chassis(node_name, odom_topic, vel_topic), board_id_(board_id) {
   dji_board = std::make_shared<DJIBoard>(board_id, can_handle);
+  if (board_id < 1 || board_id > 3) throw std::invalid_argument("supported chassis board_id: 1..3");
+  board_can_ = can_handle;
+  board_link_ = std::make_unique<rb_chassis::BoardLink>(board_id, std::random_device{}());
+  auto mailbox = board_mailbox_;
+  can_handle->register_msg(0x280 + board_id, Can::CAN_ID_STD,
+      [mailbox](const std::shared_ptr<can_frame> &frame) {
+        std::lock_guard<std::mutex> lock(mailbox->mutex);
+        mailbox->frame = *frame;
+      });
+
 
   // 退出时确保零速（原实现只在析构里 MotorOff，节点被 kill -9 时来不及执行）
   rclcpp::on_shutdown([this]() {
@@ -36,17 +48,14 @@ void OmniChassis::initialize() {
     RCLCPP_WARN(get_logger(), "dry_run 模式：跳过电机使能，只做运动学解算（无 CAN 输出）");
     return;
   }
-  for (int i = 1; i <= 4; i++) {
-    dji_board->VelCfg(i);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    dji_board->MotorOn(i);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-  RCLCPP_INFO(get_logger(), "底盘已使能 4 个电机（board_id=%u）", board_id_);
+  RCLCPP_WARN(get_logger(),
+      "等待板端握手和四路电调反馈；配套新固件确认前不发送运动速度（board_id=%u）",
+      board_id_);
+
 }
 
 void OmniChassis::sendZeroVelocity() {
-  // 零轮速也要同步斜率限制状态，避免超时恢复时沿用停车前速度。
+  // 零轮速也要同步斜率限制状态，避免后续沿用停车前速度。
   last_sent_vel_ = geometry_msgs::msg::Twist{};
   last_execute_time_ = std::chrono::steady_clock::now();
   if (dry_run_) {
@@ -60,34 +69,47 @@ void OmniChassis::sendZeroVelocity() {
 }
 
 void OmniChassis::execute() {
-  // ---------- ① 指令超时保护 ----------
-  //
-  // 原 2025 篮球实现**没有**这一层：一旦收不到新 /cmd_vel，会一直沿用最后一条速度。
-  // 这正是 2026-07-08 那次"发了指令当时不动、随后突然窜车、紧急断电"的成因。
-  //
-  // ⚠️ 必须**持续**下发零速，而不是只发一次：
-  //   电机板的看门狗靠"持续收到帧"喂。只发一次零速、之后停发，板子照样会锁
-  //   "通信超时"故障（软件 MotorOn 清不掉、只能断电）—— 这正是"关终端/杀节点
-  //   之后板子锁死、下次上车不动"的成因。每周期都发零速，板子就不会锁。
-  bool stopping = false;
-  if (!hasFreshVelocityCommand()) {
-    if (!timeout_zero_sent_) {
-      RCLCPP_WARN(get_logger(), "cmd_vel 超时 %ldms，按停车减速度斜坡降到零",
-                  static_cast<long>(commandTimeout().count()));
-      timeout_zero_sent_ = true;
+  if (!dry_run_) {
+    const auto now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    std::optional<can_frame> reply;
+    {
+      std::lock_guard<std::mutex> lock(board_mailbox_->mutex);
+      reply.swap(board_mailbox_->frame);
     }
-    // ⚠️ 这里【不能】直接 last_sent_vel_ = 0 再发零 ——
-    //    那等于把轮速从当前值阶跃到 0，电机速度环会积分饱和、过冲越过零、
-    //    短暂反转，现场就是"急停时猛往后窜一下"。
-    //    正确做法：目标设为零，但照常走 applyLimits() 的斜坡。
-    target_vel = geometry_msgs::msg::Twist{};
-    stopping = true;
-  } else {
-    timeout_zero_sent_ = false;
+    if (reply) board_link_->accept(*reply, now);
+    if (auto request = board_link_->next(now)) {
+      if (!board_can_->send_can_with_respond(*request)) board_link_->failed();
+    }
+    const bool ready = board_link_->ready(now);
+    if (motion_gate_.setReady(ready)) {
+      sendZeroVelocity();
+      target_vel = geometry_msgs::msg::Twist{};
+      last_velocity_command_time_ = {};
+      RCLCPP_WARN(get_logger(), "%s", ready
+          ? "板端已确认四路反馈、速度模式及使能；等待新的零速指令后允许运动"
+          : "板端握手失效，已清除运动目标，重新等待就绪");
+    }
+    board_was_ready_ = ready;
+    if (!ready) {
+      target_vel = geometry_msgs::msg::Twist{};
+      last_sent_vel_ = geometry_msgs::msg::Twist{};
+      last_velocity_command_time_ = {};
+      wheel_speed.fill(0);
+      return;
+    }
+    const bool zero = std::abs(target_vel.linear.x) < 1e-6 &&
+        std::abs(target_vel.linear.y) < 1e-6 && std::abs(target_vel.angular.z) < 1e-6;
+    if (!motion_gate_.allow(hasVelocityCommand(), zero)) {
+      sendZeroVelocity();
+      return;
+    }
   }
-
-  // ---------- ② 限幅 + 加速度限制 ----------
-  // 停车用专用减速度（比平时的 limit_acc 快，但仍是斜坡不是阶跃）
+  // User-selected policy: retain the latest command until another command,
+  // explicit stop, a reported board reset, or a concrete I/O fault replaces it.
+  // A deliberate zero command still uses the configured stopping deceleration.
+  const bool stopping = std::abs(target_vel.linear.x) < 1e-6 &&
+      std::abs(target_vel.linear.y) < 1e-6 && std::abs(target_vel.angular.z) < 1e-6;
   const double saved_acc = limit_acc;
   if (stopping) limit_acc = stop_accel_;
   const geometry_msgs::msg::Twist cmd = applyLimits();

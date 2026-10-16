@@ -10,7 +10,7 @@ BALL_LABELS = {'ball_basketball', 'ball_volleyball', 'ball_unknown', 'obstacle'}
 
 
 def fresh(stamp, now, timeout):
-    return math.isfinite(stamp) and stamp > 0 and -.05 <= now-stamp <= timeout
+    return math.isfinite(stamp) and stamp > 0 and stamp <= now + .05  # No age expiry.
 
 
 def rotation_matrix(q):

@@ -4,7 +4,7 @@
 //   1. 所有物理参数改为 ROS 参数（原来硬编码在 main 里）
 //   2. 新增 dry_run 模式：无 CAN 也能验证运动学解算
 //   3. 新发布 /chassis/wheel_speed，便于离线核对（不用接电机也能看解算结果）
-//   4. 修掉原实现的限速失效 bug、补上指令超时零速保护
+//   4. 修掉原实现的限速失效 bug、取消指令超时停车
 //
 // 用法：
 //   ros2 run rb_chassis rb_chassis_node                        # 真实运行
@@ -44,14 +44,15 @@ int main(int argc, char **argv) {
   const auto board_id = param_node->declare_parameter<int>("board_id", 1);
   const auto limit_vel = param_node->declare_parameter<double>("limit_vel", 1.0);
   const auto limit_acc = param_node->declare_parameter<double>("limit_acc", 1.5);
-  // 停车（cmd_vel 超时/急停）专用减速度：要快，但不能是阶跃（会过冲反转）
+  // 停车（显式零速/急停）专用减速度：要快，但不能是阶跃（会过冲反转）
   const auto stop_accel = param_node->declare_parameter<double>("stop_accel", 3.0);
   // CAD 设计初值，与 chassis.yaml 一致；实车标定后可用 ROS 参数覆盖。
   const auto width = param_node->declare_parameter<double>("width", 0.477059538);
   const auto length = param_node->declare_parameter<double>("length", 0.477059538);
   const auto wheel_radius = param_node->declare_parameter<double>("wheel_radius", 0.0765);
   const auto ratio = param_node->declare_parameter<double>("ratio", 1.0);
-  const auto timeout_ms = param_node->declare_parameter<int>("cmd_vel_timeout_ms", 200);
+  // Legacy parameter accepted but no longer used to expire velocity commands.
+  param_node->declare_parameter<int>("cmd_vel_timeout_ms", 0);
   const auto period_ms = param_node->declare_parameter<int>("control_period_ms", 10);
   const auto dry_run = param_node->declare_parameter<bool>("dry_run", false);
   const auto angular_z_sign = param_node->declare_parameter<double>("angular_z_sign", 1.0);
@@ -94,7 +95,6 @@ int main(int argc, char **argv) {
                                             static_cast<uint32_t>(board_id), can_handle);
 
   node->setDryRun(dry_run);
-  node->setCommandTimeout(std::chrono::milliseconds(timeout_ms));
   node->setAngularZSign(angular_z_sign);
   node->setParameter(limit_vel, limit_acc, width, length, wheel_radius, ratio);
   node->setStopAccel(stop_accel);

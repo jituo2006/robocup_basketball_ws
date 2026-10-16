@@ -210,8 +210,6 @@ class MissionNode(Node):
             if not math.isfinite(value) or value < 0 or (value == 0 and name not in (
                     "navigation.exit_margin_m", "navigation.settle_timeout_s")):
                 raise ValueError(f"{name} 必须是有限正数（exit_margin_m/settle_timeout_s 可为 0）")
-        if values["navigation.velocity_window_s"] >= values["navigation.pose_timeout_s"]:
-            raise ValueError("velocity_window_s 必须小于 pose_timeout_s")
 
     def _apply_tuning(self, values):
         for key, attr in {"max_linear": "max_lin", "max_angular": "max_ang",
@@ -253,10 +251,8 @@ class MissionNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _localization_ready(self):
-        now = self._now_seconds()
-        return (self.has_pose and self.loc_ok
-                and fresh(now, self.feedback.stamp, self.pose_timeout_s)
-                and fresh(now, self.last_loc_ok_time, self.loc_ok_timeout_s))
+        # Status=false remains an explicit fault; message silence is not a fault.
+        return self.has_pose and self.loc_ok
 
     # -- 输入回调 ----------------------------------------------------------
     def on_pose(self, msg: PoseWithCovarianceStamped) -> None:
@@ -315,7 +311,7 @@ class MissionNode(Node):
                 res.accepted, res.message = False, "已有任务/导航或故障状态，请先切换 IDLE"
                 return res
             if not self._localization_ready():
-                res.accepted, res.message = False, "定位无效或过期，拒绝启动任务"
+                res.accepted, res.message = False, "定位无效或未收到，拒绝启动任务"
                 return res
             self.start_mission(name)
             res.accepted, res.message = True, f"已启动 {name} 任务"
@@ -339,7 +335,7 @@ class MissionNode(Node):
         if self.phase not in (P_IDLE, P_DONE, P_GOTO):
             return False, "当前状态不允许 GOTO；请先切换 IDLE"
         if not self._localization_ready():
-            return False, "定位无效或过期，拒绝 GOTO"
+            return False, "定位无效或未收到，拒绝 GOTO"
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             return False, "目标坐标无效"
         # 场内软限位（宽松，只挡明显越界）
@@ -440,7 +436,7 @@ class MissionNode(Node):
         if self.phase not in (P_IDLE, P_DONE, P_ESTOP, P_FAULT) and not self._localization_ready():
             self.arrival.reset()
             self.publish_zero()
-            self.detail = "定位暂缺或延迟，已停车；目标与机构请求保留等待恢复"
+            self.detail = "定位尚未就绪或明确报告异常，已停车；等待有效状态"
             self.publish_outputs()
             return
 
@@ -772,16 +768,10 @@ class MissionNode(Node):
         if self.mission == "SHOOT" and automatic.get("enabled", False):
             try:
                 if not self._localization_ready():
-                    raise ValueError("定位无效或过期")
+                    raise ValueError("定位无效或未收到")
                 det = self._best_detection(self.target_label("aim"))
-                timeout = float(automatic.get("detection_timeout_s", 0.5))
-                now = self._now_seconds()
-                stamp = getattr(self, "detections_stamp", None)
-                if det is None or stamp is None or not math.isfinite(timeout) or timeout <= 0 or not 0 <= now - stamp <= timeout:
-                    raise ValueError("篮筐视觉观测缺失或过期")
-                detection_stamp = det.stamp.sec + det.stamp.nanosec * 1e-9
-                if not 0 <= now - detection_stamp <= timeout:
-                    raise ValueError("篮筐检测源时间戳过期")
+                if det is None:
+                    raise ValueError("篮筐视觉观测缺失")
                 confidence = float(det.confidence)
                 if not math.isfinite(confidence) or confidence < float(automatic.get("min_confidence", 0.5)):
                     raise ValueError("篮筐视觉置信度不足")

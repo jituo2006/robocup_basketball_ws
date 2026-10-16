@@ -354,7 +354,7 @@ class Runner:
         stamp = stamp_seconds(m.header.stamp)
         pose = (p.x, p.y, yaw)
         # 无效、重复或倒序的定位帧被忽略，不会刷新 pose_stamp。
-        # 如果一直收不到可接受的新帧，后面的时间戳检查就会停车。
+        # 保留最后一帧有效位姿，不因后续消息延迟自动停车。
         if (not all(math.isfinite(v) for v in (*pose, stamp)) or stamp <= self.pose_stamp
                 or stamp <= getattr(self, 'experiment_cutoff', 0.0)):
             return
@@ -532,14 +532,14 @@ class Runner:
         self.det_stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
 
     def detection_fresh(self, stamp: float) -> bool:
-        # 用检测的源时间戳判断，默认允许年龄 -0.05～0.5 秒。
-        # 界面能画出旧球框，并不表示这个球框仍满足运动程序的触发条件。
+        # Compatibility name: retain the latest valid observation without age expiry.
         now = self.node.get_clock().now().nanoseconds * 1e-9
-        return math.isfinite(stamp) and stamp > 0 and -0.05 <= now - stamp <= getattr(getattr(self, "args", None), "detection_timeout", 0.5)
+        return math.isfinite(stamp) and 0 < stamp <= now + .05
+
 
     def spin(self, sec: float) -> None:
         # 处理 ROS 回调，更新定位/前后摄缓存；本函数本身不发送行驶速度。
-        # motion_guard 开启时，定位延迟只停车等待恢复，不终止路线。
+        # motion_guard 开启时，仅等待首次有效定位并检查明确定位故障。
         t0 = time.time()
         while time.time() - t0 < sec:
             self.rclpy.spin_once(self.node, timeout_sec=0.02)
@@ -547,23 +547,16 @@ class Runner:
             self.require_fresh_pose()
 
     def require_fresh_pose(self) -> bool:
-        """Pause on delayed feedback; return True if callers must recompute a command."""
-        waited = False
+        """Compatibility name: wait only for the first valid pose; never expire it."""
         while True:
             if getattr(self, "motion_fault", None):
                 self.stop()
                 raise RuntimeError(self.motion_fault)
-            if self.pose is not None and not all(math.isfinite(v) for v in self.pose):
-                self.stop()
-                raise RuntimeError("位姿包含非有限数，已请求停车")
-            now = self.node.get_clock().now().nanoseconds * 1e-9
-            stamp = self.pose_stamp
-            if (self.pose is not None and math.isfinite(stamp) and stamp > 0
-                    and -.05 <= now-stamp <= self.args.pose_timeout):
-                return waited
-            if not waited:
-                log('定位等待', '反馈暂缺或延迟，停车等待；恢复后继续原目标', C_WARN)
-            waited = True
+            if self.pose is not None:
+                if not all(math.isfinite(v) for v in self.pose):
+                    self.stop()
+                    raise RuntimeError("位姿包含非有限数，已请求停车")
+                return False
             self.stop()
             if not self.rclpy.ok():
                 raise KeyboardInterrupt
@@ -637,7 +630,7 @@ class Runner:
 
     def publish_command(self, msg):
         # 【速度发送出口】先过下面三个开关，再发布 /cmd_vel。
-        # 1. motion_guard：固定/整轮运动开启，可能因源时间戳或定位故障停车。
+        # 1. motion_guard：固定/整轮运动开启，首次定位未就绪或明确定位故障时停车。
         if getattr(self, "motion_guard", False):
             if self.require_fresh_pose():
                 return  # Recompute from the recovered pose before sending velocity.
@@ -1265,6 +1258,14 @@ class Runner:
         return self.goto(tx, ty, timeout=timeout)
 
     def find_ball(self, timeout: float):
+        """Search segments may have observation durations; the task never times out."""
+        while True:
+            det = self._find_ball_pass(timeout)
+            if det is not None:
+                return det
+            log("继续找球", "本轮搜索未发现目标，继续下一轮；可手动停止", C_WARN)
+
+    def _find_ball_pass(self, timeout: float):
         """三级找球：① 前摄转圈 → ② 雷达 360° 粗定位 → ③ 进场 + 顺时针旋转。
 
         为什么不让摄像头一直盲转：
@@ -1370,7 +1371,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--speed", type=float, default=0.25, help="平移速度上限 m/s")
     # 运动公共参数：源数据1s、位置跳变、到点/朝向容差均会影响后续能否执行。
     ap.add_argument("--pose-timeout", type=float, default=1.0,
-                    help="行驶定位源时间戳最大年龄 s，过期即停车")
+                    help="兼容旧参数，已取消定位年龄导致的停车")
     ap.add_argument('--pose-jump-margin',type=float,default=.25,help='定位跳变基础容差 m')
     ap.add_argument('--pose-max-speed',type=float,default=1.0,help='定位连续性允许速度 m/s')
     ap.add_argument("--jump-fault-limit", type=int, default=5,
@@ -1723,7 +1724,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n  {C_OK}--dry：前置条件都过了，没动车{C_OFF}")
             return 0
 
-        # 就绪以后启用持续定位检查；后面每次 spin/发速度都可能因数据过期退出。
+        # 就绪以后检查数值与明确故障；不再按消息年龄停车。
         run.motion_guard = True
 
         if not args.yes:

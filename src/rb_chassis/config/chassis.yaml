@@ -18,7 +18,7 @@ rb_chassis:
 
     limit_vel: 1.0          # 速度上限 (m/s, rad/s)。比赛建议先设小值
     limit_acc: 1.5          # 加速度上限。原实现此项无效，这里已生效
-    # 停车（cmd_vel 超时/急停）专用减速度。
+    # 停车（显式零速/急停）专用减速度。
     # ⚠️ 要【快】但不能是阶跃：阶跃会让电机速度环过冲甚至反转，
     #    现场表现「急停猛往后窜一下」。3.0 约为 limit_acc 的两倍。
     stop_accel: 3.0
@@ -46,6 +46,6 @@ rb_chassis:
     ratio: 1.0              # 必须为 1.0（见文件头说明）
 
 
-    cmd_vel_timeout_ms: 200 # 收不到 /cmd_vel 就发零速（安全网，不要调大）
+    cmd_vel_timeout_ms: 0   # 兼容旧参数；已取消指令超时停车，不按此值失效
     control_period_ms: 10   # 100 Hz
     dry_run: false          # true = 只解算不下发 CAN

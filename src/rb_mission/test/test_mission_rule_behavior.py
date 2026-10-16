@@ -147,7 +147,7 @@ def test_start_delay_is_stationary_and_does_not_reuse_other_mission_ball(mission
     assert mission.phase == "NAV_TO_ZONE"
 
 
-def test_task_cannot_arm_on_stale_localization(mission):
+def test_task_cannot_arm_without_valid_localization(mission):
     mission.phase = "IDLE"
     mission._localization_ready = lambda: False
     response = mission.on_set_mission(NS(mission="PASS"), NS())
