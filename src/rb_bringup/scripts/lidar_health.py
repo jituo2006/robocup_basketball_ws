@@ -52,6 +52,8 @@ class LidarHealth:
         self.fault_serial = 0
         self.reason = '等待雷达和 IMU'
         self.input_received = {'imu': None, 'lidar': None}
+        self.last_valid = {'imu': None, 'lidar': None, 'odom': None}
+        self.clock_offset = None
 
     def observe(self, name, stamp, wall, mono, position=None):
         if name in self.input_received:
@@ -79,10 +81,22 @@ class LidarHealth:
                     stream.clear()
                     return False
             self.last_position = position
+        self.last_valid[name] = mono
         return True
 
+    def check_clock(self, wall, mono):
+        offset = wall-mono
+        jumped = self.clock_offset is not None and abs(offset-self.clock_offset) > .5
+        self.clock_offset = offset
+        if jumped:
+            self.fault_serial += 1
+            self.reason = '主机时间跳变，重新等待同步及新会话'
+            self.reset_inputs()
+            self.reset_odom()
+        return jumped
+
     def inputs_receiving(self, mono, max_silence=2.):
-        """Only actual delivery silence restarts the driver, not PTP settling."""
+        """检查传输是否活跃；源时间有效性由独立状态判断。"""
         return all(received is not None and mono-received <= max_silence
                    for received in self.input_received.values())
 
@@ -90,6 +104,7 @@ class LidarHealth:
         self.imu.clear()
         self.lidar.clear()
         self.input_received = {'imu': None, 'lidar': None}
+        self.last_valid['imu'] = self.last_valid['lidar'] = None
 
     def inputs_live(self, wall, mono):
         # 点云 header 是整帧扫描的起始采样时间，IMU 则逐样本发布。
@@ -110,3 +125,4 @@ class LidarHealth:
     def reset_odom(self):
         self.odom.clear()
         self.last_position = None
+        self.last_valid['odom'] = None

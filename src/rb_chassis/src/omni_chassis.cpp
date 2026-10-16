@@ -18,6 +18,7 @@ OmniChassis::OmniChassis(const std::string &node_name, const std::string &odom_t
   dji_board = std::make_shared<DJIBoard>(board_id, can_handle);
   if (board_id < 1 || board_id > 3) throw std::invalid_argument("supported chassis board_id: 1..3");
   board_can_ = can_handle;
+  observed_transport_generation_ = can_handle->transport_generation();
   board_link_ = std::make_unique<rb_chassis::BoardLink>(board_id, std::random_device{}());
   auto mailbox = board_mailbox_;
   can_handle->register_msg(0x280 + board_id, Can::CAN_ID_STD,
@@ -29,6 +30,7 @@ OmniChassis::OmniChassis(const std::string &node_name, const std::string &odom_t
 
   // 退出时确保零速（原实现只在析构里 MotorOff，节点被 kill -9 时来不及执行）
   rclcpp::on_shutdown([this]() {
+    if (dry_run_) return;
     for (int i = 1; i <= 4; ++i) {
       dji_board->VelCtrl(i, 0);
     }
@@ -76,6 +78,12 @@ void OmniChassis::execute() {
     {
       std::lock_guard<std::mutex> lock(board_mailbox_->mutex);
       reply.swap(board_mailbox_->frame);
+    }
+    const auto generation = board_can_->transport_generation();
+    if (generation != observed_transport_generation_) {
+      observed_transport_generation_ = generation;
+      board_link_->failed();
+      reply.reset(); // Never arm from a reply queued before a concrete transport fault.
     }
     if (reply) board_link_->accept(*reply, now);
     if (auto request = board_link_->next(now)) {

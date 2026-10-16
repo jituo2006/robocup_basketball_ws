@@ -15,7 +15,7 @@ find_package(std_msgs REQUIRED)
 find_package(motor_lib REQUIRED)
 find_package(Threads REQUIRED)
 
-# 自带补丁版 bupt_can（防"旧速度帧积压→停车后突然窜车"的补丁 + 析构判空）
+# 自带 bupt_can：即时非阻塞提交、实际错误通知、独立于总线的退出
 # 详见 third_party/README.md。不用系统 /usr/local 的旧版。
 add_library(rb_can STATIC third_party/bupt_can.cpp)
 target_include_directories(rb_can PUBLIC
@@ -54,6 +54,12 @@ ament_export_libraries(base_chassis omni_chassis)
 ament_export_dependencies(rclcpp geometry_msgs nav_msgs motor_lib)
 if(BUILD_TESTING)
   enable_testing()
+  add_executable(test_can_transport test/test_can_transport.cpp)
+  target_include_directories(test_can_transport PRIVATE include)
+  target_link_libraries(test_can_transport rb_can)
+  target_link_options(test_can_transport PRIVATE
+    -Wl,--wrap=socket,--wrap=bind,--wrap=ioctl,--wrap=setsockopt,--wrap=send,--wrap=recv,--wrap=poll,--wrap=close,--wrap=write)
+  add_test(NAME can_transport COMMAND test_can_transport)
   add_executable(test_board_link test/test_board_link.cpp)
   target_include_directories(test_board_link PRIVATE include)
   add_test(NAME board_link COMMAND test_board_link)

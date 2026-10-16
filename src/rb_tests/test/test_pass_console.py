@@ -7,7 +7,19 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools'))
-from pass_console import PassRuns, command_for, make_app
+from pass_console import PassRuns, command_for, make_app as production_app
+
+
+class HealthyEquipment:
+    """Only for script-dispatch tests; hardware policy has separate real-state tests."""
+    def snapshot(self, boot=None):
+        return dict(can_run=True, reasons=[],
+                    lidar=dict(ready=True, reason='simulated ready'),
+                    chassis=dict(ready=True, reason='simulated ready'))
+
+
+def make_app(*args, **kwargs):
+    return production_app(*args, health=HealthyEquipment(), **kwargs)
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
@@ -51,7 +63,7 @@ def test_page_has_only_six_action_buttons():
     assert {(b['data-side'], b['data-round']) for b in parser.buttons} == {
         (side, str(number)) for side in ('A', 'B') for number in (1, 2, 3)}
     assert len(parser.buttons) == 6
-    assert all('disabled' not in b for b in parser.buttons)
+    assert all('disabled' in b for b in parser.buttons)  # Initial status is unconfirmed.
     assert client.get('/api/pass/state').json['status'] == 'idle'
 
 
@@ -64,7 +76,7 @@ def test_missing_script_failure_is_returned():
     assert runs.snapshot(run_id)['returncode'] == 127
 
 
-def test_second_click_is_not_blocked_by_a_new_ui_gate():
+def test_healthy_hardware_allows_switching_to_another_round():
     import threading
     class ControlledRuns(PassRuns):
         def _execute(self, run):

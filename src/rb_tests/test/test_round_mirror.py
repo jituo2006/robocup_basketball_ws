@@ -197,13 +197,13 @@ def test_production_b_adjustments_only_shift_middle_and_pass():
     a = load_config(start_point='A')
     b = load_config(start_point='B')
     expected = mirror_to_b(a)
-    expected['middle']['y'] -= .24
-    expected['release']['pass']['point'][1] -= .24
+    expected['middle']['y'] += .24
+    expected['release']['pass']['point'][1] += .24
     assert b == expected
     assert a['middle']['y'] == pytest.approx(.9)
-    assert a['release']['pass']['point'] == pytest.approx([3.715, 1.388])
-    assert b['middle']['y'] == pytest.approx(-1.14)
-    assert b['release']['pass']['point'] == pytest.approx([3.715, -1.628])
+    assert a['release']['pass']['point'] == pytest.approx([3.616, 1.275])
+    assert b['middle']['y'] == pytest.approx(-.66)
+    assert b['release']['pass']['point'] == pytest.approx([3.616, -1.035])
     for task in ('pass', 'shoot'):
         for number in (1, 2, 3):
             for cycle in (0, 1):
@@ -212,7 +212,7 @@ def test_production_b_adjustments_only_shift_middle_and_pass():
                     bp = search_plan(b, area, cycle, number, task)
                     assert len(ap) == len(bp)
                     for ((ax, ay), ah), ((bx, by), bh) in zip(ap, bp):
-                        assert (bx, by) == pytest.approx((ax, -ay - (.24 if area == 'middle' else 0.)))
+                        assert (bx, by) == pytest.approx((ax, -ay + (.24 if area == 'middle' else 0.)))
                         assert wrap(ah + bh) == pytest.approx(0.)
 
 

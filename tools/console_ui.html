@@ -11,29 +11,58 @@ main{max-width:1200px;margin:0 auto;padding:32px 36px}header{display:flex;justif
 .courts{display:grid;grid-template-columns:1fr 1fr;gap:24px}.court{padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:16px}h2{margin:0 0 18px;font-size:21px;display:flex;align-items:center;gap:10px}.mark{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1c3454;color:var(--blue)}.b .mark{background:#432d21;color:var(--orange)}
 button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:22px 24px;margin-top:12px;border:1px solid #35547c;border-radius:11px;background:#1c2e49;color:var(--tx);font:600 20px/1.5 inherit;text-align:left;cursor:pointer;touch-action:manipulation;min-height:88px}button span{font-size:20px;font-weight:600}button i{font-style:normal;font-size:22px;color:var(--blue)}button:hover{background:#254064;border-color:var(--blue)}button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}button:active{transform:scale(.99)}.b button{background:#3b2b22;border-color:#745137}.b button i{color:var(--orange)}.b button:hover{background:#523823;border-color:var(--orange)}
 .result{margin-top:24px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}.result-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}#status{font-size:15px}#connection{font-size:12px;color:var(--dim)}#status[data-state=succeeded]{color:var(--ok)}#status[data-state=failed]{color:var(--bad)}#status[data-state=running]{color:var(--blue)}pre{margin:0;padding:16px 20px;min-height:140px;height:22vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,Menlo,Consolas,monospace;color:#b8c7d9;background:#101216}
-@media(max-width:700px){main{padding:20px 16px}.courts{gap:12px}.court{padding:14px}header{align-items:flex-start}h1{font-size:23px}button{padding:18px 12px;min-height:82px}button span{font-size:16px}.tag{display:none}.result-head{padding:12px}pre{padding:12px}}
+.equipment{margin:0 0 24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}.equipment-grid{display:grid;grid-template-columns:1fr 1fr}.equipment-item{padding:18px 20px}.equipment-item+div{border-left:1px solid var(--line)}.equipment-title{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:18px;font-weight:600}.equipment-state{font-size:14px;color:var(--orange)}.equipment-state:before{content:'●';margin-right:7px}.equipment-state[data-ready=true]{color:var(--ok)}.equipment-reason{margin:8px 0 0;color:var(--dim);font-size:14px;overflow-wrap:anywhere;min-height:42px}#equipment-gate{margin:0;padding:12px 20px;border-top:1px solid var(--line);font-size:14px;color:var(--orange)}#equipment-gate[data-ready=true]{color:var(--ok)}button:disabled,.b button:disabled{background:var(--panel2);border-color:var(--line);color:var(--dim);cursor:not-allowed;transform:none}button:disabled i{color:var(--dim)}
+@media(max-width:700px){main{padding:20px 16px}.courts{gap:12px}.court{padding:14px}header{align-items:flex-start}h1{font-size:23px}button{padding:18px 12px;min-height:82px}button span{font-size:16px}.tag{display:none}.result-head{padding:12px}pre{padding:12px}.equipment-grid{grid-template-columns:1fr}.equipment-item+div{border-left:0;border-top:1px solid var(--line)}.equipment-reason{min-height:0}}
 </style>
 </head>
 <body>
 <main>
-<header><div><h1>传球控制</h1><p class="subtitle">选择场地与回合，执行完整传球流程</p></div><span class="tag">按脚本配置执行</span></header>
+<header><div><h1>传球控制</h1><p class="subtitle">雷达和底盘就绪后，选择场地与回合</p></div><span class="tag">设备状态实时检查</span></header>
+<section class="equipment" aria-label="设备状态" aria-live="polite">
+<div class="equipment-grid">
+<div class="equipment-item"><div class="equipment-title"><span>雷达</span><span class="equipment-state" id="lidar-status">检查中</span></div><p class="equipment-reason" id="lidar-reason">正在读取雷达和定位状态…</p></div>
+<div class="equipment-item"><div class="equipment-title"><span>底盘</span><span class="equipment-state" id="chassis-status">检查中</span></div><p class="equipment-reason" id="chassis-reason">正在读取控制板和电调状态…</p></div>
+</div><p id="equipment-gate" role="status">设备状态尚未确认，暂不能执行回合。</p>
+</section>
 <div class="courts">
 <section class="court"><h2><span class="mark">A</span>A 场地</h2>
-<button type="button" data-side="A" data-round="1"><span>A 场地 · 回合 1</span><i aria-hidden="true">↗</i></button>
-<button type="button" data-side="A" data-round="2"><span>A 场地 · 回合 2</span><i aria-hidden="true">↗</i></button>
-<button type="button" data-side="A" data-round="3"><span>A 场地 · 回合 3</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="A" data-round="1" disabled><span>A 场地 · 回合 1</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="A" data-round="2" disabled><span>A 场地 · 回合 2</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="A" data-round="3" disabled><span>A 场地 · 回合 3</span><i aria-hidden="true">↗</i></button>
 </section>
 <section class="court b"><h2><span class="mark">B</span>B 场地</h2>
-<button type="button" data-side="B" data-round="1"><span>B 场地 · 回合 1</span><i aria-hidden="true">↗</i></button>
-<button type="button" data-side="B" data-round="2"><span>B 场地 · 回合 2</span><i aria-hidden="true">↗</i></button>
-<button type="button" data-side="B" data-round="3"><span>B 场地 · 回合 3</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="B" data-round="1" disabled><span>B 场地 · 回合 1</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="B" data-round="2" disabled><span>B 场地 · 回合 2</span><i aria-hidden="true">↗</i></button>
+<button type="button" data-side="B" data-round="3" disabled><span>B 场地 · 回合 3</span><i aria-hidden="true">↗</i></button>
 </section>
 </div>
 <section class="result" aria-label="执行结果"><div class="result-head"><span id="status" role="status">待执行</span><span id="connection">正在连接</span></div><pre id="logs" aria-label="脚本输出">请选择场地与回合。</pre></section>
 </main>
 <script>
 const statusEl=document.getElementById('status'), logs=document.getElementById('logs'), connection=document.getElementById('connection');
-let selected=null,cursor=0,polling=false;
+const buttons=[...document.querySelectorAll('button[data-side]')], gate=document.getElementById('equipment-gate');
+let selected=null,cursor=0,polling=false,canRun=false,starting=false,lastEquipmentAt=0;
+function updateButtons(){for(const b of buttons)b.disabled=!canRun||starting;}
+function text(id,value){const el=document.getElementById(id);if(el.textContent!==value)el.textContent=value;}
+function equipment(data){
+  const valid=data&&data.lidar&&data.chassis&&typeof data.can_run==='boolean';
+  canRun=!!(valid&&data.can_run&&data.lidar.ready===true&&data.chassis.ready===true);
+  lastEquipmentAt=valid?Date.now():0;
+  for(const name of ['lidar','chassis']){
+    const state=valid?data[name]:{ready:false,reason:'连接中断，暂无法确认设备状态'};
+    text(name+'-status',state.ready?'正常':'未就绪');
+    document.getElementById(name+'-status').dataset.ready=String(!!state.ready);
+    text(name+'-reason',String(state.reason||'等待设备状态'));
+  }
+  gate.dataset.ready=String(canRun);
+  text('equipment-gate',canRun?'雷达和底盘均已就绪，可以选择回合。':'设备尚未就绪，暂不能执行回合。请查看上方原因。');
+  updateButtons();
+}
+async function request(url,options={}){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+  try{return await fetch(url,{...options,cache:'no-store',signal:controller.signal});}
+  finally{clearTimeout(timer);}
+}
 function render(data){
   if(data.status==='idle'){
     if(data.boot){statusEl.dataset.state='idle';statusEl.textContent=data.boot.message;
@@ -55,31 +84,37 @@ async function poll(){
   const requestId=selected;
   try{
     const params=selected?`?id=${encodeURIComponent(selected)}&after=${cursor}`:'';
-    const response=await fetch('/api/pass/state'+params,{cache:'no-store'});
+    const response=await request('/api/pass/state'+params);
     const data=await response.json();
+    equipment(data.hardware);
     if(response.status===404 && requestId===selected){selected=null;cursor=0;localStorage.removeItem('robocup-pass-run');return;}
     if(!response.ok)throw new Error(data.error);
     if(requestId===selected)render(data);
     connection.textContent='已连接';
-  }catch(error){connection.textContent='连接中断，正在重连';}
+  }catch(error){connection.textContent='连接中断，正在重连';equipment(null);}
   finally{polling=false;}
 }
-for(const button of document.querySelectorAll('button'))button.addEventListener('click',async()=>{
+for(const button of buttons)button.addEventListener('click',async()=>{
+  if(!canRun||starting)return;
+  starting=true;updateButtons();
   const side=button.dataset.side,round=Number(button.dataset.round);
   try{
-    const response=await fetch('/api/pass/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({side,round})});
-    const data=await response.json();if(!response.ok)throw new Error(data.error);
+    const response=await request('/api/pass/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({side,round})});
+    const data=await response.json();if(data.hardware)equipment(data.hardware);
+    if(!response.ok)throw new Error(data.error);
     selected=data.id;cursor=0;logs.textContent='';
     statusEl.dataset.state='running';statusEl.textContent=`${side} 场地 · 回合 ${round} · 执行中`;
     localStorage.setItem('robocup-pass-run',selected);
     poll();
-  }catch(error){statusEl.dataset.state='failed';statusEl.textContent=`启动失败：${error.message}`;}
+  }catch(error){statusEl.dataset.state='failed';statusEl.textContent=`未启动：${error.message}`;}
+  finally{starting=false;updateButtons();}
 });
 selected=localStorage.getItem('robocup-pass-run');
 if(selected)logs.textContent='';
 // 服务重启后旧记录不存在，恢复到本次服务的最新执行记录。
-async function restore(){if(selected){try{const r=await fetch('/api/pass/state?id='+encodeURIComponent(selected));if(r.status===404){selected=null;localStorage.removeItem('robocup-pass-run');}}catch(e){}}await poll();}
+async function restore(){if(selected){try{const r=await request('/api/pass/state?id='+encodeURIComponent(selected));if(r.status===404){selected=null;localStorage.removeItem('robocup-pass-run');}}catch(e){}}await poll();}
 restore();setInterval(poll,500);
+setInterval(()=>{if(lastEquipmentAt&&Date.now()-lastEquipmentAt>2000)equipment(null);},250);
 </script>
 </body>
 </html>

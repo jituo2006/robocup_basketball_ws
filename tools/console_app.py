@@ -43,7 +43,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-# 赛场六按键入口不加载 ROS 桥接、硬件探测或综合控制台检查。
+# 赛场六按键入口使用独立的只读设备状态监测，不加载综合控制台。
 if __name__ == '__main__' and '--pass-only' in sys.argv:
     from pass_console import main as pass_console_main
     sys.argv.remove('--pass-only')

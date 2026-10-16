@@ -4,10 +4,7 @@
 # 做三件事：
 #   ① 确认 can0 是 UP（DOWN 就自动拉起，含波特率与 txqueuelen）
 #   ② 清掉多余的底盘节点（同时跑多个会互相抢 CAN）
-#   ③ 打印必须【手动】做的那一步：电机板断电 10 秒
-#
-# 为什么要 ③：拔插 CAN 只断通信、不断电机板电源。板子在通信丢失后会
-# 锁存故障态，软件重发 MotorOn 清不掉，必须物理断电。详见 docs/03_底盘模块.md §2.2
+#   ③ 提示新固件握手恢复及USB重绑定要求
 #
 # 用法：
 #   bash tools/can_recover.sh
@@ -15,8 +12,6 @@
 set -u
 
 IFACE=can0
-BITRATE=1000000
-QLEN=20
 
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
 
@@ -28,7 +23,6 @@ echo "════════════════════════�
 echo
 echo "${B}[1/3] CAN 接口${N}"
 
-need_up=0
 if ! ip link show "$IFACE" >/dev/null 2>&1; then
   echo "  ${R}✗${N} $IFACE 不存在"
   # 分辨"没插"和"插了但在反复掉线" —— 后者用户常误判成软件问题
@@ -67,30 +61,8 @@ if ! ip link show "$IFACE" >/dev/null 2>&1; then
   exit 1
 fi
 
-state=$(ip -br link show "$IFACE" 2>/dev/null | awk '{print $2}')
-flags=$(ip -details link show "$IFACE" 2>/dev/null | grep -o 'bitrate [0-9]*' | awk '{print $2}')
-qlen=$(ip -details link show "$IFACE" 2>/dev/null | grep -o 'qlen [0-9]*' | awk '{print $2}')
-
-if [ "$state" != "UP" ]; then
-  echo "  ${Y}!${N} $IFACE 是 DOWN（拔插适配器后常见）→ 正在拉起"
-  need_up=1
-elif [ "${flags:-0}" != "$BITRATE" ] || [ "${qlen:-0}" != "$QLEN" ]; then
-  echo "  ${Y}!${N} 配置不对（bitrate=${flags:-?} qlen=${qlen:-?}）→ 重新配置"
-  need_up=1
-else
-  echo "  ${G}✓${N} $IFACE 已 UP，bitrate=$flags qlen=$qlen"
-fi
-
-if [ "$need_up" = "1" ]; then
-  sudo ip link set "$IFACE" down 2>/dev/null
-  sudo ip link set "$IFACE" type can bitrate "$BITRATE" || { echo "  ${R}✗ 设置波特率失败${N}"; exit 1; }
-  sudo ip link set "$IFACE" txqueuelen "$QLEN"
-  sudo ip link set "$IFACE" up
-  sleep 1
-  err=$(ip -details link show "$IFACE" 2>/dev/null | grep -o 'can state [A-Z-]*')
-  echo "  ${G}✓${N} 已拉起：$(ip -br link show "$IFACE")  ${D}$err${N}"
-  echo "  ${D}注意：接口编号可能变了，底盘节点必须重启才会绑定新编号${N}"
-fi
+# Shared with boot.sh: no contradictory queue size or restart policy.
+python3 "$(dirname "${BASH_SOURCE[0]}")/configure_chassis_can.py" --interface "$IFACE" || exit 1
 
 # ---------- ② 底盘节点去重 ----------
 echo
@@ -110,21 +82,10 @@ else
   echo "  ${G}✓${N} 已清理，剩余 $left 个"
 fi
 
-# ---------- ③ 手动步骤 ----------
+# ---------- ③ 握手恢复 ----------
 echo
-echo "${B}[3/3] ⚠️  必须手动做的一步${N}"
-echo
-echo "  ${Y}把【电机板】彻底断电 10 秒，再上电。${N}"
-echo "  ${D}不是关 CAN、不是重启程序 —— 是断电机板那一路电源。${N}"
-echo "  ${D}板子在通信丢失后会锁存故障，软件重发 MotorOn 清不掉，必须物理断电。${N}"
-echo
-echo "  做完之后重启底盘节点："
-echo "    ${B}rbws${N}"
-echo "    ${B}ros2 launch rb_chassis chassis.launch.py${N}"
-echo "  ${D}看到「CAN 已启动: can0」和「底盘已使能 4 个电机（board_id=1）」才算 OK。${N}"
-echo
-echo "  然后另开终端遥控（终端也要 source 环境）："
-echo "    ${B}rbws${N}"
-echo "    ${B}python3 tools/teleop_chassis.py${N}"
-echo
-echo "══════════════════════════════════════════════════════"
+echo "${B}[3/3] 底盘恢复${N}"
+echo "  配套新固件会在DJI板重上电后重新握手，不要求重启主机或雷达。"
+echo "  等待四路电调反馈、速度模式和使能确认；新任务先发零速，再发运动指令。"
+echo "  若can0设备被USB拔插重建，需另行重启底盘节点以重新绑定设备。"
+echo "  此脚本只恢复主机CAN配置，不会发送运动指令或烧录控制板。"

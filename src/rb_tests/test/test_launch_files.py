@@ -35,6 +35,9 @@ from rb_tests.ws import WS
 # 渲染时用到的 launch 参数（保持和 launch 文件里的默认值一致）
 _LAUNCH_ARGS = {
     "ros_domain_id": "2",
+    "lidar_interface": "enp114s0",
+    "lidar_host_ip": "192.168.1.110",
+    "lidar_ptp_mode": "auto",
     "dry_run": "false",
     "rviz": "false",
     "image_topic": "/camera/image_raw",

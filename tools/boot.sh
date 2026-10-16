@@ -6,17 +6,9 @@
 #      192.168.1.110/24 + autoconnect（插上网线自动配，不用手动）
 #   ② CAN 自动拉起：/etc/udev/rules.d/99-can0.rules（插上 PCAN 自动 UP）
 #
-# 每次开机的正确顺序：
-#   ① 主机开机
-#   ② 合上总开关（雷达 + 电机板 + 相机一起上电）
-#   ③ bash tools/boot.sh         ← 本脚本
-#   ④ 等约 15 秒，再开地图（见末尾提示）
-#
-# ⚠️ 为什么顺序是"先合开关、再跑本脚本"：
-#   底盘节点启动时会发一次 MotorOn 使能电机 —— 必须在电机板已经上电之后发，
-#   否则 MotorOn 落到"还没上电的板子"上就丢了，板子不会使能。
-#   雷达则相反：驱动启动后广播找雷达，雷达上电后回应握手即可，顺序无碍
-#   （只要雷达不是"上一个会话残留的流状态"）。
+# 主机和雷达可一起上电；DJI板及四路电调可之后独立上电。
+# 软件启动后持续握手，板端重新上电后重新确认，不自动沿用旧运动目标。
+# 雷达断电仍由 pass_boot_watch 管理整车重启；底盘独立断电不重启雷达。
 set -o pipefail
 
 # PTP uses this host as master; it does not require Internet/NTP to align sensors.
@@ -142,7 +134,7 @@ echo ""
 
 # ── ② 起整套软件（前台，Ctrl-C 停）──────────────────────────────────────────
 echo "[3/3] 起整套软件（雷达驱动 → FAST-LIO → 相机/感知/定位/底盘/机构/任务）"
-echo "      看到「底盘已使能 4 个电机」「mission 就绪」就是成功了"
+echo "      雷达定位和底盘握手分别就绪后，才可点击任务出发"
 echo "      Ctrl-C 停止（会走优雅退出、先发零速）"
 echo ""
 
@@ -150,18 +142,7 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=2
 source "$WS/install/setup.bash"
 
-# 保持足够的 CAN 发送队列，避免队列过小导致 ENOBUFS 丢指令。
-if ip link show can0 >/dev/null 2>&1; then
-  _q=$(cat /sys/class/net/can0/tx_queue_len 2>/dev/null || echo 0)
-  if [ "${_q:-0}" -lt 500 ] 2>/dev/null; then
-    if ! ip link set can0 txqueuelen 1000 2>/dev/null; then
-      if ! sudo -n ip link set can0 txqueuelen 1000; then
-        echo "CAN 发送队列调整失败，启动中止；请先设置 can0 txqueuelen 1000。" >&2
-        exit 1
-      fi
-    fi
-    echo "can0 txqueuelen: $_q -> $(cat /sys/class/net/can0/tx_queue_len)"
-  fi
-fi
+# Before any chassis node: bound pending frames and recover bus-off in the kernel.
+python3 "$WS/tools/configure_chassis_can.py" || exit 1
 
 exec ros2 launch rb_bringup bringup_lidar_vision.launch.py "$@"

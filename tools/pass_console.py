@@ -14,6 +14,8 @@ import subprocess
 import threading
 import uuid
 
+from pass_health import HardwareNotReady, PassHealth, RosHealthMonitor
+
 WS = Path(__file__).resolve().parent.parent
 ACTIONS_FILE = Path(__file__).with_name('pass_actions.json')
 
@@ -65,8 +67,9 @@ def cleanup_legacy_routes():
 
 
 class PassRuns:
-    def __init__(self, command_factory=command_for):
+    def __init__(self, command_factory=command_for, start_guard=None):
         self.command_factory = command_factory
+        self.start_guard = start_guard
         self.runs = {}
         self.latest = None
         self.lock = threading.Lock()
@@ -94,6 +97,8 @@ class PassRuns:
         command = self.command_factory(side, number)
         # Accept each click, but replace the preceding task instead of driving twice.
         with self.launch_lock:
+            if self.start_guard is not None:
+                self.start_guard()
             run_id = uuid.uuid4().hex
             run = dict(id=run_id, side=side, round=number, status='running',
                        returncode=None, lines=[], command=command, process=None,
@@ -123,13 +128,15 @@ class PassRuns:
         with self.execution_lock:
             code = 127
             try:
-                env = dict(os.environ, PYTHONUNBUFFERED='1')
+                env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
                 with self.lock:
                     if run['cancelled'] or self.latest != run['id']:
                         run['status'] = 'superseded'
                         run['returncode'] = None
                         run['lines'].append('本次任务在启动前已被新的选择替换，未运行脚本')
                         return
+                    if self.start_guard is not None:
+                        self.start_guard()  # Recheck after waiting for the preceding route.
                     run['lines'].append('执行目录: '+str(WS))
                     run['lines'].append('执行命令: '+shlex.join(run['command']))
                     process = subprocess.Popen(run['command'], cwd=WS, env=env,
@@ -163,10 +170,26 @@ class PassRuns:
                         lines=run['lines'][after:], cursor=len(run['lines']))
 
 
-def make_app(runs=None, boot_watch=None):
+def make_app(runs=None, boot_watch=None, health=None):
     from flask import Flask, jsonify, request, send_file
     app = Flask(__name__)
     runs = runs if runs is not None else PassRuns()
+    health = health if health is not None else PassHealth()
+
+    def hardware():
+        return health.snapshot(boot_watch.snapshot() if boot_watch is not None else None)
+
+    def require_ready():
+        current = hardware()
+        if not current['can_run']:
+            raise HardwareNotReady(current)
+
+    runs.start_guard = require_ready
+
+    @app.after_request
+    def no_stale_status(response):
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.get('/')
     def index():
@@ -181,6 +204,8 @@ def make_app(runs=None, boot_watch=None):
             run_id = runs.start(data.get('side'), data.get('round'))
         except (ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
+        except HardwareNotReady as exc:
+            return jsonify(error=str(exc), hardware=exc.hardware), 409
         except (OSError, KeyError, RuntimeError) as exc:
             return jsonify(error=f'后端脚本映射不可用：{exc}'), 500
         return jsonify(id=run_id), 202
@@ -192,9 +217,14 @@ def make_app(runs=None, boot_watch=None):
             result = runs.snapshot(request.args.get('id'), after)
             if boot_watch is not None:
                 result['boot'] = boot_watch.snapshot()
+            result['hardware'] = hardware()
             return jsonify(result)
         except (KeyError, ValueError):
-            return jsonify(error='执行记录不存在或游标无效'), 404
+            return jsonify(error='执行记录不存在或游标无效', hardware=hardware()), 404
+
+    @app.get('/api/hardware/state')
+    def hardware_state():
+        return jsonify(hardware())
 
     @app.get('/api/boot/state')
     def boot_state():
@@ -212,8 +242,16 @@ def main(argv=None):
     from pass_boot_watch import BootWatch
     cleanup_legacy_routes()
     boot_watch = BootWatch()
+    health = PassHealth()
+    monitor = RosHealthMonitor(health)
+    monitor.start()
     boot_watch.start()
-    make_app(boot_watch=boot_watch).run(host=args.host, port=args.port, threaded=True, use_reloader=False)
+    try:
+        make_app(boot_watch=boot_watch, health=health).run(
+            host=args.host, port=args.port, threaded=True, use_reloader=False)
+    finally:
+        boot_watch.stop_event.set()
+        monitor.close()
 
 
 if __name__ == '__main__':

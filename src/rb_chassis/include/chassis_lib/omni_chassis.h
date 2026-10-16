@@ -40,6 +40,7 @@ private:
   std::shared_ptr<Can> board_can_;
   std::unique_ptr<rb_chassis::BoardLink> board_link_;
   bool board_was_ready_ = false;
+  uint64_t observed_transport_generation_ = 0;
   rb_chassis::MotionGate motion_gate_;
 
 
@@ -50,6 +51,17 @@ public:
 
   void initialize() override;
   void execute() override;
+  bool boardReady() const {
+    return dry_run_ || (board_was_ready_ &&
+        observed_transport_generation_ == board_can_->transport_generation());
+  }
+  bool boardReplyRecent(uint64_t now) const { return board_link_->responseRecent(now); }
+  const char *boardStatusReason(uint64_t now) const {
+    if (dry_run_) return "底盘处于模拟模式，不能执行实车回合";
+    if (observed_transport_generation_ != board_can_->transport_generation())
+      return "CAN通信异常，等待重新建立底盘握手";
+    return board_link_->diagnosticReason(now);
+  }
 
   void setParameter(double limit_vel, double limit_acc, double width, double length,
                     double wheel_radius, double ratio);

@@ -16,6 +16,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include "bupt_can/bupt_can.h"
 #include "chassis_lib/omni_chassis.h"
@@ -99,6 +101,8 @@ int main(int argc, char **argv) {
   node->setParameter(limit_vel, limit_acc, width, length, wheel_radius, ratio);
   node->setStopAccel(stop_accel);
 
+  auto ready_pub = node->create_publisher<std_msgs::msg::Bool>("/chassis/ready", 10);
+  auto status_pub = node->create_publisher<std_msgs::msg::String>("/chassis/status", 10);
   auto wheel_pub = node->create_publisher<std_msgs::msg::Int16MultiArray>("/chassis/wheel_speed", 10);
 
   if (!dry_run) {
@@ -112,8 +116,25 @@ int main(int argc, char **argv) {
   std::signal(SIGTERM, signal_shutdown);
 
   rclcpp::Rate rate(1000.0 / static_cast<double>(period_ms));
+  uint64_t next_status = 0;
   while (rclcpp::ok()) {
     node->execute();
+    std_msgs::msg::Bool ready;
+    ready.data = node->boardReady();
+    ready_pub->publish(ready);
+    const auto now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    if (now >= next_status) {
+      next_status = now + 100;
+      std_msgs::msg::String status;
+      // Reasons are fixed strings without JSON quotes/escapes. This topic only
+      // controls admission of new rounds; /chassis/ready semantics are unchanged.
+      status.data = std::string("{\"ready\":") +
+          (!dry_run && ready.data && node->boardReplyRecent(now) ? "true" : "false") +
+          ",\"dry_run\":" + (dry_run ? "true" : "false") +
+          ",\"reason\":\"" + node->boardStatusReason(now) + "\"}";
+      status_pub->publish(status);
+    }
 
     std_msgs::msg::Int16MultiArray msg;
     const auto &w = node->wheelSpeed();
