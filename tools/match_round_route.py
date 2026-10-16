@@ -359,19 +359,23 @@ def search_plan(cfg, area, cycle=0, round_number=None, task=None):
         ys = [i['bottom_y'], i['top_y']] if direction == 'bt' else [i['top_y'], i['bottom_y']]
         if cycle:
             ys = list(reversed(ys))
-        return [((x, y), 0.) for y in ys]
+        # 投篮从球线 X=9 的右侧扫描，前摄须朝 -X；传球从左侧朝 +X。
+        face = math.pi if shoot else 0.
+        return [((x, y), face) for y in ys]
 
     a = cfg['arc']
     radius = a['radius']
     angles = pick(a.get('angles_deg'))
+    face_offset = math.pi  # 外侧扫描朝圆心看放球弧。
     if task == 'shoot' and a.get('radius_shoot') is not None:
         radius = a['radius_shoot']
         angles = pick(a.get('angles_shoot')) or a['angles_deg']
+        face_offset = 0.  # 投篮在放球弧内侧，前摄应径向朝外。
     if cycle:
         angles = list(reversed(angles))
     return [((a['center'][0]+radius*math.cos(math.radians(v)),
               a['center'][1]+radius*math.sin(math.radians(v))),
-             wrap(math.radians(v)+math.pi)) for v in angles]
+             wrap(math.radians(v)+face_offset)) for v in angles]
 
 
 class RoundRoute:
