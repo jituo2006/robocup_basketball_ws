@@ -238,7 +238,7 @@
       -4.25
     ]
   },
-  "start_point": "A",
+  "start_point": "B",
   "intake_settle_s": 5.0,
   "home_align_at": "entry"
 }

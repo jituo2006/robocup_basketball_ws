@@ -1,6 +1,8 @@
 """每轮三个阶段：第一颗球、第二颗球、回位；内部动作进度用于失败后续做。"""
 import json
 import math
+import os
+import tempfile
 from pathlib import Path
 
 from match_round_route import (RoundRoute, StartFrame, search_order, validate_mode,
@@ -42,9 +44,15 @@ def load_session(round_number, task):
 def save_session(state):
     p = session_path(state['round'], state['task'])
     p.parent.mkdir(parents=True, exist_ok=True)
-    temp = p.with_suffix('.tmp')
-    temp.write_text(json.dumps(state, ensure_ascii=False), encoding='utf-8')
-    temp.replace(p)
+    # Each writer owns its temporary path; rename remains atomic for readers.
+    fd, name = tempfile.mkstemp(prefix=p.stem+'.', suffix='.tmp', dir=p.parent)
+    temp = Path(name)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(state, stream, ensure_ascii=False)
+        temp.replace(p)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def clear_session(round_number, task):

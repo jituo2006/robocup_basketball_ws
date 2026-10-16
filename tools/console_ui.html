@@ -48,7 +48,7 @@ function render(data){
   cursor=data.cursor;
   const label=`${data.side} 场地 · 回合 ${data.round}`;
   statusEl.dataset.state=data.status;
-  statusEl.textContent=data.status==='running'?`${label} · 执行中`:data.status==='succeeded'?`${label} · 执行完成（退出码 0）`:`${label} · 执行失败（退出码 ${data.returncode}）`;
+  statusEl.textContent=data.status==='running'?`${label} · 执行中`:data.status==='succeeded'?`${label} · 执行完成（退出码 0）`:data.status==='superseded'?`${label} · 已切换到新任务`:`${label} · 执行失败（退出码 ${data.returncode}）`;
 }
 async function poll(){
   if(polling)return;polling=true;

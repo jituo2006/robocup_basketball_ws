@@ -19,7 +19,6 @@ def make_runner(mod):
     run = mod.Runner.__new__(mod.Runner)
     run.pose = (1.5, 8.0, 0.0)
     run.dets = []
-    run._Twist = lambda: NS(linear=NS(x=0., y=0.), angular=NS(z=0.))
     run.args = NS(ball_label='ball_basketball', route_forward=3.55,
                   route_scan_start_offset=2.9, route_scan_distance=3.8,
                   route_forward_speed=.12, route_scan_speed=.08, route_scoop_speed=.08,
@@ -291,59 +290,34 @@ def timed_rear_samples(mod, run, monkeypatch, samples, cancel_after=30.):
     run.centered_target_candidates = lambda *a, **kw: next(observations, None)
 
 
-def test_rear_missing_target_rotates_without_backing_or_timeout(monkeypatch):
+def test_rear_lost_detection_waits_stopped_until_cancel_without_blind_backing(monkeypatch):
     mod=load();run=make_runner(mod)
-    run.args.route_rear_timeout=.01
-    commands=[]
+    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
+    run.args.route_rear_align_speed=.04
+    d=NS(x_min=.45,x_max=.55,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
+    events=[]
     timed_rear_samples(mod, run, monkeypatch, [None], cancel_after=.2)
-    run.stop=lambda:None
-    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
+    run.stop=lambda:events.append('stop')
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.publish_command=lambda tw:events.append((tw.linear.x,tw.linear.y))
     with pytest.raises(KeyboardInterrupt):
         run.rear_visual_scoop()
-    assert len(commands)>3
-    assert all(vx==vy==0 and wz>0 for vx,vy,wz in commands)
+    assert len(events)>=3 and set(events)=={'stop'}
 
-
-@pytest.mark.parametrize('cx,sign',[(.7,-1),(.3,1)])
-def test_rear_camera_rotates_with_correct_rear_image_sign(cx,sign,monkeypatch):
+@pytest.mark.parametrize('cx,expected',[(.7,(0.,.04)),(.3,(0.,-.04))])
+def test_rear_camera_corrects_body_lateral_sign_and_backs_only_when_centered(cx,expected,monkeypatch):
     mod=load();run=make_runner(mod)
-    d=NS(x_min=cx-.05,x_max=cx+.05,confidence=.9,stamp=NS(sec=10,nanosec=0))
+    run.args.route_rear_timeout=.1;run.args.route_rear_stop_height=.45
+    run.args.route_rear_align_speed=.04
+    d=NS(x_min=cx-.05,x_max=cx+.05,y_min=.4,y_max=.6,confidence=.9,stamp=NS(sec=10,nanosec=0))
     commands=[]
     timed_rear_samples(mod, run, monkeypatch, [d,None], cancel_after=.2)
     run.stop=lambda:None
-    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
+    run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
+    run.publish_command=lambda tw:commands.append((tw.linear.x,tw.linear.y))
     with pytest.raises(KeyboardInterrupt):
         run.rear_visual_scoop()
-    assert commands[0] == pytest.approx((0.,0.,sign*.12))
-    assert all(vx==vy==0 and wz<0 for vx,vy,wz in commands[1:])
-
-
-@pytest.mark.parametrize('start_yaw',[0.,math.radians(175),math.radians(-175)])
-def test_rear_search_turns_left_30_then_right_until_centered(start_yaw):
-    mod=load();run=make_runner(mod)
-    run.pose=(0.,0.,start_yaw)
-    run.args.route_rear_timeout=.001
-    commands=[];travel=[0.];stops=[]
-    run.spin=lambda sec:None
-    run.stop=lambda:stops.append(len(commands))
-    def detect(*args,**kwargs):
-        if any(wz<0 for wz in commands) and travel[0]<-.1:
-            return NS(x_min=.45,x_max=.55,confidence=.9,stamp=NS(sec=10,nanosec=0))
-        return None
-    run.centered_target_candidates=detect
-    def publish(tw):
-        assert tw.linear.x==tw.linear.y==0
-        commands.append(tw.angular.z)
-        travel[0]+=math.copysign(math.radians(5),tw.angular.z)
-        run.pose=(0.,0.,mod.wrap_pi(start_yaw+travel[0]))
-        assert len(commands)<50, 'search must reverse and acquire the simulated ball'
-    run.publish_command=publish
-    run.aligned_intake_approach=lambda:pytest.fail('alignment-only must not collect')
-    assert run.rear_visual_scoop(approach=False)
-    reversal=next(i for i,wz in enumerate(commands) if wz<0)
-    assert math.radians(30)-1e-9 <= reversal*math.radians(5) <= math.radians(35)
-    assert all(wz<0 for wz in commands[reversal:])
-    assert stops==[0,len(commands)]
+    assert commands==([] if cx==.5 else [expected])
 
 
 def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(monkeypatch):
@@ -360,7 +334,7 @@ def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(
     commands=[];run.stop=lambda:None
     run._Twist=lambda:NS(linear=NS(x=0.,y=0.),angular=NS(z=0.))
     def publish(tw):
-        commands.append((tw.linear.x,tw.linear.y,tw.angular.z))
+        commands.append((tw.linear.x,tw.linear.y))
         x,y,yaw=run.pose
         run.pose=(x+.03*(tw.linear.x*math.cos(yaw)-tw.linear.y*math.sin(yaw)),
                   y+.03*(tw.linear.x*math.sin(yaw)+tw.linear.y*math.cos(yaw)),yaw)
@@ -372,13 +346,12 @@ def test_rear_reacquires_after_logged_drop_and_completes_45cm_without_more_yolo(
         return original_approach()
     run.rear_distance_scoop=approach
     assert run.rear_visual_scoop()
-    assert sum(wz>0 for vx,vy,wz in commands)==2
-    assert any(wz<0 for vx,vy,wz in commands)
-    assert all(vy==0 for vx,vy,wz in commands if vx<0)
+    assert sum(vy<0 for vx,vy in commands)==2
+    assert all(vy==0 for vx,vy in commands if vx<0)
     assert -run.pose[1] == pytest.approx(.45,abs=run.args.step_tol)
 
 
-def test_rear_missing_frames_search_then_first_centered_detection_completes(monkeypatch):
+def test_rear_missing_frames_wait_then_first_centered_detection_completes(monkeypatch):
     mod=load();run=make_runner(mod)
     run.args.route_rear_timeout=1.;run.args.route_rear_align_speed=.04
     def det(stamp):
@@ -386,7 +359,6 @@ def test_rear_missing_frames_search_then_first_centered_detection_completes(monk
     samples=iter([None,None,det(10)])
     timed_rear_samples(mod,run,monkeypatch,samples)
     run.stop=lambda:None
-    run.publish_command=lambda tw:None
     def approach():
         assert next(samples,None) is None, 'first valid centered detection should finish alignment'
         return True

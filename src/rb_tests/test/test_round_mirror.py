@@ -176,3 +176,13 @@ def test_complete_cycles_mirror_motion_and_keep_serial_commands(tmp_path, monkey
             assert wrap(a[1]+b[1]) == pytest.approx(0.)
         else:
             assert a == b
+
+
+def test_concurrent_session_writes_use_distinct_temporary_paths(tmp_path,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(stages,'STATE_DIR',tmp_path)
+    def write(index):
+        stages.save_session(dict(version=2,round=2,task='pass',start_pose=[1.,2.,0.],marker=index))
+    with ThreadPoolExecutor(max_workers=8) as pool:list(pool.map(write,range(80)))
+    assert stages.load_session(2,'pass')['marker'] in range(80)
+    assert not list(tmp_path.glob('*.tmp'))
