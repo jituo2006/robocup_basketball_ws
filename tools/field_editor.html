@@ -316,7 +316,7 @@ const DEFAULTS = {
        angles_shoot 按轮次给：第2轮弧线在投篮点【之后】⇒ 先扫近端；
                               第3轮弧线在投篮点【之前】⇒ 先扫远端收在近端。 */
     arc: { center: [11.0, 3.75], radius: 4.65,
-           angles_deg: [151, 156, 161, 166, 171], scoop_m: 0.44,
+           angles_deg: [151, 156, 161, 166, 171], scoop_m: 0.6,
            radius_shoot: 2.65,
            angles_shoot: { "2": [165, 152, 138, 124, 120], "3": [120, 124, 138, 152, 165] } },
     /* 深场（三分线内置球区 X=9 那条红线）。
@@ -325,7 +325,7 @@ const DEFAULTS = {
        bottom_y 4.4 = 整车不出中线的极限（队友的 1.3 在对方半场深处）。
        dir_pass=bt 从下到上（弧线扫完停在低处，接得上、不折返）；
        dir_shoot=tb 从上到下（扫完停在低处，直接进投篮点）。 */
-    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.0, bottom_y: 4.4, scoop_m: 0.44,
+    inner: { x: 8.1, x_shoot: 9.9, top_y: 6.0, bottom_y: 4.4, scoop_m: 0.56,
              dir_pass: "bt", dir_shoot: "bt" },
     release: {
       /* 传球点 = 【传球柱 ↔ 传球区圆心】连线与传球区边界的交点附近

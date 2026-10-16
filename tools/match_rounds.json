@@ -69,7 +69,7 @@
       166,
       171
     ],
-    "scoop_m": 0.44,
+    "scoop_m": 0.6,
     "radius_shoot": 2.65,
     "angles_shoot": {
       "2": [
@@ -92,7 +92,7 @@
     "x": 8.1,
     "top_y": 2.25,
     "bottom_y": 0.65,
-    "scoop_m": 0.44,
+    "scoop_m": 0.56,
     "x_shoot": 9.9,
     "dir_pass": "bt",
     "dir_shoot": "bt"
@@ -243,7 +243,7 @@
   "intake_settle_s": 5.0,
   "home_align_at": "entry",
   "b_y_adjustments_m": {
-    "middle": 0.24,
+    "middle": 0.0,
     "pass": 0.24
   },
   "timed_return": {
