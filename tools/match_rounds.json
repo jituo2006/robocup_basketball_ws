@@ -47,7 +47,7 @@
   ],
   "middle": {
     "y": 0.9,
-    "left_x": 0.6,
+    "left_x": 0.8,
     "right_x": 4.4,
     "scoop_m": 0.64,
     "scan_dir": {
