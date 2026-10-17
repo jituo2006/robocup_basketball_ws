@@ -251,7 +251,7 @@
   "home_align_at": "entry",
   "b_y_adjustments_m": {
     "middle": 0.0,
-    "pass": 0.24
+    "pass": 0.0
   },
   "timed_return": {
     "enabled": true,
