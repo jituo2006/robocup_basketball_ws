@@ -95,6 +95,13 @@ def mirror_to_b(cfg):
     middle = o.get('middle') or {}
     if isinstance(middle.get('y'), (int, float)):
         middle['y'] = -middle['y']
+    # middle.y_overrides：按【任务 + 轮次】单独覆盖中线寻球线的 y
+    # （形如 {"shoot": {"2": 1.2}}，见 search_plan 的 middle 分支）。
+    # 里面存的是场地系的 y，所以也要跟着取反，否则 B 出发会跑到另一侧。
+    if isinstance(middle.get('y_overrides'), dict):
+        middle['y_overrides'] = {
+            k: {r: -float(v) for r, v in (vs or {}).items()}
+            for k, vs in middle['y_overrides'].items()}
     inner = o.get('inner') or {}
     for k in ('top_y', 'bottom_y'):
         if isinstance(inner.get(k), (int, float)):
@@ -181,6 +188,20 @@ def load_config(path=CONFIG, start_point=None):
                 if not isinstance(p, (list, tuple)) or len(p) != 2:
                     raise ValueError(f'inner_via.{k} 的每一项须为 [x, y]')
                 point(list(p))
+    # middle.y_overrides：按【任务 + 轮次】单独覆盖中线寻球线的 y
+    # （形如 {"shoot": {"2": 1.2}}，见 search_plan 的 middle 分支）。
+    # 键只能是 pass/shoot，轮次只能是 "1"/"2"/"3"，y 要在场地范围内。
+    y_ov = (cfg.get('middle') or {}).get('y_overrides')
+    if y_ov is not None:
+        if not isinstance(y_ov, dict) or any(k not in ('pass', 'shoot') for k in y_ov):
+            raise ValueError('middle.y_overrides 只支持 pass / shoot')
+        for ov_task, ov_rounds in y_ov.items():
+            if not isinstance(ov_rounds, dict):
+                raise ValueError(f'middle.y_overrides.{ov_task} 须为 {{轮次: y}}')
+            for ov_round, ov_val in ov_rounds.items():
+                if str(ov_round) not in ('1', '2', '3'):
+                    raise ValueError(f'middle.y_overrides.{ov_task} 的轮次只能是 1/2/3')
+                number(float(ov_val), 0.0 + y_offset, 7.5 + y_offset)
     number(cfg['speed_mps'], math.nextafter(0., math.inf), math.inf)
     from transit_motion import parameters as transit_parameters
     transit_parameters(cfg.get('transit_control'))
@@ -365,14 +386,22 @@ def search_plan(cfg, area, cycle=0, round_number=None, task=None):
 
     if area == 'middle':
         m = cfg[area]
+        # 【按任务 + 轮次单独覆盖中线 y】配置键：
+        #     middle.y_overrides = {"shoot": {"2": 1.2}}
+        #   · 没配（或该任务/轮次没写）⇒ 用 middle.y
+        #   · 现场例子：投篮第2轮想走得离中线近一点，就只改这一处，
+        #     传球和投篮其它轮次完全不受影响。
+        #   · B 出发时 mirror_to_b 已经把里面的值取反了。
+        ov = ((m.get('y_overrides') or {}).get(task) or {}).get(str(round_number))
+        mid_y = m['y'] if ov is None else float(ov)
         direction = pick(m.get('scan_dir')) or 'lr'
         xs = (m['right_x'], m['left_x']) if direction == 'rl' else (m['left_x'], m['right_x'])
         # 【方向】前摄要朝【球线 y=0】看，不是死朝 -y：
         #   车在 y>0（A 出发）⇒ 球线在 -y 侧 ⇒ 朝 -π/2
         #   车在 y<0（B 出发）⇒ 球线在 +y 侧 ⇒ 朝 +π/2
         # 写死 -π/2 的话，B 出发时前摄背对球线，整段中线扫描都看不到球。
-        face = -math.pi/2 if m['y'] >= 0 else math.pi/2
-        return [((x, m['y']), face) for x in xs]
+        face = -math.pi/2 if mid_y >= 0 else math.pi/2
+        return [((x, mid_y), face) for x in xs]
 
     if area == 'inner':
         i = cfg[area]
