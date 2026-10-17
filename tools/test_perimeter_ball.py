@@ -1108,8 +1108,8 @@ class Runner:
                     self.stop()
                     leg += 1
                     if leg == len(targets):
-                        log('后摄搜索失败', '左右搜索后仍未识别到球，已回搜索中心；未执行后退或铲球', C_WARN)
-                        return False
+                        log('后摄搜索回退', '左右搜索仍无球，已回横移搜索起点；直接切换定位距离后退铲球，不再等待识球', C_WARN)
+                        return self.aligned_intake_approach() if approach else True
                     continue
                 tw = self._Twist()
                 speed = min(.04, self.args.route_rear_align_speed, max(.015, abs(remaining)*.8))
