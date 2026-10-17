@@ -1056,22 +1056,72 @@ class Runner:
         """YOLO is used only to align laterally; approach then uses pose distance."""
         # 这一段只发左右横移速度；没有前后移动。对正成功才进入下一段后退。
         self.stop()
-        # 没球框时停车等待；对正不再受固定总时间/净横移40cm限制。
-        waiting_for_target = False
+        # 丢框短暂停车，随后在丢球位置附近做一次有界横向搜索。
+        lost_at = None
+        origin = None
+        leg = 0
+        direction = 1.
         while True:
             self.spin(.03)
             d = self.centered_target_candidates(getattr(self, 'dets_rear', []), centered=False)
             if d is None:
-                # 没有满足类别/置信度/时间戳条件的后摄框：发零速，继续等。
-                # 漏检时等待，恢复后继续；没有固定等待总时限。
-                self.stop()
-                if not waiting_for_target:
-                    log('后摄等待', '暂时没有新鲜球框，停车等待重新识别；恢复后继续对正', C_WARN)
-                    waiting_for_target = True
+                now = time.monotonic()
+                if lost_at is None:
+                    lost_at = now
+                    origin = None
+                    leg = 0
+                    self.stop()
+                    log('后摄丢球', '短暂停车0.6秒；持续无球则在附近左右搜索', C_WARN)
+                if now-lost_at < .6:
+                    self.stop()
+                    continue
+                # 无进展、相机断流等情况也不会无限运动或等待。
+                if now-lost_at > 35.:
+                    self.stop()
+                    log('后摄搜索失败', '搜索超时，停车；未执行后退或铲球', C_WARN)
+                    return False
+                clock = self.node.get_clock().now().nanoseconds*1e-9
+                pose_stamp = getattr(self, 'pose_stamp', 0.)
+                if (self.pose is None or not math.isfinite(pose_stamp) or pose_stamp <= 0
+                        or not -.05 <= clock-pose_stamp <= self.args.pose_timeout
+                        or not self.detection_fresh(getattr(self, 'rear_det_stamp', 0.))):
+                    self.stop()
+                    continue
+                if origin is None:
+                    origin = tuple(self.pose)
+                    log('后摄搜索', '以丢球位置为中心，先沿最后纠偏方向、再反向、最后回中心；范围±0.25m')
+                x0,y0,heading = origin
+                x,y,yaw = self.pose
+                if not all(math.isfinite(v) for v in (x,y,yaw)):
+                    self.stop()
+                    raise RuntimeError('后摄搜索定位无效')
+                lateral = -(x-x0)*math.sin(heading)+(y-y0)*math.cos(heading)
+                forward = (x-x0)*math.cos(heading)+(y-y0)*math.sin(heading)
+                # 不扩大搜索范围；发生明显偏航/纵向漂移时停车交由人工检查。
+                if abs(lateral) > .28 or abs(forward) > .10 or abs(wrap_pi(heading-yaw)) > self.args.route_heading_tol:
+                    self.stop()
+                    log('后摄搜索失败', '超出搜索范围或朝向偏差过大，停车', C_WARN)
+                    return False
+                targets = (.25*direction, -.25*direction, 0.)
+                remaining = targets[leg]-lateral
+                if abs(remaining) <= .01:
+                    self.stop()
+                    leg += 1
+                    if leg == len(targets):
+                        log('后摄搜索失败', '左右搜索后仍未识别到球，已回搜索中心；未执行后退或铲球', C_WARN)
+                        return False
+                    continue
+                tw = self._Twist()
+                speed = min(.04, self.args.route_rear_align_speed, max(.015, abs(remaining)*.8))
+                tw.linear.y = math.copysign(speed, remaining)
+                self.publish_command(tw)
+                trace('rear_search', lateral=lateral, target=targets[leg], vy=tw.linear.y)
                 continue
-            if waiting_for_target:
-                log('后摄恢复', '重新识别到目标球，继续横移对正')
-                waiting_for_target = False
+            if lost_at is not None:
+                self.stop()
+                log('后摄恢复', '重新识别到目标球，退出搜索并继续横移对正')
+                lost_at = None
+                origin = None
             error = (float(d.x_min)+float(d.x_max))/2 - .5
             trace('rear_align', cx=error+.5,
                   confidence=float(d.confidence), stamp=stamp_seconds(d.stamp))
@@ -1086,10 +1136,20 @@ class Runner:
             # 框在左→车体右移(-y)；实物画面若镜像，需核对这个符号。
             # 默认速度上限 0.04m/s、纠偏最低 0.015m/s，只设置 linear.y。
             speed = min(self.args.route_rear_align_speed, max(.015, abs(error)*.4))
+            direction = math.copysign(1., error)
             tw.linear.y = math.copysign(speed, error)
             self.publish_command(tw)
 
     def rear_distance_scoop(self):
+        """Latch distance control: camera loss cannot interrupt an active pickup."""
+        visual_guard = getattr(self, 'visual_guard', False)
+        self.visual_guard = False
+        try:
+            return self._rear_distance_scoop()
+        finally:
+            self.visual_guard = visual_guard
+
+    def _rear_distance_scoop(self):
         """After alignment: bounded reverse displacement, independent of YOLO."""
         # 【真正向篮球靠近的代码】后摄/铲口在车尾，所以朝球走是车体后退。
         # 本函数不读取任何 YOLO 框，也不用球框高度判断停止位置。
