@@ -1654,7 +1654,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.route in ('round1', 'round2', 'round3'):
         from match_round_route import load_config, validate_mode, TASK_LABELS
         try:
-            round_cfg = load_config(args.round_config, args.start_point)
+            round_cfg = load_config(args.round_config, args.start_point,
+                                    round_number=int(args.route[-1]), task=args.round_task)
             round_cfg['round1_first_ball'] = args.round_first_ball
             validate_mode(round_cfg, args.round_task, args.round_mode, args.round_release_kind,
                           mechanism_enabled=args.route_intake)

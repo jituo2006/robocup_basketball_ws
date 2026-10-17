@@ -133,7 +133,7 @@ def mirror_to_b(cfg):
     return o
 
 
-def load_config(path=CONFIG, start_point=None):
+def load_config(path=CONFIG, start_point=None, round_number=None, task=None):
     with open(path, encoding='utf-8') as stream:
         cfg = json.load(stream)
     # 出发点：A 用文件里那份；B 先关于场地中线镜像，再应用 B 专用现场校准。
@@ -172,6 +172,20 @@ def load_config(path=CONFIG, start_point=None):
         # 会被判成越界。
         number(value[1], (-1.0 if start else 0.0) + y_offset,
                (8.5 if start else 7.5) + y_offset)
+    # 按任务、场地、回合覆盖通道点；未指定回合时保留共用配置。
+    overrides = cfg.get('corridor_overrides', {})
+    if not isinstance(overrides, dict):
+        raise ValueError('corridor_overrides 须为任务:场地:回合到坐标的字典')
+    allowed = {f'{t}:{side}:{r}' for t in ('pass', 'shoot')
+               for side in ('A', 'B') for r in (1, 2, 3)}
+    for key, value in overrides.items():
+        if key not in allowed:
+            raise ValueError(f'无效通道覆盖键: {key}')
+        point(value)
+    key = f'{task}:{chosen}:{round_number}'
+    if key in overrides:
+        cfg['corridor'] = list(overrides[key])
+    number(cfg['release']['shoot'].get('clockwise_offset_deg', 0.), -180., 180.)
     point(cfg['start'], start=True)
     for key in ('entry', 'corridor'):
         point(cfg[key])
@@ -784,6 +798,19 @@ class RoundRoute:
             if not self.target_aligned and self.release_kind == 'match':
                 self.say('正式出球须先对准目标柱；本次停车')
                 return False
+        # 完成瞄准后再追加物理顺时针校准；B场也保持顺时针，不镜像符号。
+        if self.task == 'shoot':
+            offset = float(action.get('clockwise_offset_deg', 0.))
+            if offset:
+                self.heading_ready = False
+                target = wrap(self.r.pose[2] - math.radians(offset))
+                self.say(f'投篮瞄准完成，再顺时针旋转 {offset:g}°')
+                if not self.r.rotate_to(target, timeout=45.):
+                    self.target_aligned = False
+                    self.r.stop()
+                    return False
+                self.r.stop()
+                self.heading_ready = True
         return True
 
     def release(self):

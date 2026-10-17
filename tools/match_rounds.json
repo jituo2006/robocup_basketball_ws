@@ -163,7 +163,8 @@
         0.0,
         0.0
       ],
-      "wait_s": 0.0
+      "wait_s": 0.0,
+      "clockwise_offset_deg": 5.0
     }
   },
   "pillar_alignment": {
@@ -284,5 +285,11 @@
     "arrival_mps": 0.05,
     "arrival_frames": 2,
     "correction_mps": 0.12
+  },
+  "corridor_overrides": {
+    "shoot:A:3": [
+      6.4,
+      2.9
+    ]
   }
 }

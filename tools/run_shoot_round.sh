@@ -23,11 +23,11 @@ shoot_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 shoot_first=search
 if [[ "$shoot_round" == 1 ]]; then shoot_first=preloaded; fi
 # 复用现有配置校验，未配置真实投篮动作时在加载ROS之前退出。
-python3 - "$shoot_root/tools" "$shoot_side" "$shoot_mechanism" <<'PY'
+python3 - "$shoot_root/tools" "$shoot_side" "$shoot_mechanism" "$shoot_round" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 from match_round_route import load_config, validate_mode
-cfg = load_config(start_point=sys.argv[2])
+cfg = load_config(start_point=sys.argv[2], round_number=int(sys.argv[4]), task='shoot')
 validate_mode(cfg, 'shoot', 'cycle', 'match', mechanism_enabled=sys.argv[3] == '--mechanism')
 print(f"起步静止{cfg['start_delay_s']:g}秒；投篮点={cfg['release']['shoot']['point']}，瞄准={cfg['release']['shoot']['aim']}")
 PY
