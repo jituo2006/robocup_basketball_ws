@@ -9,7 +9,7 @@
   ],
   "corridor": [
     6.4,
-    2.3
+    3.05
   ],
   "speed_mps": 0.8,
   "speed_profiles": {
@@ -70,21 +70,28 @@
       171
     ],
     "scoop_m": 0.6,
-    "radius_shoot": 2.65,
+    "radius_shoot": 4.85,
     "angles_shoot": {
       "2": [
-        165,
-        152,
-        138,
-        124,
-        120
+        171,
+        166,
+        161,
+        156,
+        152
       ],
       "3": [
-        120,
-        124,
-        138,
         152,
-        165
+        156,
+        161,
+        166,
+        171
+      ],
+      "1": [
+        152,
+        156,
+        161,
+        166,
+        171
       ]
     }
   },
@@ -244,7 +251,7 @@
   "home_align_at": "entry",
   "b_y_adjustments_m": {
     "middle": 0.0,
-    "pass": 0.24
+    "pass": 0.0
   },
   "timed_return": {
     "enabled": true,
