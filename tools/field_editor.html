@@ -475,8 +475,12 @@ const DEFAULTS = {
          以前编辑器里没写，图上就比车实际走的少一段。 */
       "2": ["start", "entry", "@middle", "cross", "corridor", "shootPt",
             "corridor", "@arc", "shootPt", "corridor", "entry", "start"],
-      "3": ["start", "entry", "corridor", "@arc", "@inner", "shootPt",
-            "corridor", "@arc", "@inner", "shootPt", "corridor", "entry", "start"]
+      /* 第3轮：match_rounds.json 的 search_order.shoot["3"] 已改成
+         [["inner"], ["inner"]] —— 两阶段都只找内置线（x=inner.x_shoot，
+         内置球线 X=9 的右边），三分线弧线整段删掉了。
+         所以这张图里也不能再有 @arc，否则图上会比车实际走的多两段弧线。 */
+      "3": ["start", "entry", "corridor", "@inner", "shootPt",
+            "corridor", "@inner", "shootPt", "corridor", "entry", "start"]
     }
   }
 };
