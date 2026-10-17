@@ -221,7 +221,8 @@ class SerialActions:
             matchers = {
                 'vesc_stop': lambda s: s.startswith('--VESC stop: both 0 A mailboxes cleared;'),
                 'vesc_home': lambda s: s.startswith('--Manual start-position confirmation accepted'),
-                'vesc_shoot2': lambda s: s.startswith('--SHOT2 starting both;'),
+                'vesc_shoot2': lambda s: s.startswith(
+                    ('--SHOT2 starting both;', '--SHOT2 starting right only (left=0 A);')),
                 'vesc_reset': lambda s: s.startswith('--RESET top assumed;'),
             }
             if name not in matchers:

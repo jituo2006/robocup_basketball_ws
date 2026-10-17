@@ -342,3 +342,41 @@ def test_no_extra_status_query_blocks_shoot_sequence():
     m.overrides['vesc_status'] = lambda: pytest.fail('automatic shoot no longer adds status gates')
     report = m.c.shoot(SHOOT)
     assert report.confirmed and commands(m) == SHOOT
+
+
+@pytest.mark.parametrize('start_reply', [
+    '--SHOT2 starting both; feedback=MT6816 common_shaft single_PI equal_current; 0 A at 850 ms.',
+    '--SHOT2 starting right only (left=0 A); feedback=MT6816 common_shaft single_PI current_split; beta=0%; 0 A at 550 ms.',
+])
+@pytest.mark.parametrize('ack_delay', [0., .12])
+@pytest.mark.parametrize('timing_speed', ['PASS', 'INVALID'])
+def test_shoot2_start_reply_variants_stop_retries_and_continue_reset(start_reply, ack_delay, timing_speed):
+    m = MCU()
+    started = False
+
+    def shot():
+        nonlocal started
+        m.later(ack_delay, lambda: m.rx(start_reply))
+        if not started:
+            started = True
+            def finished():
+                m.rx('RESULT FINISHED run=1 reason=timed release timing_speed=' + timing_speed)
+                m.rx('VERIFY fault_id=0 VESC motor faults/physical synchrony UNREAD')
+                m.rx('VERIFY actual stroke/ball departure/battery current: UNVERIFIED. RAM only; export trace.')
+            m.later(.65, finished)
+
+    def reset():
+        m.rx('--RESET top assumed; fixed reverse=300 RPM (-2100 ERPM), duration=600 ms; vesc_stop aborts.')
+        m.later(.6, lambda: m.rx('RESET_RESULT FINISHED run=1 valid=YES reason=timed release target_rpm=-300 target_erpm=-2100 duration=600 ms home=0 home_pending=1 fault_id=0 TOP_ASSUMED BOTTOM_TIME_ASSUMED'))
+
+    m.overrides['vesc_shoot2 3'] = shot
+    m.overrides['vesc_reset'] = reset
+    report = m.c.shoot(SHOOT)
+    attempts = 1 if ack_delay == 0 else 3
+    assert commands(m) == SHOOT[:2] + ['vesc_shoot2 3'] * attempts + SHOOT[3:]
+    assert report.steps[2].attempts == attempts
+    assert report.steps[2].confirmed == (timing_speed == 'PASS')
+    assert all(step.confirmed for step in report.steps[3:])
+    shot_times = [t for t, command in m.sent if command == 'vesc_shoot2 3']
+    assert shot_times == pytest.approx([.05 * i for i in range(attempts)], abs=.006)
+    assert m.sent[2 + attempts][0] >= .65
