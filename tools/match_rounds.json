@@ -102,7 +102,7 @@
     "scoop_m": 0.56,
     "x_shoot": 9.9,
     "dir_pass": "bt",
-    "dir_shoot": "bt"
+    "dir_shoot": "tb"
   },
   "release": {
     "pass": {
@@ -263,12 +263,7 @@
     "margin_s": 5.0
   },
   "inner_via": {
-    "shoot": [
-      [
-        6.6,
-        0.74
-      ]
-    ]
+    "shoot": []
   },
   "transit_control": {
     "accel_mps2": 0.6,
