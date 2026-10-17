@@ -35,14 +35,14 @@ def make_search_runner(monkeypatch, heading=0., visible_at=None, stream=True, fr
 
 
 @pytest.mark.parametrize('heading',[0.,math.pi/2,-1.2])
-def test_missing_ball_sweeps_both_sides_and_returns_without_backing(monkeypatch,heading):
+def test_missing_ball_returns_to_search_origin_then_approaches(monkeypatch,heading):
     m,r,cmd,pos,approach,now=make_search_runner(monkeypatch,heading)
-    assert not r._rear_visual_scoop()
+    assert r._rear_visual_scoop()
     assert cmd and cmd[0][0]>=10.6
     assert all(x==0 and z==0 and abs(y)<=.04 for _,x,y,z in cmd)
     assert max(pos)>=.239 and min(pos)<=-.239
     assert max(abs(p) for p in pos)<=.251 and abs(pos[-1])<=.01
-    assert not approach
+    assert approach == [True]
 
 
 def test_reacquisition_stops_search_and_allows_centered_approach(monkeypatch):
@@ -100,3 +100,10 @@ def test_active_reverse_keeps_motion_fault_and_restores_guard():
     with pytest.raises(RuntimeError,match='simulated localization failure'):
         r.rear_distance_scoop()
     assert r.visual_guard is True
+
+
+def test_stage_alignment_fallback_returns_success_only_after_returning_to_origin(monkeypatch):
+    m,r,cmd,pos,approach,now=make_search_runner(monkeypatch)
+    assert r._rear_visual_scoop(approach=False)
+    assert max(pos)>=.239 and min(pos)<=-.239 and abs(pos[-1])<=.01
+    assert not approach  # 整轮由下一个 approach 动作完成距离后退，不能重复后退。
